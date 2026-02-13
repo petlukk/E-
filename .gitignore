@@ -25,3 +25,8 @@ Thumbs.db
 
 # Temporary files
 tmp/
+
+# Non-essential documentation
+docs/plans/
+Linux_Testing_Guide.md
+docs/git_setup.md
