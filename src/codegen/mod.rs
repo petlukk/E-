@@ -1,6 +1,8 @@
 #[cfg(feature = "llvm")]
 mod expressions;
 #[cfg(feature = "llvm")]
+mod simd;
+#[cfg(feature = "llvm")]
 mod statements;
 
 #[cfg(feature = "llvm")]
@@ -100,6 +102,15 @@ impl<'ctx> CodeGenerator<'ctx> {
                 let inner_ty = self.llvm_type(inner);
                 BasicTypeEnum::PointerType(inner_ty.ptr_type(AddressSpace::default()))
             }
+            Type::Vector { elem, width } => {
+                let elem_ty = self.llvm_type(elem);
+                match elem_ty {
+                    BasicTypeEnum::IntType(t) => t.vec_type(*width as u32).into(),
+                    BasicTypeEnum::FloatType(t) => t.vec_type(*width as u32).into(),
+                    BasicTypeEnum::PointerType(t) => t.vec_type(*width as u32).into(),
+                    _ => self.context.i32_type().vec_type(*width as u32).into(),
+                }
+            }
             _ => BasicTypeEnum::IntType(self.context.i32_type()),
         }
     }
@@ -120,6 +131,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Type::Pointer {
                     mutable: *mutable,
                     inner: Box::new(inner_type),
+                }
+            }
+            TypeAnnotation::Vector { elem, width } => {
+                let elem_type = self.resolve_annotation(elem);
+                Type::Vector {
+                    elem: Box::new(elem_type),
+                    width: *width,
                 }
             }
         }

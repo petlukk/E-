@@ -75,6 +75,7 @@ pub fn assert_output(source: &str, expected: &str) {
     assert_eq!(result.stdout.trim(), expected);
 }
 
+#[allow(dead_code)]
 pub fn assert_output_lines(source: &str, expected: &[&str]) {
     let result = compile_and_run(source);
     let lines: Vec<&str> = result.stdout.trim().lines().collect();

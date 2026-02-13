@@ -57,11 +57,19 @@ impl Parser {
 
     fn additive(&mut self) -> crate::error::Result<Expr> {
         let mut left = self.multiplicative()?;
-        while self.check(TokenKind::Plus) || self.check(TokenKind::Minus) {
+        while self.check(TokenKind::Plus)
+            || self.check(TokenKind::Minus)
+            || self.check(TokenKind::PlusDot)
+            || self.check(TokenKind::MinusDot)
+        {
             let op = if self.check(TokenKind::Plus) {
                 BinaryOp::Add
-            } else {
+            } else if self.check(TokenKind::Minus) {
                 BinaryOp::Subtract
+            } else if self.check(TokenKind::PlusDot) {
+                BinaryOp::AddDot
+            } else {
+                BinaryOp::SubDot
             };
             self.advance();
             let right = self.multiplicative()?;
@@ -75,13 +83,19 @@ impl Parser {
         while self.check(TokenKind::Star)
             || self.check(TokenKind::Slash)
             || self.check(TokenKind::Percent)
+            || self.check(TokenKind::StarDot)
+            || self.check(TokenKind::SlashDot)
         {
             let op = if self.check(TokenKind::Star) {
                 BinaryOp::Multiply
             } else if self.check(TokenKind::Slash) {
                 BinaryOp::Divide
-            } else {
+            } else if self.check(TokenKind::Percent) {
                 BinaryOp::Modulo
+            } else if self.check(TokenKind::StarDot) {
+                BinaryOp::MulDot
+            } else {
+                BinaryOp::DivDot
             };
             self.advance();
             let right = self.unary()?;
@@ -164,6 +178,17 @@ impl Parser {
             return Ok(Expr::Literal(Literal::Bool(false)));
         }
 
+        if self.check(TokenKind::Splat) {
+            self.advance();
+            self.expect_kind(TokenKind::LeftParen, "expected '(' after 'splat'")?;
+            let args = self.parse_args()?;
+            self.expect_kind(TokenKind::RightParen, "expected ')' after arguments")?;
+            return Ok(Expr::Call {
+                name: "splat".to_string(),
+                args,
+            });
+        }
+
         if self.check(TokenKind::Identifier) {
             let token = self.advance().clone();
             let name = token.lexeme.clone();
@@ -185,6 +210,45 @@ impl Parser {
                 };
             }
             return Ok(expr);
+        }
+
+        if self.check(TokenKind::LeftBracket) {
+            self.advance(); // consume [
+            let mut elements = Vec::new();
+            if !self.check(TokenKind::RightBracket) {
+                loop {
+                    elements.push(self.expression()?);
+                    if !self.check(TokenKind::Comma) {
+                        break;
+                    }
+                    self.advance();
+                }
+            }
+            self.expect_kind(
+                TokenKind::RightBracket,
+                "expected ']' after vector elements",
+            )?;
+
+            // Type suffix mandatory for vector literals
+            let ty = if self.check(TokenKind::F32x4) {
+                self.advance();
+                crate::ast::TypeAnnotation::Vector {
+                    elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
+                    width: 4,
+                }
+            } else if self.check(TokenKind::I32x4) {
+                self.advance();
+                crate::ast::TypeAnnotation::Vector {
+                    elem: Box::new(crate::ast::TypeAnnotation::Named("i32".to_string())),
+                    width: 4,
+                }
+            } else {
+                return Err(CompileError::parse_error(
+                    "expected vector type suffix (e.g. f32x4)",
+                    self.current_position(),
+                ));
+            };
+            return Ok(Expr::Vector { elements, ty });
         }
 
         if self.check(TokenKind::LeftParen) {

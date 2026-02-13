@@ -113,6 +113,22 @@ impl Parser {
             TokenKind::F64,
             TokenKind::Bool,
         ];
+
+        if self.check(TokenKind::F32x4) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("f32".to_string())),
+                width: 4,
+            });
+        }
+        if self.check(TokenKind::I32x4) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("i32".to_string())),
+                width: 4,
+            });
+        }
+
         for tk in &type_tokens {
             if self.check(tk.clone()) {
                 let token = self.advance().clone();

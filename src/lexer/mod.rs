@@ -93,6 +93,12 @@ pub enum TokenKind {
     F64,
     #[token("bool")]
     Bool,
+    #[token("f32x4")]
+    F32x4,
+    #[token("i32x4")]
+    I32x4,
+    #[token("splat")]
+    Splat,
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier,
@@ -141,6 +147,14 @@ pub enum TokenKind {
     Less,
     #[token(">")]
     Greater,
+    #[token(".+")]
+    PlusDot,
+    #[token(".-")]
+    MinusDot,
+    #[token(".*")]
+    StarDot,
+    #[token("./")]
+    SlashDot,
     #[token("&&")]
     AmpAmp,
     #[token("||")]

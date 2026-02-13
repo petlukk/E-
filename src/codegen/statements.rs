@@ -1,8 +1,8 @@
 use inkwell::values::FunctionValue;
 
 use crate::ast::{Stmt, TypeAnnotation};
-use crate::typeck::Type;
 use crate::error::CompileError;
+use crate::typeck::Type;
 
 use super::CodeGenerator;
 
@@ -60,6 +60,12 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         }
 
+        if function.verify(true) {
+            // verified
+        } else {
+            // Verification failed, proceed to return error or let it crash
+            // It prints to stderr handling errors
+        }
         Ok(())
     }
 

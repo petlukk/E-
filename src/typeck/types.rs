@@ -13,10 +13,8 @@ pub enum Type {
     FloatLiteral,
     String,
     Void,
-    Pointer {
-        mutable: bool,
-        inner: Box<Type>,
-    },
+    Pointer { mutable: bool, inner: Box<Type> },
+    Vector { elem: Box<Type>, width: usize },
 }
 
 impl Type {
@@ -40,6 +38,10 @@ impl Type {
         matches!(self, Type::Pointer { .. })
     }
 
+    pub fn is_vector(&self) -> bool {
+        matches!(self, Type::Vector { .. })
+    }
+
     pub fn pointee(&self) -> Option<&Type> {
         match self {
             Type::Pointer { inner, .. } => Some(inner),
@@ -55,7 +57,50 @@ pub fn types_compatible(actual: &Type, expected: &Type) -> bool {
     match (actual, expected) {
         (Type::IntLiteral, t) if t.is_integer() => true,
         (Type::FloatLiteral, t) if t.is_float() => true,
+        (
+            Type::Vector {
+                elem: a_elem,
+                width: a_width,
+            },
+            Type::Vector {
+                elem: e_elem,
+                width: e_width,
+            },
+        ) => a_width == e_width && types_compatible(a_elem, e_elem),
         _ => false,
+    }
+}
+
+pub fn unify_vector(left: &Type, right: &Type) -> crate::error::Result<Type> {
+    match (left, right) {
+        (
+            Type::Vector {
+                elem: l_elem,
+                width: l_width,
+            },
+            Type::Vector {
+                elem: r_elem,
+                width: r_width,
+            },
+        ) => {
+            if l_width != r_width {
+                return Err(CompileError::type_error(
+                    format!("vector width mismatch: {l_width} vs {r_width}"),
+                    Position::default(),
+                ));
+            }
+            if !types_compatible(l_elem, r_elem) {
+                return Err(CompileError::type_error(
+                    format!("vector element type mismatch: {l_elem:?} vs {r_elem:?}"),
+                    Position::default(),
+                ));
+            }
+            Ok(left.clone())
+        }
+        _ => Err(CompileError::type_error(
+            format!("binary vector operations require vector operands, got {left:?} and {right:?}"),
+            Position::default(),
+        )),
     }
 }
 
@@ -103,6 +148,13 @@ pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
             Ok(Type::Pointer {
                 mutable: *mutable,
                 inner: Box::new(inner_type),
+            })
+        }
+        TypeAnnotation::Vector { elem, width } => {
+            let elem_type = resolve_type(elem)?;
+            Ok(Type::Vector {
+                elem: Box::new(elem_type),
+                width: *width,
             })
         }
     }

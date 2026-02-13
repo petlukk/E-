@@ -15,6 +15,10 @@ pub enum BinaryOp {
     NotEqual,
     And,
     Or,
+    AddDot,
+    SubDot,
+    MulDot,
+    DivDot,
 }
 
 impl fmt::Display for BinaryOp {
@@ -33,6 +37,10 @@ impl fmt::Display for BinaryOp {
             BinaryOp::NotEqual => write!(f, "!="),
             BinaryOp::And => write!(f, "&&"),
             BinaryOp::Or => write!(f, "||"),
+            BinaryOp::AddDot => write!(f, ".+"),
+            BinaryOp::SubDot => write!(f, ".-"),
+            BinaryOp::MulDot => write!(f, ".*"),
+            BinaryOp::DivDot => write!(f, "./"),
         }
     }
 }
@@ -61,11 +69,18 @@ pub enum Expr {
     Literal(Literal),
     Variable(String),
     Binary(Box<Expr>, BinaryOp, Box<Expr>),
-    Call { name: String, args: Vec<Expr> },
+    Call {
+        name: String,
+        args: Vec<Expr>,
+    },
     Not(Box<Expr>),
     Index {
         object: Box<Expr>,
         index: Box<Expr>,
+    },
+    Vector {
+        elements: Vec<Expr>,
+        ty: TypeAnnotation,
     },
 }
 
@@ -87,6 +102,16 @@ impl fmt::Display for Expr {
             }
             Expr::Not(inner) => write!(f, "!{inner}"),
             Expr::Index { object, index } => write!(f, "{object}[{index}]"),
+            Expr::Vector { elements, ty } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{elem}")?;
+                }
+                write!(f, "]{ty}")
+            }
         }
     }
 }
@@ -97,6 +122,10 @@ pub enum TypeAnnotation {
     Pointer {
         mutable: bool,
         inner: Box<TypeAnnotation>,
+    },
+    Vector {
+        elem: Box<TypeAnnotation>,
+        width: usize,
     },
 }
 
@@ -111,6 +140,7 @@ impl fmt::Display for TypeAnnotation {
                     write!(f, "*{inner}")
                 }
             }
+            TypeAnnotation::Vector { elem, width } => write!(f, "{elem}x{width}"),
         }
     }
 }

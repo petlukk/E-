@@ -80,25 +80,38 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Ok(val)
             }
             Expr::Index { object, index } => {
-                let ptr_val = self.compile_expr(object, function)?;
-                let ptr = ptr_val.into_pointer_value();
+                let obj_val = self.compile_expr(object, function)?;
                 let idx = self.compile_expr(index, function)?.into_int_value();
-                let elem_ptr = unsafe { self.builder.build_gep(ptr, &[idx], "elemptr") }
-                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
-                let val = self
-                    .builder
-                    .build_load(elem_ptr, "elem")
-                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
-                Ok(val)
+                if let BasicValueEnum::VectorValue(vec) = obj_val {
+                    let val = self
+                        .builder
+                        .build_extract_element(vec, idx, "elem")
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                    Ok(val)
+                } else {
+                    let ptr = obj_val.into_pointer_value();
+                    let elem_ptr = unsafe { self.builder.build_gep(ptr, &[idx], "elemptr") }
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                    let val = self
+                        .builder
+                        .build_load(elem_ptr, "elem")
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                    Ok(val)
+                }
             }
             Expr::Binary(lhs, op, rhs) => self.compile_binary(lhs, op, rhs, type_hint, function),
             Expr::Call { name, args } => {
                 if name == "println" {
                     return self.compile_println(&args[0], function);
                 }
+                if Self::is_simd_intrinsic(name) {
+                    return self.compile_simd_call(name, args, type_hint, function);
+                }
+
                 let callee = *self.functions.get(name).ok_or_else(|| {
                     CompileError::codegen_error(format!("undefined function '{name}'"))
                 })?;
+
                 let compiled_args: Vec<BasicMetadataValueEnum> = args
                     .iter()
                     .map(|a| self.compile_expr(a, function).map(|v| v.into()))
@@ -114,6 +127,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     )),
                 }
             }
+            Expr::Vector { elements, ty } => self.compile_vector_literal(elements, ty, function),
         }
     }
 
@@ -129,7 +143,6 @@ impl<'ctx> CodeGenerator<'ctx> {
         let left = self.compile_expr_typed(lhs, hint.as_ref(), function)?;
         let right = self.compile_expr_typed(rhs, hint.as_ref(), function)?;
 
-        // Comparison operators — return i1 bool regardless of operand type
         if matches!(
             op,
             BinaryOp::Less
@@ -142,7 +155,6 @@ impl<'ctx> CodeGenerator<'ctx> {
             return self.compile_comparison(&left, &right, op);
         }
 
-        // Logical operators — both operands are i1 bools
         if matches!(op, BinaryOp::And | BinaryOp::Or) {
             let l = left.into_int_value();
             let r = right.into_int_value();
@@ -155,7 +167,6 @@ impl<'ctx> CodeGenerator<'ctx> {
             return Ok(BasicValueEnum::IntValue(result));
         }
 
-        // Arithmetic operators
         match (&left, &right) {
             (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
                 let result = match op {
@@ -180,6 +191,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                 }
                 .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(BasicValueEnum::FloatValue(result))
+            }
+            (BasicValueEnum::VectorValue(l), BasicValueEnum::VectorValue(r)) => {
+                self.compile_vector_binary(*l, *r, op)
             }
             _ => Err(CompileError::codegen_error(
                 "mismatched operand types in binary expression",
