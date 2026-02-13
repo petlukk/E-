@@ -1,0 +1,202 @@
+use crate::ast::{BinaryOp, Expr, Literal};
+use crate::error::CompileError;
+use crate::lexer::TokenKind;
+
+use super::Parser;
+
+impl Parser {
+    pub(super) fn expression(&mut self) -> crate::error::Result<Expr> {
+        self.logical_or()
+    }
+
+    fn logical_or(&mut self) -> crate::error::Result<Expr> {
+        let mut left = self.logical_and()?;
+        while self.check(TokenKind::PipePipe) {
+            self.advance();
+            let right = self.logical_and()?;
+            left = Expr::Binary(Box::new(left), BinaryOp::Or, Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn logical_and(&mut self) -> crate::error::Result<Expr> {
+        let mut left = self.comparison()?;
+        while self.check(TokenKind::AmpAmp) {
+            self.advance();
+            let right = self.comparison()?;
+            left = Expr::Binary(Box::new(left), BinaryOp::And, Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn comparison(&mut self) -> crate::error::Result<Expr> {
+        let left = self.additive()?;
+        let op = if self.check(TokenKind::Less) {
+            Some(BinaryOp::Less)
+        } else if self.check(TokenKind::Greater) {
+            Some(BinaryOp::Greater)
+        } else if self.check(TokenKind::LessEqual) {
+            Some(BinaryOp::LessEqual)
+        } else if self.check(TokenKind::GreaterEqual) {
+            Some(BinaryOp::GreaterEqual)
+        } else if self.check(TokenKind::EqualEqual) {
+            Some(BinaryOp::Equal)
+        } else if self.check(TokenKind::BangEqual) {
+            Some(BinaryOp::NotEqual)
+        } else {
+            None
+        };
+        if let Some(op) = op {
+            self.advance();
+            let right = self.additive()?;
+            Ok(Expr::Binary(Box::new(left), op, Box::new(right)))
+        } else {
+            Ok(left)
+        }
+    }
+
+    fn additive(&mut self) -> crate::error::Result<Expr> {
+        let mut left = self.multiplicative()?;
+        while self.check(TokenKind::Plus) || self.check(TokenKind::Minus) {
+            let op = if self.check(TokenKind::Plus) {
+                BinaryOp::Add
+            } else {
+                BinaryOp::Subtract
+            };
+            self.advance();
+            let right = self.multiplicative()?;
+            left = Expr::Binary(Box::new(left), op, Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn multiplicative(&mut self) -> crate::error::Result<Expr> {
+        let mut left = self.unary()?;
+        while self.check(TokenKind::Star)
+            || self.check(TokenKind::Slash)
+            || self.check(TokenKind::Percent)
+        {
+            let op = if self.check(TokenKind::Star) {
+                BinaryOp::Multiply
+            } else if self.check(TokenKind::Slash) {
+                BinaryOp::Divide
+            } else {
+                BinaryOp::Modulo
+            };
+            self.advance();
+            let right = self.unary()?;
+            left = Expr::Binary(Box::new(left), op, Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn unary(&mut self) -> crate::error::Result<Expr> {
+        if self.check(TokenKind::Bang) {
+            self.advance();
+            let inner = self.unary()?;
+            return Ok(Expr::Not(Box::new(inner)));
+        }
+        self.primary()
+    }
+
+    fn primary(&mut self) -> crate::error::Result<Expr> {
+        // Unary minus for numeric literals
+        if self.check(TokenKind::Minus) {
+            if self.peek_next_kind() == Some(&TokenKind::IntLiteral) {
+                self.advance(); // consume '-'
+                let token = self.advance().clone();
+                let value: i64 = token.lexeme.parse::<i64>().map_err(|_| {
+                    CompileError::parse_error(
+                        format!("invalid integer literal: {}", token.lexeme),
+                        token.position.clone(),
+                    )
+                })?;
+                return Ok(Expr::Literal(Literal::Integer(-value)));
+            }
+            if self.peek_next_kind() == Some(&TokenKind::FloatLiteral) {
+                self.advance(); // consume '-'
+                let token = self.advance().clone();
+                let value: f64 = token.lexeme.parse().map_err(|_| {
+                    CompileError::parse_error(
+                        format!("invalid float literal: {}", token.lexeme),
+                        token.position.clone(),
+                    )
+                })?;
+                return Ok(Expr::Literal(Literal::Float(-value)));
+            }
+        }
+
+        if self.check(TokenKind::IntLiteral) {
+            let token = self.advance().clone();
+            let value: i64 = token.lexeme.parse().map_err(|_| {
+                CompileError::parse_error(
+                    format!("invalid integer literal: {}", token.lexeme),
+                    token.position.clone(),
+                )
+            })?;
+            return Ok(Expr::Literal(Literal::Integer(value)));
+        }
+
+        if self.check(TokenKind::FloatLiteral) {
+            let token = self.advance().clone();
+            let value: f64 = token.lexeme.parse().map_err(|_| {
+                CompileError::parse_error(
+                    format!("invalid float literal: {}", token.lexeme),
+                    token.position.clone(),
+                )
+            })?;
+            return Ok(Expr::Literal(Literal::Float(value)));
+        }
+
+        if self.check(TokenKind::StringLiteral) {
+            let token = self.advance().clone();
+            let content = token.lexeme[1..token.lexeme.len() - 1].to_string();
+            return Ok(Expr::Literal(Literal::StringLit(content)));
+        }
+
+        if self.check(TokenKind::True) {
+            self.advance();
+            return Ok(Expr::Literal(Literal::Bool(true)));
+        }
+
+        if self.check(TokenKind::False) {
+            self.advance();
+            return Ok(Expr::Literal(Literal::Bool(false)));
+        }
+
+        if self.check(TokenKind::Identifier) {
+            let token = self.advance().clone();
+            let name = token.lexeme.clone();
+            if self.check(TokenKind::LeftParen) {
+                self.advance();
+                let args = self.parse_args()?;
+                self.expect_kind(TokenKind::RightParen, "expected ')' after arguments")?;
+                return Ok(Expr::Call { name, args });
+            }
+            let mut expr = Expr::Variable(name);
+            // Postfix indexing: name[expr]
+            while self.check(TokenKind::LeftBracket) {
+                self.advance(); // consume [
+                let index = self.expression()?;
+                self.expect_kind(TokenKind::RightBracket, "expected ']' after index")?;
+                expr = Expr::Index {
+                    object: Box::new(expr),
+                    index: Box::new(index),
+                };
+            }
+            return Ok(expr);
+        }
+
+        if self.check(TokenKind::LeftParen) {
+            self.advance();
+            let expr = self.expression()?;
+            self.expect_kind(TokenKind::RightParen, "expected ')' after expression")?;
+            return Ok(expr);
+        }
+
+        Err(CompileError::parse_error(
+            format!("expected expression, found {:?}", self.peek_kind()),
+            self.current_position(),
+        ))
+    }
+}
