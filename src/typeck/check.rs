@@ -168,6 +168,73 @@ impl TypeChecker {
                         Position::default(),
                     ));
                 }
+                Stmt::Struct { .. } => {
+                    // Registered in check_program first pass
+                }
+                Stmt::FieldAssign {
+                    object,
+                    field,
+                    value,
+                } => {
+                    let obj_type = self.check_expr(object, locals)?;
+                    let struct_name = match &obj_type {
+                        Type::Struct(name) => name.clone(),
+                        Type::Pointer {
+                            mutable: true,
+                            inner,
+                        } => match inner.as_ref() {
+                            Type::Struct(name) => name.clone(),
+                            _ => {
+                                return Err(CompileError::type_error(
+                                    format!(
+                                        "field assign on non-struct pointer type {obj_type:?}"
+                                    ),
+                                    Position::default(),
+                                ))
+                            }
+                        },
+                        Type::Pointer {
+                            mutable: false,
+                            inner,
+                        } if matches!(inner.as_ref(), Type::Struct(_)) => {
+                            return Err(CompileError::type_error(
+                                "cannot assign field through immutable pointer",
+                                Position::default(),
+                            ))
+                        }
+                        _ => {
+                            return Err(CompileError::type_error(
+                                format!("field assign on non-struct type {obj_type:?}"),
+                                Position::default(),
+                            ))
+                        }
+                    };
+                    let fields = self.structs.get(&struct_name).ok_or_else(|| {
+                        CompileError::type_error(
+                            format!("unknown struct '{struct_name}'"),
+                            Position::default(),
+                        )
+                    })?;
+                    let field_type = fields
+                        .iter()
+                        .find(|(n, _)| n == field)
+                        .map(|(_, t)| t.clone())
+                        .ok_or_else(|| {
+                            CompileError::type_error(
+                                format!("struct '{struct_name}' has no field '{field}'"),
+                                Position::default(),
+                            )
+                        })?;
+                    let val_type = self.check_expr(value, locals)?;
+                    if !types::types_compatible(&val_type, &field_type) {
+                        return Err(CompileError::type_error(
+                            format!(
+                                "cannot assign {val_type:?} to field '{field}' of type {field_type:?}"
+                            ),
+                            Position::default(),
+                        ));
+                    }
+                }
             }
         }
         Ok(())
@@ -310,6 +377,83 @@ impl TypeChecker {
                 "array literals can only be used as shuffle indices",
                 Position::default(),
             )),
+            Expr::FieldAccess { object, field } => {
+                let obj_type = self.check_expr(object, locals)?;
+                let struct_name = match &obj_type {
+                    Type::Struct(name) => name.clone(),
+                    Type::Pointer { inner, .. } => match inner.as_ref() {
+                        Type::Struct(name) => name.clone(),
+                        _ => {
+                            return Err(CompileError::type_error(
+                                format!("field access on non-struct pointer type {obj_type:?}"),
+                                Position::default(),
+                            ))
+                        }
+                    },
+                    _ => {
+                        return Err(CompileError::type_error(
+                            format!("field access on non-struct type {obj_type:?}"),
+                            Position::default(),
+                        ))
+                    }
+                };
+                let fields = self.structs.get(&struct_name).ok_or_else(|| {
+                    CompileError::type_error(
+                        format!("unknown struct '{struct_name}'"),
+                        Position::default(),
+                    )
+                })?;
+                fields
+                    .iter()
+                    .find(|(n, _)| n == field)
+                    .map(|(_, t)| t.clone())
+                    .ok_or_else(|| {
+                        CompileError::type_error(
+                            format!("struct '{struct_name}' has no field '{field}'"),
+                            Position::default(),
+                        )
+                    })
+            }
+            Expr::StructLiteral { name, fields } => {
+                let def_fields = self.structs.get(name).ok_or_else(|| {
+                    CompileError::type_error(
+                        format!("unknown struct '{name}'"),
+                        Position::default(),
+                    )
+                })?;
+                if fields.len() != def_fields.len() {
+                    return Err(CompileError::type_error(
+                        format!(
+                            "struct '{name}' expects {} fields, got {}",
+                            def_fields.len(),
+                            fields.len()
+                        ),
+                        Position::default(),
+                    ));
+                }
+                for (field_name, field_val) in fields {
+                    let expected = def_fields
+                        .iter()
+                        .find(|(n, _)| n == field_name)
+                        .map(|(_, t)| t.clone())
+                        .ok_or_else(|| {
+                            CompileError::type_error(
+                                format!("struct '{name}' has no field '{field_name}'"),
+                                Position::default(),
+                            )
+                        })?;
+                    let actual = self.check_expr(field_val, locals)?;
+                    if !types::types_compatible(&actual, &expected) {
+                        return Err(CompileError::type_error(
+                            format!(
+                                "field '{field_name}': expected {expected:?}, got {actual:?}"
+                            ),
+                            Position::default(),
+                        ));
+                    }
+                }
+                Ok(Type::Struct(name.clone()))
+            }
             Expr::Call { name, args } => {
                 if let Some(result) = self.check_intrinsic_call(name, args, locals, None) {
                     return result;

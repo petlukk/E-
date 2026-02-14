@@ -82,6 +82,8 @@ pub enum TokenKind {
     True,
     #[token("false")]
     False,
+    #[token("struct")]
+    Struct,
 
     #[token("i32")]
     I32,
@@ -171,6 +173,8 @@ pub enum TokenKind {
     LessDot,
     #[token(".>")]
     GreaterDot,
+    #[token(".")]
+    Dot,
     #[token("&&")]
     AmpAmp,
     #[token("||")]

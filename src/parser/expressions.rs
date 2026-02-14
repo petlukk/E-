@@ -210,16 +210,50 @@ impl Parser {
                 self.expect_kind(TokenKind::RightParen, "expected ')' after arguments")?;
                 return Ok(Expr::Call { name, args });
             }
+            // Struct literal: Name { field: val, ... } — name starts with uppercase
+            if self.check(TokenKind::LeftBrace)
+                && name.starts_with(|c: char| c.is_ascii_uppercase())
+            {
+                self.advance(); // consume {
+                let mut fields = Vec::new();
+                while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+                    let field_name = self
+                        .expect_kind(TokenKind::Identifier, "expected field name")?
+                        .lexeme
+                        .clone();
+                    self.expect_kind(TokenKind::Colon, "expected ':' after field name")?;
+                    let value = self.expression()?;
+                    fields.push((field_name, value));
+                    if self.check(TokenKind::Comma) {
+                        self.advance();
+                    }
+                }
+                self.expect_kind(TokenKind::RightBrace, "expected '}' after struct literal")?;
+                return Ok(Expr::StructLiteral { name, fields });
+            }
             let mut expr = Expr::Variable(name);
-            // Postfix indexing: name[expr]
-            while self.check(TokenKind::LeftBracket) {
-                self.advance(); // consume [
-                let index = self.expression()?;
-                self.expect_kind(TokenKind::RightBracket, "expected ']' after index")?;
-                expr = Expr::Index {
-                    object: Box::new(expr),
-                    index: Box::new(index),
-                };
+            // Postfix indexing and field access: name[expr] or name.field
+            loop {
+                if self.check(TokenKind::LeftBracket) {
+                    self.advance(); // consume [
+                    let index = self.expression()?;
+                    self.expect_kind(TokenKind::RightBracket, "expected ']' after index")?;
+                    expr = Expr::Index {
+                        object: Box::new(expr),
+                        index: Box::new(index),
+                    };
+                } else if self.check(TokenKind::Dot) {
+                    self.advance(); // consume .
+                    let field_token = self
+                        .expect_kind(TokenKind::Identifier, "expected field name after '.'")?;
+                    let field = field_token.lexeme.clone();
+                    expr = Expr::FieldAccess {
+                        object: Box::new(expr),
+                        field,
+                    };
+                } else {
+                    break;
+                }
             }
             return Ok(expr);
         }

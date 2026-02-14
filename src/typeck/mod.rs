@@ -16,6 +16,7 @@ pub(crate) struct FuncSig {
 
 pub struct TypeChecker {
     pub(crate) functions: HashMap<String, FuncSig>,
+    pub(crate) structs: HashMap<String, Vec<(String, Type)>>,
 }
 
 impl Default for TypeChecker {
@@ -28,10 +29,24 @@ impl TypeChecker {
     pub fn new() -> Self {
         Self {
             functions: HashMap::new(),
+            structs: HashMap::new(),
         }
     }
 
     pub fn check_program(&mut self, stmts: &[Stmt]) -> crate::error::Result<()> {
+        for stmt in stmts {
+            if let Stmt::Struct { name, fields } = stmt {
+                let typed_fields = fields
+                    .iter()
+                    .map(|f| {
+                        let ty = types::resolve_type(&f.ty)?;
+                        Ok((f.name.clone(), ty))
+                    })
+                    .collect::<Result<_, _>>()?;
+                self.structs.insert(name.clone(), typed_fields);
+            }
+        }
+
         for stmt in stmts {
             if let Stmt::Function {
                 name,

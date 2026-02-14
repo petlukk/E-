@@ -95,6 +95,14 @@ pub enum Expr {
         ty: TypeAnnotation,
     },
     ArrayLiteral(Vec<Expr>),
+    FieldAccess {
+        object: Box<Expr>,
+        field: String,
+    },
+    StructLiteral {
+        name: String,
+        fields: Vec<(String, Expr)>,
+    },
 }
 
 impl fmt::Display for Expr {
@@ -134,6 +142,17 @@ impl fmt::Display for Expr {
                     write!(f, "{elem}")?;
                 }
                 write!(f, "]")
+            }
+            Expr::FieldAccess { object, field } => write!(f, "{object}.{field}"),
+            Expr::StructLiteral { name, fields } => {
+                write!(f, "{name} {{ ")?;
+                for (i, (fname, fval)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{fname}: {fval}")?;
+                }
+                write!(f, " }}")
             }
         }
     }
@@ -181,6 +200,18 @@ impl fmt::Display for Param {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct StructField {
+    pub name: String,
+    pub ty: TypeAnnotation,
+}
+
+impl fmt::Display for StructField {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.name, self.ty)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Function {
         name: String,
@@ -214,6 +245,15 @@ pub enum Stmt {
     While {
         condition: Expr,
         body: Vec<Stmt>,
+    },
+    Struct {
+        name: String,
+        fields: Vec<StructField>,
+    },
+    FieldAssign {
+        object: Expr,
+        field: String,
+        value: Expr,
     },
 }
 
@@ -265,6 +305,17 @@ impl fmt::Display for Stmt {
                 }
             }
             Stmt::While { .. } => write!(f, "while ... {{ ... }}"),
+            Stmt::Struct { name, fields } => {
+                write!(f, "struct {name} {{ ")?;
+                for (i, field) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{field}")?;
+                }
+                write!(f, " }}")
+            }
+            Stmt::FieldAssign { object, field, .. } => write!(f, "{object}.{field} = ..."),
         }
     }
 }

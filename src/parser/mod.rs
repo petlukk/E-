@@ -33,9 +33,13 @@ impl Parser {
             self.advance();
             return self.function(false);
         }
+        if self.check(TokenKind::Struct) {
+            self.advance();
+            return self.parse_struct();
+        }
         Err(CompileError::parse_error(
             format!(
-                "expected function declaration, found {:?}",
+                "expected declaration, found {:?}",
                 self.peek_kind()
             ),
             self.current_position(),
@@ -68,6 +72,30 @@ impl Parser {
             body,
             export,
         })
+    }
+
+    fn parse_struct(&mut self) -> crate::error::Result<Stmt> {
+        let name_token =
+            self.expect_kind(TokenKind::Identifier, "expected struct name after 'struct'")?;
+        let name = name_token.lexeme.clone();
+        self.expect_kind(TokenKind::LeftBrace, "expected '{' after struct name")?;
+        let mut fields = Vec::new();
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+            let field_name =
+                self.expect_kind(TokenKind::Identifier, "expected field name")?;
+            let field_name = field_name.lexeme.clone();
+            self.expect_kind(TokenKind::Colon, "expected ':' after field name")?;
+            let ty = self.parse_type()?;
+            fields.push(crate::ast::StructField {
+                name: field_name,
+                ty,
+            });
+            if self.check(TokenKind::Comma) {
+                self.advance();
+            }
+        }
+        self.expect_kind(TokenKind::RightBrace, "expected '}' after struct fields")?;
+        Ok(Stmt::Struct { name, fields })
     }
 
     fn parse_params(&mut self) -> crate::error::Result<Vec<Param>> {

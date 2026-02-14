@@ -37,13 +37,20 @@ impl Parser {
             });
         }
 
-        // Parse expression (could be index expr, function call, etc.)
+        // Parse expression (could be index expr, field access, function call, etc.)
         let expr = self.expression()?;
 
-        // Check for index assignment: expr[i] = value (the expr was already parsed including indexing)
+        // Check for assignment: expr = value
         if self.check(TokenKind::Equals) {
             self.advance(); // consume '='
             let value = self.expression()?;
+            if let Expr::FieldAccess { object, field } = expr {
+                return Ok(Stmt::FieldAssign {
+                    object: *object,
+                    field,
+                    value,
+                });
+            }
             if let Expr::Index { object, index } = expr {
                 if let Expr::Variable(name) = *object {
                     return Ok(Stmt::IndexAssign {

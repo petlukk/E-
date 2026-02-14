@@ -131,6 +131,12 @@ impl<'ctx> CodeGenerator<'ctx> {
             Expr::ArrayLiteral(_) => Err(CompileError::codegen_error(
                 "array literals can only be used as shuffle indices",
             )),
+            Expr::FieldAccess { .. } => Err(CompileError::codegen_error(
+                "field access not yet implemented",
+            )),
+            Expr::StructLiteral { .. } => Err(CompileError::codegen_error(
+                "struct literals not yet implemented",
+            )),
         }
     }
 

@@ -228,6 +228,14 @@ impl<'ctx> CodeGenerator<'ctx> {
             Stmt::Function { .. } => Err(CompileError::codegen_error(
                 "nested functions not supported",
             )),
+            Stmt::FieldAssign { .. } => {
+                // TODO: implement in Task 8
+                Ok(false)
+            }
+            Stmt::Struct { .. } => {
+                // Registered in compile_program
+                Ok(false)
+            }
         }
     }
 

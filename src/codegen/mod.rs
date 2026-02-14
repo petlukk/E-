@@ -33,6 +33,8 @@ pub struct CodeGenerator<'ctx> {
     pub(crate) builder: Builder<'ctx>,
     pub(crate) variables: HashMap<String, (PointerValue<'ctx>, Type)>,
     pub(crate) functions: HashMap<String, FunctionValue<'ctx>>,
+    pub(crate) struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
+    pub(crate) struct_fields: HashMap<String, Vec<(String, u32)>>,
 }
 
 #[cfg(feature = "llvm")]

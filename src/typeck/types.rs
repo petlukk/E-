@@ -15,6 +15,7 @@ pub enum Type {
     Void,
     Pointer { mutable: bool, inner: Box<Type> },
     Vector { elem: Box<Type>, width: usize },
+    Struct(String),
 }
 
 impl Type {
@@ -67,6 +68,7 @@ pub fn types_compatible(actual: &Type, expected: &Type) -> bool {
                 width: e_width,
             },
         ) => a_width == e_width && types_compatible(a_elem, e_elem),
+        (Type::Struct(a), Type::Struct(b)) => a == b,
         _ => false,
     }
 }
@@ -138,10 +140,7 @@ pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
             "f32" => Ok(Type::F32),
             "f64" => Ok(Type::F64),
             "bool" => Ok(Type::Bool),
-            other => Err(CompileError::type_error(
-                format!("unknown type '{other}'"),
-                Position::default(),
-            )),
+            other => Ok(Type::Struct(other.to_string())),
         },
         TypeAnnotation::Pointer { mutable, inner } => {
             let inner_type = resolve_type(inner)?;
