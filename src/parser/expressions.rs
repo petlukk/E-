@@ -244,8 +244,8 @@ impl Parser {
                     };
                 } else if self.check(TokenKind::Dot) {
                     self.advance(); // consume .
-                    let field_token = self
-                        .expect_kind(TokenKind::Identifier, "expected field name after '.'")?;
+                    let field_token =
+                        self.expect_kind(TokenKind::Identifier, "expected field name after '.'")?;
                     let field = field_token.lexeme.clone();
                     expr = Expr::FieldAccess {
                         object: Box::new(expr),

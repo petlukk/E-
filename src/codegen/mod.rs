@@ -4,6 +4,8 @@ mod expressions;
 mod simd;
 #[cfg(feature = "llvm")]
 mod statements;
+#[cfg(feature = "llvm")]
+mod structs;
 
 #[cfg(feature = "llvm")]
 use std::collections::HashMap;
@@ -34,7 +36,7 @@ pub struct CodeGenerator<'ctx> {
     pub(crate) variables: HashMap<String, (PointerValue<'ctx>, Type)>,
     pub(crate) functions: HashMap<String, FunctionValue<'ctx>>,
     pub(crate) struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
-    pub(crate) struct_fields: HashMap<String, Vec<(String, u32)>>,
+    pub(crate) struct_fields: HashMap<String, Vec<(String, u32, Type)>>,
 }
 
 #[cfg(feature = "llvm")]
@@ -48,11 +50,19 @@ impl<'ctx> CodeGenerator<'ctx> {
             builder,
             variables: HashMap::new(),
             functions: HashMap::new(),
+            struct_types: HashMap::new(),
+            struct_fields: HashMap::new(),
         }
     }
 
     pub fn compile_program(&mut self, stmts: &[Stmt]) -> crate::error::Result<()> {
         self.declare_printf();
+
+        for stmt in stmts {
+            if let Stmt::Struct { name, fields } = stmt {
+                self.register_struct(name, fields);
+            }
+        }
 
         for stmt in stmts {
             if let Stmt::Function {
@@ -93,6 +103,27 @@ impl<'ctx> CodeGenerator<'ctx> {
         self.functions.insert("printf".to_string(), printf);
     }
 
+    fn register_struct(&mut self, name: &str, fields: &[crate::ast::StructField]) {
+        let field_types: Vec<BasicTypeEnum> = fields
+            .iter()
+            .map(|f| {
+                let ty = self.resolve_annotation(&f.ty);
+                self.llvm_type(&ty)
+            })
+            .collect();
+        let struct_type = self.context.struct_type(&field_types, false);
+        self.struct_types.insert(name.to_string(), struct_type);
+        let field_map: Vec<(String, u32, Type)> = fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let ty = self.resolve_annotation(&f.ty);
+                (f.name.clone(), i as u32, ty)
+            })
+            .collect();
+        self.struct_fields.insert(name.to_string(), field_map);
+    }
+
     pub(crate) fn llvm_type(&self, ty: &Type) -> BasicTypeEnum<'ctx> {
         match ty {
             Type::I32 | Type::IntLiteral => BasicTypeEnum::IntType(self.context.i32_type()),
@@ -113,6 +144,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                     _ => self.context.i32_type().vec_type(*width as u32).into(),
                 }
             }
+            Type::Struct(name) => {
+                if let Some(st) = self.struct_types.get(name) {
+                    BasicTypeEnum::StructType(*st)
+                } else {
+                    BasicTypeEnum::IntType(self.context.i32_type())
+                }
+            }
             _ => BasicTypeEnum::IntType(self.context.i32_type()),
         }
     }
@@ -126,7 +164,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 "f32" => Type::F32,
                 "f64" => Type::F64,
                 "bool" => Type::Bool,
-                _ => Type::I32,
+                other => Type::Struct(other.to_string()),
             },
             TypeAnnotation::Pointer { mutable, inner } => {
                 let inner_type = self.resolve_annotation(inner);
@@ -163,11 +201,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         let fn_type = match return_type {
             Some(ann) => {
                 let ret_ty = self.resolve_annotation(ann);
-                match self.llvm_type(&ret_ty) {
-                    BasicTypeEnum::IntType(t) => t.fn_type(&param_types, false),
-                    BasicTypeEnum::FloatType(t) => t.fn_type(&param_types, false),
-                    _ => self.context.i32_type().fn_type(&param_types, false),
-                }
+                let llvm_ret = self.llvm_type(&ret_ty);
+                llvm_ret.fn_type(&param_types, false)
             }
             None => {
                 if name == "main" {

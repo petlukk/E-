@@ -1,4 +1,5 @@
 mod check;
+mod expr_check;
 mod intrinsics;
 pub mod types;
 

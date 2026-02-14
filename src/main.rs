@@ -30,6 +30,7 @@ fn main() {
     };
 
     let mut output_exe: Option<String> = None;
+    let mut lib_mode = false;
     let mut emit_llvm = false;
     let mut emit_ast = false;
     let mut emit_tokens = false;
@@ -45,6 +46,7 @@ fn main() {
                 }
                 output_exe = Some(args[i].clone());
             }
+            "--lib" => lib_mode = true,
             "--emit-llvm" => emit_llvm = true,
             "--emit-ast" => emit_ast = true,
             "--emit-tokens" => emit_tokens = true,
@@ -111,7 +113,20 @@ fn main() {
             return;
         }
 
-        let (output_path, mode) = if let Some(exe) = output_exe {
+        let (output_path, mode) = if lib_mode {
+            let ext = if cfg!(target_os = "windows") {
+                "dll"
+            } else {
+                "so"
+            };
+            let lib_name = if let Some(name) = output_exe {
+                name
+            } else {
+                format!("{stem}.{ext}")
+            };
+            let obj_path = PathBuf::from(format!("{stem}.o"));
+            (obj_path, OutputMode::SharedLib(lib_name))
+        } else if let Some(exe) = output_exe {
             let obj_path = PathBuf::from(format!("{stem}.o"));
             (obj_path, OutputMode::Executable(exe))
         } else {
@@ -140,6 +155,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("Options:");
     eprintln!("  -o <name>       Compile and link to executable");
+    eprintln!("  --lib           Produce shared library (.so/.dll)");
     eprintln!("  --emit-llvm     Print LLVM IR");
     eprintln!("  --emit-ast      Print parsed AST");
     eprintln!("  --emit-tokens   Print lexer tokens");

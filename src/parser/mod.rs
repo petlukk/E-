@@ -38,10 +38,7 @@ impl Parser {
             return self.parse_struct();
         }
         Err(CompileError::parse_error(
-            format!(
-                "expected declaration, found {:?}",
-                self.peek_kind()
-            ),
+            format!("expected declaration, found {:?}", self.peek_kind()),
             self.current_position(),
         ))
     }
@@ -81,8 +78,7 @@ impl Parser {
         self.expect_kind(TokenKind::LeftBrace, "expected '{' after struct name")?;
         let mut fields = Vec::new();
         while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
-            let field_name =
-                self.expect_kind(TokenKind::Identifier, "expected field name")?;
+            let field_name = self.expect_kind(TokenKind::Identifier, "expected field name")?;
             let field_name = field_name.lexeme.clone();
             self.expect_kind(TokenKind::Colon, "expected ':' after field name")?;
             let ty = self.parse_type()?;

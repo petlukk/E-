@@ -6,7 +6,7 @@ Compile readable SIMD kernels to object files callable from any language.
 
 Eä transforms SIMD kernels written in a purpose-built language into native object files (.o) and shared libraries (.so) that integrate seamlessly with C, Rust, Python, and any language supporting the C ABI. Write once, call from anywhere.
 
-**Currently**: Phase 5 — Explicit SIMD support with vector types and operations
+**Currently**: Phase 7 — Structs, shared libraries, and deep SIMD
 **Focus**: Correctness and interop, not compilation speed
 
 ## Why This Matters
@@ -26,14 +26,17 @@ Performance-critical code often requires explicit SIMD. Hand-written intrinsics 
 
 A strict subset focused on computational kernels:
 
-**Types**: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `*T`, `*mut T`, `f32x4`, `i32x4`
+**Types**: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `*T`, `*mut T`, `f32x4`, `i32x4`, `f32x8`, `i32x8`
 
-**Features** (Phase 5):
+**Features** (Phase 7):
 - Export functions with C calling convention
 - Variables and arithmetic
 - Control flow (if/else, while)
 - Functions and pointer indexing
 - **SIMD vectors**: load, store, splat, element access, masked operations
+- **Deep SIMD**: fma, reduce_add/max/min, shuffle, select, f32x8/i32x8
+- **Structs**: C-compatible layout, field access through pointers (`particles[i].x`)
+- **Shared libraries**: `--lib` flag produces `.so`/`.dll`
 
 **Not included**: strings, generics, modules, JIT, garbage collection
 
@@ -56,39 +59,66 @@ cargo test --features=llvm
 
 ## Test Status
 
-All 51 tests passing:
+All 95 tests passing:
 
 - **Phase 2** (End-to-end): 22 tests — basic types, arithmetic, functions, C interop
 - **Phase 3** (Control flow): 17 tests — if/else, while loops, boolean logic
 - **Phase 4** (Pointers): 10 tests — pointer arithmetic, array access, recursive functions
-- **Phase 5** (SIMD): 12 tests — vector literals, element access, SIMD arithmetic, reduction
+- **Phase 5** (SIMD): 12 tests — vector literals, element access, SIMD arithmetic
+- **Phase 6** (Deep SIMD): 21 tests — fma, reductions, shuffle, select, f32x8
+- **Phase 7** (Structs + Shared Libs): 13 tests — struct field access, pointer-to-struct, array-of-structs, shared library output
 
 ```
-running 51 tests
-test result: ok. 51 passed; 0 failed; 0 ignored
+running 95 tests
+test result: ok. 95 passed; 0 failed; 0 ignored
 ```
 
-## Example
+## Examples
 
-```rust
+**SIMD kernel:**
+
+```
 export func dot_product(a: *f32, b: *f32, n: i32) -> f32 {
-    let mut sum: f32 = 0.0;
-    let mut i: i32 = 0;
+    let mut sum: f32 = 0.0
+    let mut i: i32 = 0
     while i < n {
-        let av = load(a + i);
-        let bv = load(b + i);
-        sum = sum + reduce_add(av .* bv);
-        i = i + 4;
+        let av: f32x4 = load(a, i)
+        let bv: f32x4 = load(b, i)
+        sum = sum + reduce_add(av .* bv)
+        i = i + 4
     }
-    return sum;
+    return sum
+}
+```
+
+**Struct with C interop:**
+
+```
+struct Particle {
+    x: f32,
+    y: f32,
+    mass: f32,
+}
+
+export func init_particles(p: *mut Particle, n: i32) {
+    let mut i: i32 = 0
+    while i < n {
+        p[i].x = 0.0
+        p[i].y = 0.0
+        p[i].mass = 1.0
+        i = i + 1
+    }
 }
 ```
 
 Call from C:
 
 ```c
-extern float dot_product(float *a, float *b, int n);
-float result = dot_product(arr1, arr2, 1000);
+typedef struct { float x; float y; float mass; } Particle;
+extern void init_particles(Particle*, int);
+
+Particle ps[1000];
+init_particles(ps, 1000);
 ```
 
 ## Architecture
@@ -108,8 +138,10 @@ See `EA_V2_SPECIFICATION.md` for the full language spec.
 
 ## Roadmap
 
-- Phase 6: Reduction operations (add, max, min) and element shuffles
-- Phase 7: Structs and shared library packaging
+All 7 core phases are complete. Future work may include:
+- Nested struct access
+- Vector fields in structs
+- Auto-vectorization hints
 
 ## License
 

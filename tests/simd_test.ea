@@ -1,3 +1,8 @@
+struct Vec2 {
+    x: f32,
+    y: f32,
+}
+
 func main() {
     let a: f32x4 = [1.0, 2.0, 3.0, 4.0]f32x4
     let b: f32x4 = splat(2.0)
@@ -7,8 +12,15 @@ func main() {
     let sum: f32 = reduce_add(r)
 
     if sum != 420.0 {
-        println("FAIL")
-    } else {
-        println("OK")
+        println("FAIL: simd")
     }
+
+    let v: Vec2 = Vec2 { x: 3.0, y: 4.0 }
+    let mag_sq: f32 = v.x * v.x + v.y * v.y
+
+    if mag_sq != 25.0 {
+        println("FAIL: struct")
+    }
+
+    println("OK")
 }

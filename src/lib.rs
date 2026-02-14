@@ -30,6 +30,7 @@ pub fn check_types(stmts: &[Stmt]) -> error::Result<()> {
 pub enum OutputMode {
     ObjectFile,
     Executable(String),
+    SharedLib(String),
     LlvmIr,
 }
 
@@ -69,6 +70,28 @@ pub fn compile(source: &str, output_path: &std::path::Path, mode: OutputMode) ->
 
             if !status.success() {
                 return Err(error::CompileError::codegen_error("linker failed"));
+            }
+        }
+        OutputMode::SharedLib(ref lib_name) => {
+            target::write_object_file(gen.module(), output_path)?;
+
+            let status = std::process::Command::new("cc")
+                .arg("-shared")
+                .arg(output_path)
+                .arg("-o")
+                .arg(lib_name)
+                .arg("-lm")
+                .status()
+                .map_err(|e| {
+                    error::CompileError::codegen_error(format!("failed to invoke linker: {e}"))
+                })?;
+
+            let _ = std::fs::remove_file(output_path);
+
+            if !status.success() {
+                return Err(error::CompileError::codegen_error(
+                    "shared library linking failed",
+                ));
             }
         }
         OutputMode::LlvmIr => {
