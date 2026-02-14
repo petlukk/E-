@@ -86,3 +86,8 @@ pub fn assert_c_interop(ea_source: &str, c_source: &str, expected: &str) {
     let result = compile_and_link_with_c(ea_source, c_source);
     assert_eq!(result.stdout.trim(), expected);
 }
+
+#[allow(dead_code)]
+pub fn compile_to_ir(source: &str) -> String {
+    ea_compiler::compile_to_ir(source).expect("compilation failed")
+}

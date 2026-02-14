@@ -19,6 +19,12 @@ pub enum BinaryOp {
     SubDot,
     MulDot,
     DivDot,
+    LessDot,
+    GreaterDot,
+    LessEqualDot,
+    GreaterEqualDot,
+    EqualDot,
+    NotEqualDot,
 }
 
 impl fmt::Display for BinaryOp {
@@ -41,6 +47,12 @@ impl fmt::Display for BinaryOp {
             BinaryOp::SubDot => write!(f, ".-"),
             BinaryOp::MulDot => write!(f, ".*"),
             BinaryOp::DivDot => write!(f, "./"),
+            BinaryOp::LessDot => write!(f, ".<"),
+            BinaryOp::GreaterDot => write!(f, ".>"),
+            BinaryOp::LessEqualDot => write!(f, ".<="),
+            BinaryOp::GreaterEqualDot => write!(f, ".>="),
+            BinaryOp::EqualDot => write!(f, ".=="),
+            BinaryOp::NotEqualDot => write!(f, ".!="),
         }
     }
 }
@@ -82,6 +94,7 @@ pub enum Expr {
         elements: Vec<Expr>,
         ty: TypeAnnotation,
     },
+    ArrayLiteral(Vec<Expr>),
 }
 
 impl fmt::Display for Expr {
@@ -111,6 +124,16 @@ impl fmt::Display for Expr {
                     write!(f, "{elem}")?;
                 }
                 write!(f, "]{ty}")
+            }
+            Expr::ArrayLiteral(elements) => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{elem}")?;
+                }
+                write!(f, "]")
             }
         }
     }

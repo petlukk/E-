@@ -1,4 +1,5 @@
 mod check;
+mod intrinsics;
 pub mod types;
 
 use std::collections::HashMap;

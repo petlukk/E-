@@ -128,6 +128,20 @@ impl Parser {
                 width: 4,
             });
         }
+        if self.check(TokenKind::F32x8) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("f32".to_string())),
+                width: 8,
+            });
+        }
+        if self.check(TokenKind::I32x8) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("i32".to_string())),
+                width: 8,
+            });
+        }
 
         for tk in &type_tokens {
             if self.check(tk.clone()) {

@@ -31,18 +31,30 @@ impl Parser {
 
     fn comparison(&mut self) -> crate::error::Result<Expr> {
         let left = self.additive()?;
-        let op = if self.check(TokenKind::Less) {
-            Some(BinaryOp::Less)
-        } else if self.check(TokenKind::Greater) {
-            Some(BinaryOp::Greater)
-        } else if self.check(TokenKind::LessEqual) {
+        let op = if self.check(TokenKind::LessEqual) {
             Some(BinaryOp::LessEqual)
         } else if self.check(TokenKind::GreaterEqual) {
             Some(BinaryOp::GreaterEqual)
+        } else if self.check(TokenKind::Less) {
+            Some(BinaryOp::Less)
+        } else if self.check(TokenKind::Greater) {
+            Some(BinaryOp::Greater)
         } else if self.check(TokenKind::EqualEqual) {
             Some(BinaryOp::Equal)
         } else if self.check(TokenKind::BangEqual) {
             Some(BinaryOp::NotEqual)
+        } else if self.check(TokenKind::LessEqualDot) {
+            Some(BinaryOp::LessEqualDot)
+        } else if self.check(TokenKind::GreaterEqualDot) {
+            Some(BinaryOp::GreaterEqualDot)
+        } else if self.check(TokenKind::LessDot) {
+            Some(BinaryOp::LessDot)
+        } else if self.check(TokenKind::GreaterDot) {
+            Some(BinaryOp::GreaterDot)
+        } else if self.check(TokenKind::EqualEqualDot) {
+            Some(BinaryOp::EqualDot)
+        } else if self.check(TokenKind::BangEqualDot) {
+            Some(BinaryOp::NotEqualDot)
         } else {
             None
         };
@@ -229,26 +241,49 @@ impl Parser {
                 "expected ']' after vector elements",
             )?;
 
-            // Type suffix mandatory for vector literals
-            let ty = if self.check(TokenKind::F32x4) {
+            // Check for vector type suffix
+            if self.check(TokenKind::F32x4) {
                 self.advance();
-                crate::ast::TypeAnnotation::Vector {
-                    elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
-                    width: 4,
-                }
-            } else if self.check(TokenKind::I32x4) {
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
+                        width: 4,
+                    },
+                });
+            }
+            if self.check(TokenKind::I32x4) {
                 self.advance();
-                crate::ast::TypeAnnotation::Vector {
-                    elem: Box::new(crate::ast::TypeAnnotation::Named("i32".to_string())),
-                    width: 4,
-                }
-            } else {
-                return Err(CompileError::parse_error(
-                    "expected vector type suffix (e.g. f32x4)",
-                    self.current_position(),
-                ));
-            };
-            return Ok(Expr::Vector { elements, ty });
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("i32".to_string())),
+                        width: 4,
+                    },
+                });
+            }
+            if self.check(TokenKind::F32x8) {
+                self.advance();
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
+                        width: 8,
+                    },
+                });
+            }
+            if self.check(TokenKind::I32x8) {
+                self.advance();
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("i32".to_string())),
+                        width: 8,
+                    },
+                });
+            }
+            // No type suffix — it's an array literal (used for shuffle masks etc.)
+            return Ok(Expr::ArrayLiteral(elements));
         }
 
         if self.check(TokenKind::LeftParen) {

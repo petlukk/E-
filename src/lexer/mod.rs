@@ -97,6 +97,10 @@ pub enum TokenKind {
     F32x4,
     #[token("i32x4")]
     I32x4,
+    #[token("f32x8")]
+    F32x8,
+    #[token("i32x8")]
+    I32x8,
     #[token("splat")]
     Splat,
 
@@ -155,6 +159,18 @@ pub enum TokenKind {
     StarDot,
     #[token("./")]
     SlashDot,
+    #[token(".<=")]
+    LessEqualDot,
+    #[token(".>=")]
+    GreaterEqualDot,
+    #[token(".==")]
+    EqualEqualDot,
+    #[token(".!=")]
+    BangEqualDot,
+    #[token(".<")]
+    LessDot,
+    #[token(".>")]
+    GreaterDot,
     #[token("&&")]
     AmpAmp,
     #[token("||")]

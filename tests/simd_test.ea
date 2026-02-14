@@ -1,14 +1,13 @@
 func main() {
-    let vec1: f32x4 = [1.0, 2.0, 3.0, 4.0]f32x4
-    let vec2: f32x4 = splat(2.0)
+    let a: f32x4 = [1.0, 2.0, 3.0, 4.0]f32x4
+    let b: f32x4 = splat(2.0)
+    let c: f32x4 = splat(100.0)
 
-    let vec3: f32x4 = vec1 .+ vec2
-    let res: f32x4 = vec3 .* vec1
+    let r: f32x4 = fma(a, b, c)
+    let sum: f32 = reduce_add(r)
 
-    let sum: f32 = res[0] + res[1] + res[2] + res[3]
-
-    if sum != 50.0 {
-        println("Fail: sum mismatch")
+    if sum != 420.0 {
+        println("FAIL")
     } else {
         println("OK")
     }

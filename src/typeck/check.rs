@@ -24,7 +24,7 @@ impl TypeChecker {
                     mutable,
                 } => {
                     let declared = types::resolve_type(ty)?;
-                    let init_type = self.check_expr(value, locals)?;
+                    let init_type = self.check_expr_with_hint(value, locals, Some(&declared))?;
                     if !types::types_compatible(&init_type, &declared) {
                         return Err(CompileError::type_error(
                             format!(
@@ -255,6 +255,24 @@ impl TypeChecker {
                     BinaryOp::AddDot | BinaryOp::SubDot | BinaryOp::MulDot | BinaryOp::DivDot => {
                         types::unify_vector(&lt, &rt)
                     }
+                    BinaryOp::LessDot
+                    | BinaryOp::GreaterDot
+                    | BinaryOp::LessEqualDot
+                    | BinaryOp::GreaterEqualDot
+                    | BinaryOp::EqualDot
+                    | BinaryOp::NotEqualDot => {
+                        types::unify_vector(&lt, &rt)?;
+                        match &lt {
+                            Type::Vector { width, .. } => Ok(Type::Vector {
+                                elem: Box::new(Type::Bool),
+                                width: *width,
+                            }),
+                            _ => Err(CompileError::type_error(
+                                format!("dotted comparison requires vectors, got {lt:?}"),
+                                Position::default(),
+                            )),
+                        }
+                    }
                 }
             }
 
@@ -288,137 +306,13 @@ impl TypeChecker {
                 }
                 Ok(vec_type)
             }
+            Expr::ArrayLiteral(_) => Err(CompileError::type_error(
+                "array literals can only be used as shuffle indices",
+                Position::default(),
+            )),
             Expr::Call { name, args } => {
-                // Intrinsics
-                if name == "splat" {
-                    if args.len() != 1 {
-                        return Err(CompileError::type_error(
-                            "splat expects 1 argument",
-                            Position::default(),
-                        ));
-                    }
-                    let arg_type = self.check_expr(&args[0], locals)?;
-                    // splat(f32) -> f32x4 (default width 4 for now)
-                    // Or should we infer? The AST for splat doesn't have type info.
-                    // The return type depends on the arg type.
-                    // f32 -> f32x4. i32 -> i32x4.
-                    return match arg_type {
-                        Type::F32 | Type::FloatLiteral => Ok(Type::Vector {
-                            elem: Box::new(Type::F32),
-                            width: 4,
-                        }),
-                        Type::I32 | Type::IntLiteral => Ok(Type::Vector {
-                            elem: Box::new(Type::I32),
-                            width: 4,
-                        }),
-                        _ => Err(CompileError::type_error(
-                            format!("splat expects numeric, got {arg_type:?}"),
-                            Position::default(),
-                        )),
-                    };
-                }
-                if name == "load" {
-                    if args.len() != 2 {
-                        return Err(CompileError::type_error(
-                            "load expects 2 arguments (ptr, index)",
-                            Position::default(),
-                        ));
-                    }
-                    let ptr_type = self.check_expr(&args[0], locals)?;
-                    let idx_type = self.check_expr(&args[1], locals)?;
-
-                    if !idx_type.is_integer() {
-                        return Err(CompileError::type_error(
-                            "load index must be integer",
-                            Position::default(),
-                        ));
-                    }
-
-                    match ptr_type {
-                        Type::Pointer { inner, .. } => {
-                            if inner.is_numeric() {
-                                return Ok(Type::Vector {
-                                    elem: inner,
-                                    width: 4,
-                                });
-                            } else {
-                                return Err(CompileError::type_error(
-                                    "load expects pointer to numeric type",
-                                    Position::default(),
-                                ));
-                            }
-                        }
-                        _ => {
-                            return Err(CompileError::type_error(
-                                "load expects pointer",
-                                Position::default(),
-                            ))
-                        }
-                    }
-                }
-                if name == "store" {
-                    // store(ptr, index, val)
-                    if args.len() != 3 {
-                        return Err(CompileError::type_error(
-                            "store expects 3 arguments",
-                            Position::default(),
-                        ));
-                    }
-                    let ptr_type = self.check_expr(&args[0], locals)?;
-                    let idx_type = self.check_expr(&args[1], locals)?;
-                    let val_type = self.check_expr(&args[2], locals)?;
-
-                    if !idx_type.is_integer() {
-                        return Err(CompileError::type_error(
-                            "store index must be integer",
-                            Position::default(),
-                        ));
-                    }
-                    match (ptr_type, val_type) {
-                        (
-                            Type::Pointer {
-                                mutable: true,
-                                inner,
-                            },
-                            Type::Vector { elem, .. },
-                        ) => {
-                            if !types::types_compatible(&elem, &inner) {
-                                return Err(CompileError::type_error(
-                                    format!("store mismatch: ptr to {inner:?}, val {elem:?}"),
-                                    Position::default(),
-                                ));
-                            }
-                            return Ok(Type::Void);
-                        }
-                        (Type::Pointer { mutable: false, .. }, _) => {
-                            return Err(CompileError::type_error(
-                                "store requires mutable pointer",
-                                Position::default(),
-                            ));
-                        }
-                        (_, _) => {
-                            return Err(CompileError::type_error(
-                                "store expects (mut ptr, index, vector)",
-                                Position::default(),
-                            ))
-                        }
-                    }
-                }
-                if name == "println" {
-                    if args.len() != 1 {
-                        return Err(CompileError::type_error(
-                            "println expects exactly 1 argument",
-                            Position::default(),
-                        ));
-                    }
-                    let arg_type = self.check_expr(&args[0], locals)?;
-                    if !arg_type.is_numeric() && arg_type != Type::String && !arg_type.is_vector() {
-                        return Err(CompileError::type_error(
-                            format!("println expects numeric, string, or vector result, got {arg_type:?}"),
-                            Position::default(),
-                        ));
-                    }
-                    return Ok(Type::Void);
+                if let Some(result) = self.check_intrinsic_call(name, args, locals, None) {
+                    return result;
                 }
                 let sig = self.functions.get(name).ok_or_else(|| {
                     CompileError::type_error(
@@ -455,5 +349,19 @@ impl TypeChecker {
                 Ok(sig.return_type.clone())
             }
         }
+    }
+
+    fn check_expr_with_hint(
+        &self,
+        expr: &Expr,
+        locals: &HashMap<String, (Type, bool)>,
+        type_hint: Option<&Type>,
+    ) -> crate::error::Result<Type> {
+        if let Expr::Call { name, args } = expr {
+            if let Some(result) = self.check_intrinsic_call(name, args, locals, type_hint) {
+                return result;
+            }
+        }
+        self.check_expr(expr, locals)
     }
 }

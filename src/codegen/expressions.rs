@@ -128,6 +128,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                 }
             }
             Expr::Vector { elements, ty } => self.compile_vector_literal(elements, ty, function),
+            Expr::ArrayLiteral(_) => Err(CompileError::codegen_error(
+                "array literals can only be used as shuffle indices",
+            )),
         }
     }
 

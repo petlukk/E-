@@ -81,3 +81,16 @@ pub fn compile(source: &str, output_path: &std::path::Path, mode: OutputMode) ->
 
     Ok(())
 }
+
+#[cfg(feature = "llvm")]
+pub fn compile_to_ir(source: &str) -> error::Result<String> {
+    let tokens = tokenize(source)?;
+    let stmts = parse(tokens)?;
+    check_types(&stmts)?;
+
+    let context = inkwell::context::Context::create();
+    let mut gen = codegen::CodeGenerator::new(&context, "ea_module");
+    gen.compile_program(&stmts)?;
+
+    Ok(gen.print_ir())
+}
