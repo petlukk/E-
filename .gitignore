@@ -29,3 +29,6 @@ tmp/
 # Non-essential documentation
 docs/plans/
 
+# Session notes (not part of the release)
+Session_summary*.md
+before_phase*.md
