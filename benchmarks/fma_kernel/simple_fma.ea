@@ -1,0 +1,11 @@
+export func simple_fma(a: *f32, b: *f32, c: *f32, result: *mut f32, len: i32) {
+    let mut i: i32 = 0
+    while i + 4 <= len {
+        let va: f32x4 = load(a, i)
+        let vb: f32x4 = load(b, i)
+        let vc: f32x4 = load(c, i)
+        let vresult: f32x4 = fma(va, vb, vc)
+        store(result, i, vresult)
+        i = i + 4
+    }
+}

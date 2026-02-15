@@ -1,0 +1,31 @@
+// FMA Kernel: Fused Multiply-Add benchmark
+// Computes: result[i] = a[i] * b[i] + c[i] for vectors of f32
+
+export func fma_kernel_f32x4(
+    a: *f32,
+    b: *f32, 
+    c: *f32,
+    result: *mut f32,
+    len: i32
+) {
+    let mut i: i32 = 0
+    
+    // Process 4 elements at a time with f32x4 SIMD
+    while i + 4 <= len {
+        let va: f32x4 = load(a, i)
+        let vb: f32x4 = load(b, i)
+        let vc: f32x4 = load(c, i)
+        
+        // Fused multiply-add: va * vb + vc
+        let vresult: f32x4 = fma(va, vb, vc)
+        
+        store(result, i, vresult)
+        i = i + 4
+    }
+    
+    // Handle remaining elements  
+    while i < len {
+        result[i] = a[i] * b[i] + c[i]
+        i = i + 1
+    }
+}
