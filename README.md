@@ -45,7 +45,7 @@ without fast-math is the stronger claim.
 
 ### FMA Kernel (result[i] = a[i] * b[i] + c[i])
 
-| Implementation | Avg (us) | vs Best C |
+| Implementation | Avg (us) | vs Fastest C |
 |---|---|---|
 | GCC f32x8 (AVX2) | 1043 | 1.04x |
 | GCC f32x4 (SSE) | 1034 | 1.03x |
@@ -56,7 +56,7 @@ without fast-math is the stronger claim.
 
 ### Sum Reduction
 
-| Implementation | Avg (us) | vs Best C |
+| Implementation | Avg (us) | vs Fastest C |
 |---|---|---|
 | GCC f32x8 (AVX2) | 119 | 1.00x |
 | **Ea f32x8** | **117** | **0.98x** |
@@ -66,7 +66,7 @@ without fast-math is the stronger claim.
 
 ### Max Reduction
 
-| Implementation | Avg (us) | vs Best C |
+| Implementation | Avg (us) | vs Fastest C |
 |---|---|---|
 | GCC f32x4 (SSE) | 80 | 1.00x |
 | **Ea f32x4** | **83** | **1.03x** |
@@ -76,13 +76,18 @@ without fast-math is the stronger claim.
 
 ### Min Reduction
 
-| Implementation | Avg (us) | vs Best C |
+| Implementation | Avg (us) | vs Fastest C |
 |---|---|---|
 | GCC f32x4 (SSE) | 92 | 1.00x |
 | **Ea f32x4** | **87** | **0.95x** |
 | Clang-14 f32x4 | 87 | 0.95x |
 | ISPC | 64 | 0.69x |
 | Rust f32x4 | 187 | 2.05x |
+
+ISPC outperforms Ea on some reductions due to its SPMD execution model
+and aggressive auto-vectorization -- this is expected given the different approach.
+Rust std::simd compiled with `cargo +nightly`, `RUSTFLAGS='-C target-cpu=native'`
+(opt-level=3 is the cdylib release default).
 
 Competitors are optional -- benchmarks run with whatever toolchains are installed.
 GCC is required; Clang, ISPC, and Rust nightly are detected and included automatically.
