@@ -12,6 +12,7 @@ import os
 import sys
 import subprocess
 import time
+import platform
 import numpy as np
 import ctypes
 from pathlib import Path
@@ -20,6 +21,39 @@ from pathlib import Path
 ARRAY_SIZE = 1_000_000  # 1M elements for meaningful timing
 NUM_RUNS = 100          # Average over many runs
 WARMUP_RUNS = 10        # Warmup iterations
+
+def print_environment():
+    """Print CPU, compiler, and OS info for reproducibility"""
+    print("=== Environment ===")
+    print(f"OS: {platform.system()} {platform.release()}")
+    print(f"Arch: {platform.machine()}")
+
+    # CPU model
+    try:
+        with open("/proc/cpuinfo") as f:
+            for line in f:
+                if line.startswith("model name"):
+                    print(f"CPU: {line.split(':')[1].strip()}")
+                    break
+    except FileNotFoundError:
+        print(f"CPU: {platform.processor() or 'unknown'}")
+
+    # GCC version
+    try:
+        gcc = subprocess.run(["gcc", "--version"], capture_output=True, text=True)
+        print(f"GCC: {gcc.stdout.splitlines()[0]}")
+    except FileNotFoundError:
+        print("GCC: not found")
+
+    # LLVM version
+    try:
+        llvm = subprocess.run(["llvm-config-14", "--version"], capture_output=True, text=True)
+        print(f"LLVM: {llvm.stdout.strip()}")
+    except FileNotFoundError:
+        print("LLVM: llvm-config-14 not found")
+
+    print()
+
 
 def compile_ea_kernel():
     """Compile Eä kernel to shared library"""
@@ -170,6 +204,7 @@ def main():
     os.chdir(Path(__file__).parent)
     
     print("=== FMA Kernel Benchmark ===")
+    print_environment()
     print(f"Array size: {ARRAY_SIZE:,} elements")
     print(f"Runs per test: {NUM_RUNS}")
     print()

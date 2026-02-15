@@ -45,7 +45,8 @@ Ea uses strict IEEE floating point -- no fast-math flags.
 | Max reduction (f32x4) | ~0.95x | Ea faster |
 | Min reduction (f32x4) | ~1.0x | At parity |
 
-1M elements, 100-200 runs, averaged. Full benchmark code in `benchmarks/`.
+1M elements, 100-200 runs, averaged. AMD Ryzen 7 1700, GCC 11.4, LLVM 14, Linux (WSL2).
+Full methodology and benchmark code in `benchmarks/`.
 
 ## Why not...
 
