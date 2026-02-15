@@ -1,6 +1,6 @@
 #[cfg(feature = "llvm")]
 use inkwell::targets::{
-    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine,
+    CodeModel, FileType, RelocMode, Target, TargetMachine,
 };
 
 #[cfg(feature = "llvm")]
@@ -11,10 +11,7 @@ use crate::error::CompileError;
 
 #[cfg(feature = "llvm")]
 pub fn create_target_machine() -> crate::error::Result<TargetMachine> {
-    Target::initialize_native(&InitializationConfig::default()).map_err(|e| {
-        CompileError::codegen_error(format!("failed to initialize native target: {e}"))
-    })?;
-
+    // Note: LLVM native target initialization is now handled in lib.rs via std::sync::Once
     let triple = TargetMachine::get_default_triple();
     let target = Target::from_triple(&triple)
         .map_err(|e| CompileError::codegen_error(format!("failed to get target: {e}")))?;

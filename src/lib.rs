@@ -35,7 +35,21 @@ pub enum OutputMode {
 }
 
 #[cfg(feature = "llvm")]
+static INIT_LLVM: std::sync::Once = std::sync::Once::new();
+
+#[cfg(feature = "llvm")]
+fn init_llvm() {
+    INIT_LLVM.call_once(|| {
+        use inkwell::targets::{InitializationConfig, Target};
+        Target::initialize_native(&InitializationConfig::default())
+            .expect("Failed to initialize LLVM native target");
+    });
+}
+
+#[cfg(feature = "llvm")]
 pub fn compile(source: &str, output_path: &std::path::Path, mode: OutputMode) -> error::Result<()> {
+    init_llvm(); // Thread-safe one-time initialization
+    
     let tokens = tokenize(source)?;
     let stmts = parse(tokens)?;
     check_types(&stmts)?;
@@ -107,6 +121,8 @@ pub fn compile(source: &str, output_path: &std::path::Path, mode: OutputMode) ->
 
 #[cfg(feature = "llvm")]
 pub fn compile_to_ir(source: &str) -> error::Result<String> {
+    init_llvm(); // Thread-safe one-time initialization
+    
     let tokens = tokenize(source)?;
     let stmts = parse(tokens)?;
     check_types(&stmts)?;

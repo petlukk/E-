@@ -1,5 +1,5 @@
 use inkwell::types::{BasicTypeEnum, VectorType};
-use inkwell::values::{BasicValueEnum, FunctionValue, VectorValue};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, VectorValue};
 
 use crate::ast::{BinaryOp, Expr, TypeAnnotation};
 use crate::error::CompileError;
@@ -101,6 +101,23 @@ impl<'ctx> CodeGenerator<'ctx> {
             .builder
             .build_load(vec_ptr, "vec_load")
             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+        
+        // Set alignment to element size, not vector width, for unaligned loads
+        let element_alignment = match vec_ty.get_element_type() {
+            BasicTypeEnum::FloatType(_) => 4,   // f32
+            BasicTypeEnum::IntType(it) if it.get_bit_width() == 32 => 4,  // i32
+            BasicTypeEnum::IntType(it) if it.get_bit_width() == 64 => 8,  // i64
+            _ => 1,  // fallback
+        };
+        
+        if let BasicValueEnum::VectorValue(vec_val) = val {
+            // Note: This generates vmovups instead of vmovaps for unaligned loads
+            let load_inst = vec_val.as_instruction_value().unwrap();
+            load_inst.set_alignment(element_alignment).map_err(|e| {
+                CompileError::codegen_error(format!("failed to set alignment: {e}"))
+            })?;
+        }
+        
         Ok(val)
     }
 
@@ -123,9 +140,22 @@ impl<'ctx> CodeGenerator<'ctx> {
             .build_pointer_cast(elem_ptr, vec_ptr_ty, "vec_ptr")
             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
-        self.builder
+        let store_inst = self.builder
             .build_store(vec_ptr, vec_val)
             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+            
+        // Set alignment to element size for unaligned stores  
+        let element_alignment = match vec_ty.get_element_type() {
+            BasicTypeEnum::FloatType(_) => 4,   // f32
+            BasicTypeEnum::IntType(it) if it.get_bit_width() == 32 => 4,  // i32 
+            BasicTypeEnum::IntType(it) if it.get_bit_width() == 64 => 8,  // i64
+            _ => 1,  // fallback
+        };
+        
+        store_inst.set_alignment(element_alignment).map_err(|e| {
+            CompileError::codegen_error(format!("failed to set store alignment: {e}"))
+        })?;
+        
         Ok(BasicValueEnum::IntValue(
             self.context.i32_type().const_int(0, false),
         ))
