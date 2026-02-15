@@ -34,6 +34,8 @@ fn main() {
     let mut emit_llvm = false;
     let mut emit_ast = false;
     let mut emit_tokens = false;
+    let mut opt_level: u8 = 3;
+    let mut target_cpu: Option<String> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -50,6 +52,24 @@ fn main() {
             "--emit-llvm" => emit_llvm = true,
             "--emit-ast" => emit_ast = true,
             "--emit-tokens" => emit_tokens = true,
+            s if s.starts_with("--opt-level=") => {
+                let val = &s["--opt-level=".len()..];
+                match val.parse::<u8>() {
+                    Ok(v) if v <= 3 => opt_level = v,
+                    _ => {
+                        eprintln!("error: --opt-level must be 0, 1, 2, or 3");
+                        process::exit(1);
+                    }
+                }
+            }
+            s if s.starts_with("--target=") => {
+                let val = &s["--target=".len()..];
+                if val == "native" {
+                    target_cpu = None;
+                } else {
+                    target_cpu = Some(val.to_string());
+                }
+            }
             other => {
                 eprintln!("error: unknown option '{other}'");
                 process::exit(1);
@@ -90,8 +110,13 @@ fn main() {
 
     #[cfg(feature = "llvm")]
     {
-        use ea_compiler::OutputMode;
+        use ea_compiler::{CompileOptions, OutputMode};
         use std::path::PathBuf;
+
+        let opts = CompileOptions {
+            opt_level,
+            target_cpu,
+        };
 
         let stem = std::path::Path::new(input_file)
             .file_stem()
@@ -100,7 +125,9 @@ fn main() {
 
         if emit_llvm {
             let ir_path = PathBuf::from(format!("{stem}.ll"));
-            match ea_compiler::compile(&source, &ir_path, OutputMode::LlvmIr) {
+            match ea_compiler::compile_with_options(
+                &source, &ir_path, OutputMode::LlvmIr, &opts,
+            ) {
                 Ok(()) => {
                     let ir = std::fs::read_to_string(&ir_path).unwrap_or_default();
                     print!("{ir}");
@@ -134,7 +161,7 @@ fn main() {
             (obj_path, OutputMode::ObjectFile)
         };
 
-        match ea_compiler::compile(&source, &output_path, mode) {
+        match ea_compiler::compile_with_options(&source, &output_path, mode, &opts) {
             Ok(()) => {}
             Err(e) => {
                 eprintln!("{e}");
@@ -154,11 +181,13 @@ fn print_usage() {
     eprintln!("Usage: ea <file.ea> [options]");
     eprintln!();
     eprintln!("Options:");
-    eprintln!("  -o <name>       Compile and link to executable");
-    eprintln!("  --lib           Produce shared library (.so/.dll)");
-    eprintln!("  --emit-llvm     Print LLVM IR");
-    eprintln!("  --emit-ast      Print parsed AST");
-    eprintln!("  --emit-tokens   Print lexer tokens");
-    eprintln!("  --help, -h      Show this message");
-    eprintln!("  --version, -V   Show version");
+    eprintln!("  -o <name>          Compile and link to executable");
+    eprintln!("  --lib              Produce shared library (.so/.dll)");
+    eprintln!("  --opt-level=N      Optimization level 0-3 (default: 3)");
+    eprintln!("  --target=CPU       Target CPU (default: native)");
+    eprintln!("  --emit-llvm        Print LLVM IR");
+    eprintln!("  --emit-ast         Print parsed AST");
+    eprintln!("  --emit-tokens      Print lexer tokens");
+    eprintln!("  --help, -h         Show this message");
+    eprintln!("  --version, -V      Show version");
 }

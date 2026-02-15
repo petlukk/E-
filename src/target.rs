@@ -13,23 +13,38 @@ use inkwell::module::Module;
 use crate::error::CompileError;
 
 #[cfg(feature = "llvm")]
-pub fn create_target_machine() -> crate::error::Result<TargetMachine> {
-    // Note: LLVM native target initialization is now handled in lib.rs via std::sync::Once
+use crate::CompileOptions;
+
+#[cfg(feature = "llvm")]
+fn opt_level_to_inkwell(level: u8) -> inkwell::OptimizationLevel {
+    match level {
+        0 => inkwell::OptimizationLevel::None,
+        1 => inkwell::OptimizationLevel::Less,
+        2 => inkwell::OptimizationLevel::Default,
+        _ => inkwell::OptimizationLevel::Aggressive,
+    }
+}
+
+#[cfg(feature = "llvm")]
+pub fn create_target_machine(opts: &CompileOptions) -> crate::error::Result<TargetMachine> {
     let triple = TargetMachine::get_default_triple();
     let target = Target::from_triple(&triple)
         .map_err(|e| CompileError::codegen_error(format!("failed to get target: {e}")))?;
 
-    let cpu = TargetMachine::get_host_cpu_name();
-    let cpu_str = cpu.to_string();
-    let features = TargetMachine::get_host_cpu_features();
-    let features_str = features.to_string();
+    let (cpu_str, features_str) = if let Some(ref cpu) = opts.target_cpu {
+        (cpu.clone(), String::new())
+    } else {
+        let cpu = TargetMachine::get_host_cpu_name();
+        let features = TargetMachine::get_host_cpu_features();
+        (cpu.to_string(), features.to_string())
+    };
 
     target
         .create_target_machine(
             &triple,
             &cpu_str,
             &features_str,
-            inkwell::OptimizationLevel::Aggressive,
+            opt_level_to_inkwell(opts.opt_level),
             RelocMode::PIC,
             CodeModel::Default,
         )
@@ -37,11 +52,16 @@ pub fn create_target_machine() -> crate::error::Result<TargetMachine> {
 }
 
 #[cfg(feature = "llvm")]
-pub fn write_object_file(module: &Module, path: &std::path::Path) -> crate::error::Result<()> {
-    // Run O3 optimization passes before writing object file
-    optimize_module(module)?;
-    
-    let machine = create_target_machine()?;
+pub fn write_object_file(
+    module: &Module,
+    path: &std::path::Path,
+    opts: &CompileOptions,
+) -> crate::error::Result<()> {
+    if opts.opt_level > 0 {
+        optimize_module(module)?;
+    }
+
+    let machine = create_target_machine(opts)?;
     machine
         .write_to_file(module, FileType::Object, path)
         .map_err(|e| CompileError::codegen_error(format!("failed to write object file: {e}")))

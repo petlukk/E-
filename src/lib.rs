@@ -35,6 +35,23 @@ pub enum OutputMode {
 }
 
 #[cfg(feature = "llvm")]
+#[derive(Clone, Debug)]
+pub struct CompileOptions {
+    pub opt_level: u8,
+    pub target_cpu: Option<String>,
+}
+
+#[cfg(feature = "llvm")]
+impl Default for CompileOptions {
+    fn default() -> Self {
+        Self {
+            opt_level: 3,
+            target_cpu: None, // native
+        }
+    }
+}
+
+#[cfg(feature = "llvm")]
 static INIT_LLVM: std::sync::Once = std::sync::Once::new();
 
 #[cfg(feature = "llvm")]
@@ -48,8 +65,17 @@ fn init_llvm() {
 
 #[cfg(feature = "llvm")]
 pub fn compile(source: &str, output_path: &std::path::Path, mode: OutputMode) -> error::Result<()> {
-    init_llvm(); // Thread-safe one-time initialization
-    
+    compile_with_options(source, output_path, mode, &CompileOptions::default())
+}
+
+pub fn compile_with_options(
+    source: &str,
+    output_path: &std::path::Path,
+    mode: OutputMode,
+    opts: &CompileOptions,
+) -> error::Result<()> {
+    init_llvm();
+
     let tokens = tokenize(source)?;
     let stmts = parse(tokens)?;
     check_types(&stmts)?;
@@ -60,7 +86,7 @@ pub fn compile(source: &str, output_path: &std::path::Path, mode: OutputMode) ->
 
     match mode {
         OutputMode::ObjectFile => {
-            target::write_object_file(gen.module(), output_path)?;
+            target::write_object_file(gen.module(), output_path, opts)?;
         }
         OutputMode::Executable(ref exe_name) => {
             let tmp_dir = std::env::temp_dir().join("ea_build");
@@ -68,7 +94,7 @@ pub fn compile(source: &str, output_path: &std::path::Path, mode: OutputMode) ->
                 error::CompileError::codegen_error(format!("failed to create temp dir: {e}"))
             })?;
             let obj_path = tmp_dir.join("temp.o");
-            target::write_object_file(gen.module(), &obj_path)?;
+            target::write_object_file(gen.module(), &obj_path, opts)?;
 
             let status = std::process::Command::new("cc")
                 .arg(&obj_path)
@@ -87,7 +113,7 @@ pub fn compile(source: &str, output_path: &std::path::Path, mode: OutputMode) ->
             }
         }
         OutputMode::SharedLib(ref lib_name) => {
-            target::write_object_file(gen.module(), output_path)?;
+            target::write_object_file(gen.module(), output_path, opts)?;
 
             let status = std::process::Command::new("cc")
                 .arg("-shared")
