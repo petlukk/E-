@@ -1,5 +1,6 @@
 # Rust build artifacts
 target/
+benchmarks/rust_competitors/target/
 **/*.rs.bk
 
 # Generated binaries and object files

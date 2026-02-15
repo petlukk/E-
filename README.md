@@ -3,7 +3,7 @@
 **SIMD kernel language for C and Python.**
 
 Write readable SIMD code. Compile to `.o` or `.so`. Call from C, Rust, Python via C ABI.
-No runtime. No garbage collector. No unsafe blocks. Just kernels.
+No runtime. No garbage collector. Explicit memory control. Just kernels.
 
 ## Example
 
@@ -20,6 +20,8 @@ export func fma_kernel(a: *f32, b: *f32, c: *f32, out: *mut f32, len: i32) {
 }
 ```
 
+SIMD width and tail handling are explicit by design -- you control the vector width, loop stepping, and remainder logic. No auto-vectorizer magic.
+
 Compile and call from C:
 
 ```bash
@@ -34,19 +36,56 @@ fma_kernel(a, b, c, result, n);  // that's it
 
 ## Benchmark
 
-Measured against hand-optimized C with AVX2 intrinsics (`gcc -O3 -march=native -ffast-math`).
-Ea uses strict IEEE floating point -- no fast-math flags.
+Measured on AMD Ryzen 7 1700 (Zen 1, AVX2/FMA), GCC 11.4, LLVM 14, Linux (WSL2).
+1M elements, 100-200 runs, averaged. Full methodology and scripts in `benchmarks/`.
 
-| Kernel | Ea vs C | Notes |
+**Ea uses strict IEEE floating point -- no fast-math flags.** The C reference was
+compiled with `gcc -O3 -march=native -ffast-math`. Ea matching this baseline
+without fast-math is the stronger claim.
+
+### FMA Kernel (result[i] = a[i] * b[i] + c[i])
+
+| Implementation | Avg (us) | vs Best C |
 |---|---|---|
-| FMA (f32x4) | ~1.0x | At parity |
-| Sum reduction (f32x8) | ~1.0x | At parity |
-| Sum reduction (f32x4) | ~0.9x | Ea faster |
-| Max reduction (f32x4) | ~0.95x | Ea faster |
-| Min reduction (f32x4) | ~1.0x | At parity |
+| GCC f32x8 (AVX2) | 1043 | 1.04x |
+| GCC f32x4 (SSE) | 1034 | 1.03x |
+| **Ea f32x4** | **1003** | **1.00x** |
+| Clang-14 f32x8 | 1023 | 1.02x |
+| ISPC | 978 | 0.98x |
+| Rust std::simd | 1045 | 1.04x |
 
-1M elements, 100-200 runs, averaged. AMD Ryzen 7 1700, GCC 11.4, LLVM 14, Linux (WSL2).
-Full methodology and benchmark code in `benchmarks/`.
+### Sum Reduction
+
+| Implementation | Avg (us) | vs Best C |
+|---|---|---|
+| GCC f32x8 (AVX2) | 119 | 1.00x |
+| **Ea f32x8** | **117** | **0.98x** |
+| Clang-14 f32x8 | 115 | 0.96x |
+| ISPC | 120 | 1.00x |
+| Rust f32x8 | 120 | 1.01x |
+
+### Max Reduction
+
+| Implementation | Avg (us) | vs Best C |
+|---|---|---|
+| GCC f32x4 (SSE) | 80 | 1.00x |
+| **Ea f32x4** | **83** | **1.03x** |
+| Clang-14 f32x4 | 82 | 1.02x |
+| ISPC | 70 | 0.87x |
+| Rust f32x4 | 209 | 2.61x |
+
+### Min Reduction
+
+| Implementation | Avg (us) | vs Best C |
+|---|---|---|
+| GCC f32x4 (SSE) | 92 | 1.00x |
+| **Ea f32x4** | **87** | **0.95x** |
+| Clang-14 f32x4 | 87 | 0.95x |
+| ISPC | 64 | 0.69x |
+| Rust f32x4 | 187 | 2.05x |
+
+Competitors are optional -- benchmarks run with whatever toolchains are installed.
+GCC is required; Clang, ISPC, and Rust nightly are detected and included automatically.
 
 ## Why not...
 
@@ -62,6 +101,13 @@ Ea is purpose-built: no lifetimes, no borrows, no generics. Just SIMD.
 ISPC auto-vectorizes scalar code. Ea gives you explicit control over vector width and operations.
 Different philosophy -- Ea is closer to "portable intrinsics" than an auto-vectorizer.
 
+## Safety Model
+
+Ea provides explicit pointer-based memory access similar to C.
+There are no bounds checks or runtime safety guarantees -- correctness and
+memory safety are the programmer's responsibility. This is intentional:
+kernel code needs predictable performance without hidden checks.
+
 ## Features
 
 - **SIMD**: `f32x4`, `f32x8`, `i32x4`, `i32x8` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
@@ -71,6 +117,8 @@ Different philosophy -- Ea is closer to "portable intrinsics" than an auto-vecto
 - **Types**: `i8`-`i64`, `u8`-`u64`, `f32`, `f64`, `bool`
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
 - **C ABI**: every `export func` is callable from any language
+
+Currently tested on x86-64 with AVX2. Other architectures depend on LLVM backend support.
 
 ## Quick Start
 

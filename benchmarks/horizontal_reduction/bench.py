@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Horizontal Reduction Benchmark: Ea vs hand-optimized C
+Horizontal Reduction Benchmark: Ea vs hand-optimized C and competitors
 
 Measures performance of reduction operations (sum, max, min) across arrays.
-These are compute-bound: the reduction dominates, not memory bandwidth.
+Competitors (Clang, ISPC, Rust std::simd) are included when available.
 """
 
 import os
@@ -15,10 +15,21 @@ import numpy as np
 import ctypes
 from pathlib import Path
 
+# Make bench_common importable
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import bench_common
+
 # Configuration
 ARRAY_SIZE = 1_000_000
 NUM_RUNS = 200
 WARMUP_RUNS = 20
+
+BENCH_DIR = Path(__file__).parent
+FLOAT_PTR = ctypes.POINTER(ctypes.c_float)
+I32 = ctypes.c_int32
+F32 = ctypes.c_float
+REDUCE_ARGTYPES = [FLOAT_PTR, I32]
+
 
 def print_environment():
     """Print CPU, compiler, and OS info for reproducibility"""
@@ -26,7 +37,6 @@ def print_environment():
     print(f"OS: {platform.system()} {platform.release()}")
     print(f"Arch: {platform.machine()}")
 
-    # CPU model
     try:
         with open("/proc/cpuinfo") as f:
             for line in f:
@@ -36,41 +46,40 @@ def print_environment():
     except FileNotFoundError:
         print(f"CPU: {platform.processor() or 'unknown'}")
 
-    # GCC version
     try:
         gcc = subprocess.run(["gcc", "--version"], capture_output=True, text=True)
         print(f"GCC: {gcc.stdout.splitlines()[0]}")
     except FileNotFoundError:
         print("GCC: not found")
 
-    # LLVM version
     try:
-        llvm = subprocess.run(["llvm-config-14", "--version"], capture_output=True, text=True)
+        llvm = subprocess.run(["llvm-config-14", "--version"],
+                              capture_output=True, text=True)
         print(f"LLVM: {llvm.stdout.strip()}")
     except FileNotFoundError:
         print("LLVM: llvm-config-14 not found")
 
-    print()
+    bench_common.print_competitor_versions()
 
 
 def compile_ea_kernel():
     """Compile Ea kernel to shared library"""
     print("Compiling Ea kernel...")
-    ea_root = Path(__file__).parent.parent.parent
+    ea_root = BENCH_DIR.parent.parent
     result = subprocess.run(
         [
             "cargo", "run", "--features=llvm", "--",
-            str(Path(__file__).parent / "kernel.ea"), "--lib",
+            str(BENCH_DIR / "kernel.ea"), "--lib",
         ],
         capture_output=True, text=True, cwd=ea_root,
     )
     if result.returncode != 0:
-        print(f"Ea compilation failed:\nstdout: {result.stdout}\nstderr: {result.stderr}")
+        print(f"Ea compilation failed:\nstdout: {result.stdout}\n"
+              f"stderr: {result.stderr}")
         sys.exit(1)
 
-    # Move .so to benchmark dir
     so_src = ea_root / "kernel.so"
-    so_dst = Path(__file__).parent / "kernel.so"
+    so_dst = BENCH_DIR / "kernel.so"
     if so_src.exists():
         so_src.rename(so_dst)
     elif not so_dst.exists():
@@ -79,53 +88,131 @@ def compile_ea_kernel():
 
     print("Ea kernel compiled successfully")
 
+
 def compile_c_reference():
-    """Compile C reference with maximum optimization"""
-    print("Compiling C reference...")
+    """Compile C reference with GCC and maximum optimization"""
+    print("Compiling C reference (GCC)...")
     result = subprocess.run(
         [
             "gcc", "-O3", "-march=native", "-ffast-math",
             "-shared", "-fPIC",
             "reference.c", "-o", "reference.so",
         ],
-        capture_output=True, text=True, cwd=Path(__file__).parent,
+        capture_output=True, text=True, cwd=BENCH_DIR,
     )
     if result.returncode != 0:
-        print(f"C compilation failed:\nstdout: {result.stdout}\nstderr: {result.stderr}")
+        print(f"C compilation failed:\nstdout: {result.stdout}\n"
+              f"stderr: {result.stderr}")
         sys.exit(1)
     print("C reference compiled successfully")
 
+
+def _setup_reduce_fn(lib, name):
+    """Configure a reduction function's ctypes signature."""
+    fn = getattr(lib, name)
+    fn.argtypes = REDUCE_ARGTYPES
+    fn.restype = F32
+    return fn
+
+
 def load_libraries():
-    """Load compiled libraries and set up function signatures"""
-    bench_dir = Path(__file__).parent
-    ea_lib = ctypes.CDLL(str(bench_dir / "kernel.so"))
-    c_lib = ctypes.CDLL(str(bench_dir / "reference.so"))
+    """Load Ea and GCC libraries and set up function signatures"""
+    ea_lib = ctypes.CDLL(str(BENCH_DIR / "kernel.so"))
+    c_lib = ctypes.CDLL(str(BENCH_DIR / "reference.so"))
 
-    FLOAT_PTR = ctypes.POINTER(ctypes.c_float)
-    I32 = ctypes.c_int32
-    F32 = ctypes.c_float
-
-    # Ea kernels
     for name in ["sum_f32x4", "sum_f32x8", "max_f32x4", "min_f32x4"]:
-        fn = getattr(ea_lib, name)
-        fn.argtypes = [FLOAT_PTR, I32]
-        fn.restype = F32
+        _setup_reduce_fn(ea_lib, name)
 
-    # C kernels
     for name in [
         "sum_f32x8_c", "sum_f32x4_c", "sum_scalar_c",
         "max_f32x4_c", "max_scalar_c",
         "min_f32x4_c", "min_scalar_c",
     ]:
-        fn = getattr(c_lib, name)
-        fn.argtypes = [FLOAT_PTR, I32]
-        fn.restype = F32
+        _setup_reduce_fn(c_lib, name)
 
     return ea_lib, c_lib
 
+
+def compile_and_load_competitors():
+    """Try to compile and load Clang, ISPC, and Rust competitors.
+
+    Returns a dict with keys 'sum', 'max', 'min', each mapping to a list
+    of (label, func) tuples.
+    """
+    competitors = {"sum": [], "max": [], "min": []}
+
+    # --- Clang ---
+    for ver in [14, 16, 17, 18]:
+        clang = bench_common.has_clang(ver)
+        if clang is None:
+            continue
+        so_name = f"reference_clang{ver}.so"
+        print(f"Compiling reductions with {clang}...")
+        ok = bench_common.compile_with_clang(
+            clang, "reference.c", so_name, BENCH_DIR
+        )
+        if not ok:
+            continue
+        lib = bench_common.try_load(BENCH_DIR / so_name, f"Clang-{ver}")
+        if lib is None:
+            continue
+        for name in [
+            "sum_f32x8_c", "sum_f32x4_c", "sum_scalar_c",
+            "max_f32x4_c", "max_scalar_c",
+            "min_f32x4_c", "min_scalar_c",
+        ]:
+            _setup_reduce_fn(lib, name)
+        tag = f"Clang-{ver}"
+        competitors["sum"].append((f"{tag} f32x8", lib.sum_f32x8_c))
+        competitors["sum"].append((f"{tag} f32x4", lib.sum_f32x4_c))
+        competitors["max"].append((f"{tag} f32x4", lib.max_f32x4_c))
+        competitors["min"].append((f"{tag} f32x4", lib.min_f32x4_c))
+        break  # Use first available clang version
+
+    # --- ISPC ---
+    if bench_common.has_ispc():
+        print("Compiling ISPC reduction kernels...")
+        ok = bench_common.compile_ispc(
+            "reductions.ispc", "reductions_ispc.so", BENCH_DIR
+        )
+        if ok:
+            lib = bench_common.try_load(
+                BENCH_DIR / "reductions_ispc.so", "ISPC"
+            )
+            if lib:
+                _setup_reduce_fn(lib, "sum_ispc")
+                _setup_reduce_fn(lib, "max_ispc")
+                _setup_reduce_fn(lib, "min_ispc")
+                competitors["sum"].append(("ISPC", lib.sum_ispc))
+                competitors["max"].append(("ISPC", lib.max_ispc))
+                competitors["min"].append(("ISPC", lib.min_ispc))
+
+    # --- Rust std::simd ---
+    if bench_common.has_rust_nightly():
+        crate_dir = BENCH_DIR.parent / "rust_competitors"
+        print("Building Rust competitors...")
+        so_path = bench_common.compile_rust_competitors(crate_dir)
+        if so_path:
+            lib = bench_common.try_load(so_path, "Rust std::simd")
+            if lib:
+                _setup_reduce_fn(lib, "sum_f32x4_rust")
+                _setup_reduce_fn(lib, "sum_f32x8_rust")
+                _setup_reduce_fn(lib, "max_f32x4_rust")
+                _setup_reduce_fn(lib, "min_f32x4_rust")
+                competitors["sum"].append(
+                    ("Rust f32x8", lib.sum_f32x8_rust))
+                competitors["sum"].append(
+                    ("Rust f32x4", lib.sum_f32x4_rust))
+                competitors["max"].append(
+                    ("Rust f32x4", lib.max_f32x4_rust))
+                competitors["min"].append(
+                    ("Rust f32x4", lib.min_f32x4_rust))
+
+    return competitors
+
+
 def benchmark_reduction(func, data_ptr, size, description):
     """Benchmark a single reduction function, return (avg_time, min_time, result)"""
-    # Warmup
     for _ in range(WARMUP_RUNS):
         func(data_ptr, size)
 
@@ -141,6 +228,7 @@ def benchmark_reduction(func, data_ptr, size, description):
     min_time = min(times)
     return avg_time, min_time, result
 
+
 def verify_correctness(ea_lib, c_lib, data_ptr, size):
     """Verify Ea and C produce matching results"""
     print("Verifying correctness...")
@@ -155,8 +243,6 @@ def verify_correctness(ea_lib, c_lib, data_ptr, size):
     ea_min = ea_lib.min_f32x4(data_ptr, size)
     c_min = c_lib.min_scalar_c(data_ptr, size)
 
-    # Floating point reductions can differ in order of operations,
-    # so use a generous tolerance
     def check(name, ea_val, c_val, rtol=1e-2):
         if abs(ea_val - c_val) > abs(c_val) * rtol + 1e-5:
             print(f"  MISMATCH {name}: Ea={ea_val}, C={c_val}")
@@ -174,8 +260,9 @@ def verify_correctness(ea_lib, c_lib, data_ptr, size):
     else:
         print("  WARNING: some results differ (may be FP ordering)")
 
+
 def run_benchmark_group(name, variants, data_ptr, size):
-    """Run a group of benchmarks (e.g., all sum variants) and print results"""
+    """Run a group of benchmarks and print a unified result table."""
     print(f"\n--- {name} ---")
 
     results = {}
@@ -184,23 +271,29 @@ def run_benchmark_group(name, variants, data_ptr, size):
         results[label] = (avg, mint, val)
         sys.stdout.write(f"  {label}: done\n")
 
-    # Find baseline (fastest C SIMD)
-    c_labels = [l for l, _ in variants if l.startswith("C ")]
+    # Baseline = fastest C SIMD entry (labels starting with "C " or "GCC ")
+    c_labels = [l for l, _ in variants
+                if l.startswith("C ") or l.startswith("GCC ")]
+    if not c_labels:
+        c_labels = [l for l, _ in variants]
     baseline_label = min(c_labels, key=lambda l: results[l][0])
     baseline_avg = results[baseline_label][0]
 
-    print(f"\n  {'Implementation':<20} | {'Avg (us)':>10} | {'Min (us)':>10} | {'vs ' + baseline_label:>16}")
-    print(f"  {'-'*20}-+-{'-'*10}-+-{'-'*10}-+-{'-'*16}")
+    print(f"\n  {'Implementation':<22} | {'Avg (us)':>10} | {'Min (us)':>10} "
+          f"| {'vs Best C':>10}")
+    print(f"  {'-'*22}-+-{'-'*10}-+-{'-'*10}-+-{'-'*10}")
 
     for label, _ in variants:
         avg, mint, _ = results[label]
         ratio = avg / baseline_avg
-        print(f"  {label:<20} | {avg*1e6:>10.1f} | {mint*1e6:>10.1f} | {ratio:>15.3f}x")
+        print(f"  {label:<22} | {avg*1e6:>10.1f} | {mint*1e6:>10.1f} "
+              f"| {ratio:>9.3f}x")
 
     return results
 
+
 def main():
-    os.chdir(Path(__file__).parent)
+    os.chdir(BENCH_DIR)
 
     print("=== Horizontal Reduction Benchmark ===")
     print_environment()
@@ -210,37 +303,51 @@ def main():
 
     compile_ea_kernel()
     compile_c_reference()
-
     ea_lib, c_lib = load_libraries()
+
+    # Compile competitors (graceful — missing tools are skipped)
+    comp = compile_and_load_competitors()
 
     np.random.seed(42)
     data = np.random.uniform(-100.0, 100.0, ARRAY_SIZE).astype(np.float32)
-    data_ptr = data.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
+    data_ptr = data.ctypes.data_as(FLOAT_PTR)
 
     verify_correctness(ea_lib, c_lib, data_ptr, ARRAY_SIZE)
 
     # --- Sum benchmarks ---
-    sum_results = run_benchmark_group("Sum Reduction", [
+    sum_variants = [
         ("C f32x8 (AVX2)",   c_lib.sum_f32x8_c),
         ("C f32x4 (SSE)",    c_lib.sum_f32x4_c),
         ("C scalar",         c_lib.sum_scalar_c),
         ("Ea f32x8",         ea_lib.sum_f32x8),
         ("Ea f32x4",         ea_lib.sum_f32x4),
-    ], data_ptr, ARRAY_SIZE)
+    ]
+    sum_variants.extend(comp["sum"])
+    sum_results = run_benchmark_group(
+        "Sum Reduction", sum_variants, data_ptr, ARRAY_SIZE
+    )
 
     # --- Max benchmarks ---
-    max_results = run_benchmark_group("Max Reduction", [
+    max_variants = [
         ("C f32x4 (SSE)",    c_lib.max_f32x4_c),
         ("C scalar",         c_lib.max_scalar_c),
         ("Ea f32x4",         ea_lib.max_f32x4),
-    ], data_ptr, ARRAY_SIZE)
+    ]
+    max_variants.extend(comp["max"])
+    max_results = run_benchmark_group(
+        "Max Reduction", max_variants, data_ptr, ARRAY_SIZE
+    )
 
     # --- Min benchmarks ---
-    min_results = run_benchmark_group("Min Reduction", [
+    min_variants = [
         ("C f32x4 (SSE)",    c_lib.min_f32x4_c),
         ("C scalar",         c_lib.min_scalar_c),
         ("Ea f32x4",         ea_lib.min_f32x4),
-    ], data_ptr, ARRAY_SIZE)
+    ]
+    min_variants.extend(comp["min"])
+    min_results = run_benchmark_group(
+        "Min Reduction", min_variants, data_ptr, ARRAY_SIZE
+    )
 
     # --- Summary ---
     print("\n=== Summary ===")
@@ -264,6 +371,7 @@ def main():
     scalar_avg = sum_results["C scalar"][0]
     simd_speedup = scalar_avg / c_sum8_avg
     print(f"\nSIMD speedup (C scalar vs C f32x8): {simd_speedup:.1f}x")
+
 
 if __name__ == "__main__":
     main()

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-FMA Kernel Benchmark: Eä vs hand-optimized C
+FMA Kernel Benchmark: Ea vs hand-optimized C and competitors
 
 Measures performance of fused multiply-add operations:
 result[i] = a[i] * b[i] + c[i]
 
-Tests both f32x4 (SSE) and f32x8 (AVX2) implementations.
+Tests f32x4 (SSE) and f32x8 (AVX2) implementations.
+Competitors (Clang, ISPC, Rust std::simd) are included when available.
 """
 
 import os
@@ -17,10 +18,20 @@ import numpy as np
 import ctypes
 from pathlib import Path
 
+# Make bench_common importable
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import bench_common
+
 # Configuration
 ARRAY_SIZE = 1_000_000  # 1M elements for meaningful timing
 NUM_RUNS = 100          # Average over many runs
 WARMUP_RUNS = 10        # Warmup iterations
+
+BENCH_DIR = Path(__file__).parent
+FLOAT_PTR = ctypes.POINTER(ctypes.c_float)
+I32 = ctypes.c_int32
+FMA_ARGTYPES = [FLOAT_PTR, FLOAT_PTR, FLOAT_PTR, FLOAT_PTR, I32]
+
 
 def print_environment():
     """Print CPU, compiler, and OS info for reproducibility"""
@@ -28,7 +39,6 @@ def print_environment():
     print(f"OS: {platform.system()} {platform.release()}")
     print(f"Arch: {platform.machine()}")
 
-    # CPU model
     try:
         with open("/proc/cpuinfo") as f:
             for line in f:
@@ -38,254 +48,283 @@ def print_environment():
     except FileNotFoundError:
         print(f"CPU: {platform.processor() or 'unknown'}")
 
-    # GCC version
     try:
         gcc = subprocess.run(["gcc", "--version"], capture_output=True, text=True)
         print(f"GCC: {gcc.stdout.splitlines()[0]}")
     except FileNotFoundError:
         print("GCC: not found")
 
-    # LLVM version
     try:
-        llvm = subprocess.run(["llvm-config-14", "--version"], capture_output=True, text=True)
+        llvm = subprocess.run(["llvm-config-14", "--version"],
+                              capture_output=True, text=True)
         print(f"LLVM: {llvm.stdout.strip()}")
     except FileNotFoundError:
         print("LLVM: llvm-config-14 not found")
 
-    print()
+    bench_common.print_competitor_versions()
 
 
 def compile_ea_kernel():
-    """Compile Eä kernel to shared library"""
-    print("Compiling Eä kernel...")
-    
-    # Compile to .so
+    """Compile Ea kernel to shared library"""
+    print("Compiling Ea kernel...")
+
     result = subprocess.run([
-        "cargo", "run", "--features=llvm", "--", 
+        "cargo", "run", "--features=llvm", "--",
         "kernel.ea", "--lib"
-    ], capture_output=True, text=True, cwd=Path(__file__).parent)
-    
+    ], capture_output=True, text=True, cwd=BENCH_DIR)
+
     if result.returncode != 0:
-        print(f"Eä compilation failed:")
+        print(f"Ea compilation failed:")
         print(f"stdout: {result.stdout}")
         print(f"stderr: {result.stderr}")
         sys.exit(1)
-    
-    # Should create kernel.so
-    if not os.path.exists("kernel.so"):
+
+    if not (BENCH_DIR / "kernel.so").exists():
         print("Error: kernel.so not created")
         sys.exit(1)
-    
-    print("Eä kernel compiled successfully")
+
+    print("Ea kernel compiled successfully")
+
 
 def compile_c_reference():
-    """Compile C reference with maximum optimization"""
-    print("Compiling C reference...")
-    
+    """Compile C reference with GCC and maximum optimization"""
+    print("Compiling C reference (GCC)...")
+
     result = subprocess.run([
         "gcc", "-O3", "-march=native", "-ffast-math",
-        "-shared", "-fPIC", 
+        "-shared", "-fPIC",
         "reference.c", "-o", "reference.so"
-    ], capture_output=True, text=True, cwd=Path(__file__).parent)
-    
+    ], capture_output=True, text=True, cwd=BENCH_DIR)
+
     if result.returncode != 0:
         print(f"C compilation failed:")
         print(f"stdout: {result.stdout}")
         print(f"stderr: {result.stderr}")
         sys.exit(1)
-    
+
     print("C reference compiled successfully")
 
+
 def load_libraries():
-    """Load compiled libraries"""
-    ea_lib = ctypes.CDLL("./kernel.so")
-    c_lib = ctypes.CDLL("./reference.so") 
-    
-    # Configure function signatures
-    
-    # f32x4 versions
-    ea_lib.fma_kernel_f32x4.argtypes = [
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float), 
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_int32
-    ]
+    """Load Ea and GCC libraries"""
+    ea_lib = ctypes.CDLL(str(BENCH_DIR / "kernel.so"))
+    c_lib = ctypes.CDLL(str(BENCH_DIR / "reference.so"))
+
+    ea_lib.fma_kernel_f32x4.argtypes = FMA_ARGTYPES
     ea_lib.fma_kernel_f32x4.restype = None
-    
-    c_lib.fma_kernel_f32x4_c.argtypes = [
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float), 
-        ctypes.c_int32
-    ]
+
+    c_lib.fma_kernel_f32x4_c.argtypes = FMA_ARGTYPES
     c_lib.fma_kernel_f32x4_c.restype = None
-    
-    # Scalar version
-    c_lib.fma_kernel_scalar_c.argtypes = [
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.POINTER(ctypes.c_float),
-        ctypes.c_int32
-    ]
+
+    c_lib.fma_kernel_f32x8_c.argtypes = FMA_ARGTYPES
+    c_lib.fma_kernel_f32x8_c.restype = None
+
+    c_lib.fma_kernel_scalar_c.argtypes = FMA_ARGTYPES
     c_lib.fma_kernel_scalar_c.restype = None
-    
+
     return ea_lib, c_lib
+
+
+def compile_and_load_competitors():
+    """Try to compile and load Clang, ISPC, and Rust competitors.
+
+    Returns a list of (label, func) tuples for each available competitor.
+    """
+    competitors = []
+
+    # --- Clang versions ---
+    for ver in [14, 16, 17, 18]:
+        clang = bench_common.has_clang(ver)
+        if clang is None:
+            continue
+        so_name = f"reference_clang{ver}.so"
+        print(f"Compiling with {clang}...")
+        ok = bench_common.compile_with_clang(
+            clang, "reference.c", so_name, BENCH_DIR
+        )
+        if not ok:
+            continue
+        lib = bench_common.try_load(BENCH_DIR / so_name, f"Clang-{ver}")
+        if lib is None:
+            continue
+        # Set up signatures — same functions as GCC reference
+        for fname in ["fma_kernel_f32x4_c", "fma_kernel_f32x8_c",
+                       "fma_kernel_scalar_c"]:
+            fn = getattr(lib, fname)
+            fn.argtypes = FMA_ARGTYPES
+            fn.restype = None
+        competitors.append((f"Clang-{ver} f32x8", lib.fma_kernel_f32x8_c))
+        competitors.append((f"Clang-{ver} f32x4", lib.fma_kernel_f32x4_c))
+        break  # Use first available clang version
+
+    # --- ISPC ---
+    if bench_common.has_ispc():
+        print("Compiling ISPC kernel...")
+        ok = bench_common.compile_ispc(
+            "fma_kernel.ispc", "fma_kernel_ispc.so", BENCH_DIR
+        )
+        if ok:
+            lib = bench_common.try_load(
+                BENCH_DIR / "fma_kernel_ispc.so", "ISPC"
+            )
+            if lib:
+                lib.fma_kernel_ispc.argtypes = FMA_ARGTYPES
+                lib.fma_kernel_ispc.restype = None
+                competitors.append(("ISPC", lib.fma_kernel_ispc))
+
+    # --- Rust std::simd ---
+    if bench_common.has_rust_nightly():
+        crate_dir = BENCH_DIR.parent / "rust_competitors"
+        print("Building Rust competitors...")
+        so_path = bench_common.compile_rust_competitors(crate_dir)
+        if so_path:
+            lib = bench_common.try_load(so_path, "Rust std::simd")
+            if lib:
+                lib.fma_kernel_f32x4_rust.argtypes = FMA_ARGTYPES
+                lib.fma_kernel_f32x4_rust.restype = None
+                competitors.append(("Rust std::simd", lib.fma_kernel_f32x4_rust))
+
+    return competitors
+
 
 def create_test_data():
     """Create test arrays with meaningful data"""
-    np.random.seed(42)  # Reproducible results
-    
+    np.random.seed(42)
     a = np.random.uniform(-1.0, 1.0, ARRAY_SIZE).astype(np.float32)
     b = np.random.uniform(-1.0, 1.0, ARRAY_SIZE).astype(np.float32)
     c = np.random.uniform(-1.0, 1.0, ARRAY_SIZE).astype(np.float32)
-    
     return a, b, c
 
+
 def benchmark_function(func, a, b, c, result, description):
-    """Benchmark a single function"""
+    """Benchmark a single FMA function"""
     print(f"  Benchmarking {description}...")
-    
-    # Warmup
+
     for _ in range(WARMUP_RUNS):
         func(a, b, c, result, ARRAY_SIZE)
-    
-    # Actual timing
+
     times = []
     for _ in range(NUM_RUNS):
         start = time.perf_counter()
         func(a, b, c, result, ARRAY_SIZE)
         end = time.perf_counter()
         times.append(end - start)
-    
+
     avg_time = sum(times) / len(times)
     min_time = min(times)
-    
     return avg_time, min_time
 
+
 def verify_correctness(ea_lib, c_lib, a, b, c):
-    """Verify that Eä and C produce identical results"""
+    """Verify that Ea and C produce identical results"""
     print("Verifying correctness...")
-    
-    # Small test arrays
+
     test_size = 100
     a_test = a[:test_size]
-    b_test = b[:test_size] 
+    b_test = b[:test_size]
     c_test = c[:test_size]
-    
-    # Convert to ctypes arrays
-    a_ptr = a_test.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    b_ptr = b_test.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    c_ptr = c_test.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    
-    # Results arrays
+
+    a_ptr = a_test.ctypes.data_as(FLOAT_PTR)
+    b_ptr = b_test.ctypes.data_as(FLOAT_PTR)
+    c_ptr = c_test.ctypes.data_as(FLOAT_PTR)
+
     ea_result = np.zeros(test_size, dtype=np.float32)
     c_result = np.zeros(test_size, dtype=np.float32)
-    
-    ea_result_ptr = ea_result.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    c_result_ptr = c_result.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    
-    # Test f32x4 versions
+
+    ea_result_ptr = ea_result.ctypes.data_as(FLOAT_PTR)
+    c_result_ptr = c_result.ctypes.data_as(FLOAT_PTR)
+
     ea_lib.fma_kernel_f32x4(a_ptr, b_ptr, c_ptr, ea_result_ptr, test_size)
     c_lib.fma_kernel_f32x4_c(a_ptr, b_ptr, c_ptr, c_result_ptr, test_size)
-    
+
     if not np.allclose(ea_result, c_result, rtol=1e-5):
         print(f"ERROR: f32x4 results don't match!")
-        print(f"First difference at index: {np.argmax(np.abs(ea_result - c_result))}")
-        print(f"Eä result: {ea_result[:10]}")
+        idx = np.argmax(np.abs(ea_result - c_result))
+        print(f"First difference at index: {idx}")
+        print(f"Ea result: {ea_result[:10]}")
         print(f"C result: {c_result[:10]}")
         sys.exit(1)
-    
-    print("✓ Correctness verified")
+
+    print("  Correctness verified")
+
 
 def main():
-    os.chdir(Path(__file__).parent)
-    
+    os.chdir(BENCH_DIR)
+
     print("=== FMA Kernel Benchmark ===")
     print_environment()
     print(f"Array size: {ARRAY_SIZE:,} elements")
     print(f"Runs per test: {NUM_RUNS}")
     print()
-    
-    # Compile
+
+    # Compile core libraries
     compile_ea_kernel()
     compile_c_reference()
-    
-    # Load libraries
     ea_lib, c_lib = load_libraries()
-    
+
+    # Compile competitors (graceful — missing tools are skipped)
+    competitors = compile_and_load_competitors()
+
     # Create test data
     a, b, c = create_test_data()
-    
-    # Convert to ctypes arrays
-    a_ptr = a.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    b_ptr = b.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    c_ptr = c.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    
-    # Result arrays
+    a_ptr = a.ctypes.data_as(FLOAT_PTR)
+    b_ptr = b.ctypes.data_as(FLOAT_PTR)
+    c_ptr = c.ctypes.data_as(FLOAT_PTR)
     result = np.zeros(ARRAY_SIZE, dtype=np.float32)
-    result_ptr = result.ctypes.data_as(ctypes.POINTER(ctypes.c_float))
-    
-    # Verify correctness
+    result_ptr = result.ctypes.data_as(FLOAT_PTR)
+
     verify_correctness(ea_lib, c_lib, a, b, c)
-    
+
     print("\n=== Performance Results ===")
-    
-    # Benchmark all versions
+
+    # Build the full benchmark list: core + competitors
+    bench_list = [
+        ("GCC f32x8 (AVX2)", c_lib.fma_kernel_f32x8_c),
+        ("GCC f32x4 (SSE)",  c_lib.fma_kernel_f32x4_c),
+        ("GCC scalar",       c_lib.fma_kernel_scalar_c),
+        ("Ea f32x4",         ea_lib.fma_kernel_f32x4),
+    ]
+    bench_list.extend(competitors)
+
     results = {}
-    
-    # f32x8 (AVX2) - C reference
-    c_avg8, c_min8 = benchmark_function(
-        c_lib.fma_kernel_f32x8_c, a_ptr, b_ptr, c_ptr, result_ptr,
-        "C f32x8"  
-    )
-    results['c_f32x8'] = (c_avg8, c_min8)
-    
-    # f32x4 (SSE)
-    ea_avg4, ea_min4 = benchmark_function(
-        ea_lib.fma_kernel_f32x4, a_ptr, b_ptr, c_ptr, result_ptr,
-        "Eä f32x4"
-    )
-    results['ea_f32x4'] = (ea_avg4, ea_min4)
-    
-    c_avg4, c_min4 = benchmark_function(
-        c_lib.fma_kernel_f32x4_c, a_ptr, b_ptr, c_ptr, result_ptr,
-        "C f32x4"
-    )
-    results['c_f32x4'] = (c_avg4, c_min4)
-    
-    # Scalar baseline
-    scalar_avg, scalar_min = benchmark_function(
-        c_lib.fma_kernel_scalar_c, a_ptr, b_ptr, c_ptr, result_ptr,
-        "C scalar"
-    )
-    results['scalar'] = (scalar_avg, scalar_min)
-    
-    # Report results
-    print("\nTiming Results (seconds):")
-    print("Implementation     | Avg Time  | Min Time  | vs C f32x8")
-    print("-------------------|-----------|-----------|----------")
-    
-    baseline_avg = results['c_f32x8'][0]
-    
-    for name, (avg, min_t) in results.items():
+    for label, func in bench_list:
+        avg, mint = benchmark_function(
+            func, a_ptr, b_ptr, c_ptr, result_ptr, label
+        )
+        results[label] = (avg, mint)
+
+    # Find baseline: fastest C/SIMD implementation (GCC or Clang f32x8)
+    c_simd_labels = [l for l in results if "f32x8" in l or "f32x4" in l]
+    c_simd_labels = [l for l in c_simd_labels if not l.startswith("Ea")]
+    baseline_label = min(c_simd_labels, key=lambda l: results[l][0])
+    baseline_avg = results[baseline_label][0]
+
+    # Print unified table
+    print(f"\n  {'Implementation':<22} | {'Avg (us)':>10} | {'Min (us)':>10} "
+          f"| {'vs Best C':>10}")
+    print(f"  {'-'*22}-+-{'-'*10}-+-{'-'*10}-+-{'-'*10}")
+
+    for label, _ in bench_list:
+        avg, mint = results[label]
         ratio = avg / baseline_avg
-        print(f"{name:18} | {avg:.6f} | {min_t:.6f} | {ratio:.3f}x")
-    
-    # Calculate key ratios
-    
-    ea4_vs_c4_ratio = results['ea_f32x4'][0] / results['c_f32x4'][0]
-    print(f"\n🎯 Key Result: Eä f32x4 vs C f32x4 = {ea4_vs_c4_ratio:.3f}x")
-    
-    if ea4_vs_c4_ratio <= 1.1:
-        print("✅ Within 10% of hand-optimized C!")
+        print(f"  {label:<22} | {avg*1e6:>10.1f} | {mint*1e6:>10.1f} "
+              f"| {ratio:>9.3f}x")
+
+    # Key ratios
+    ea4_avg = results["Ea f32x4"][0]
+    gcc4_avg = results["GCC f32x4 (SSE)"][0]
+    ea4_vs_gcc4 = ea4_avg / gcc4_avg
+    print(f"\nKey Result: Ea f32x4 vs GCC f32x4 = {ea4_vs_gcc4:.3f}x")
+
+    if ea4_vs_gcc4 <= 1.1:
+        print("  Within 10% of hand-optimized C!")
     else:
-        print("❌ More than 10% slower than C")
-    
-    speedup_vs_scalar = results['scalar'][0] / results['c_f32x4'][0]
-    print(f"📈 SIMD speedup vs scalar = {speedup_vs_scalar:.1f}x")
+        print("  More than 10% slower than C")
+
+    scalar_avg = results["GCC scalar"][0]
+    speedup = scalar_avg / gcc4_avg
+    print(f"SIMD speedup vs scalar = {speedup:.1f}x")
+
 
 if __name__ == "__main__":
     main()

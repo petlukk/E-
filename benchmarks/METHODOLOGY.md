@@ -22,6 +22,22 @@ Results reported in the README were measured on:
 | Metric | Average wall time | Average wall time |
 | Seed | `np.random.seed(42)` | `np.random.seed(42)` |
 
+## Competitors
+
+Each benchmark always runs Ea vs GCC (hand-written intrinsics). Additional
+competitors are included automatically when their toolchains are detected:
+
+| Competitor | Source | Flags | How to install |
+|---|---|---|---|
+| GCC (required) | `reference.c` | `-O3 -march=native -ffast-math` | System package |
+| Clang | `reference.c` | `-O3 -march=native -ffast-math` | `apt install clang-14` (or any version) |
+| ISPC | `.ispc` kernels | `--target=avx2-i32x8 -O2` | [ISPC releases](https://github.com/ispc/ispc/releases) |
+| Rust std::simd | `rust_competitors/` | `-C target-cpu=native` (nightly) | `rustup toolchain install nightly` |
+
+Missing tools are skipped gracefully — the core Ea-vs-GCC comparison always
+runs. The baseline for ratio calculations is the fastest C SIMD implementation
+(GCC or Clang), ensuring an honest comparison.
+
 ## What is Measured
 
 Each benchmark compiles both an Ea kernel (`.so` via `--lib`) and a C reference
