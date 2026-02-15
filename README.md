@@ -1,148 +1,137 @@
-# Eä: SIMD Kernel Compiler
+# Ea
 
-Compile readable SIMD kernels to object files callable from any language.
+**SIMD kernel language for C and Python.**
 
-## What It Does
+Write readable SIMD code. Compile to `.o` or `.so`. Call from C, Rust, Python via C ABI.
+No runtime. No garbage collector. No unsafe blocks. Just kernels.
 
-Eä transforms SIMD kernels written in a purpose-built language into native object files (.o) and shared libraries (.so) that integrate seamlessly with C, Rust, Python, and any language supporting the C ABI. Write once, call from anywhere.
+## Example
 
-**Currently**: Phase 7 — Structs, shared libraries, and deep SIMD
-**Focus**: Correctness and interop, not compilation speed
+```
+export func fma_kernel(a: *f32, b: *f32, c: *f32, out: *mut f32, len: i32) {
+    let mut i: i32 = 0
+    while i + 4 <= len {
+        let va: f32x4 = load(a, i)
+        let vb: f32x4 = load(b, i)
+        let vc: f32x4 = load(c, i)
+        store(out, i, fma(va, vb, vc))
+        i = i + 4
+    }
+}
+```
 
-## Why This Matters
-
-Performance-critical code often requires explicit SIMD. Hand-written intrinsics are error-prone and verbose. General-purpose languages struggle to expose vectorization clearly. Eä offers a middle path: a readable, type-safe syntax that compiles directly to optimized SIMD instructions without the overhead of a runtime.
-
-## Use Cases
-
-- Real-time signal processing (audio, video, sensor data)
-- Machine learning inference kernels
-- Numerical computing libraries
-- Game engine physics and rendering
-- Computer vision primitives
-- Graphics shaders compiled to CPU code
-
-## The Language
-
-A strict subset focused on computational kernels:
-
-**Types**: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `*T`, `*mut T`, `f32x4`, `i32x4`, `f32x8`, `i32x8`
-
-**Features** (Phase 7):
-- Export functions with C calling convention
-- Variables and arithmetic
-- Control flow (if/else, while)
-- Functions and pointer indexing
-- **SIMD vectors**: load, store, splat, element access, masked operations
-- **Deep SIMD**: fma, reduce_add/max/min, shuffle, select, f32x8/i32x8
-- **Structs**: C-compatible layout, field access through pointers (`particles[i].x`)
-- **Shared libraries**: `--lib` flag produces `.so`/`.dll`
-
-**Not included**: strings, generics, modules, JIT, garbage collection
-
-## Getting Started
+Compile and call from C:
 
 ```bash
-# Install LLVM 14
+ea kernel.ea --lib    # produces kernel.so
+```
+
+```c
+extern void fma_kernel(const float*, const float*, const float*, float*, int);
+
+fma_kernel(a, b, c, result, n);  // that's it
+```
+
+## Benchmark
+
+Measured against hand-optimized C with AVX2 intrinsics (`gcc -O3 -march=native -ffast-math`).
+Ea uses strict IEEE floating point -- no fast-math flags.
+
+| Kernel | Ea vs C | Notes |
+|---|---|---|
+| FMA (f32x4) | ~1.0x | At parity |
+| Sum reduction (f32x8) | ~1.0x | At parity |
+| Sum reduction (f32x4) | ~0.9x | Ea faster |
+| Max reduction (f32x4) | ~0.95x | Ea faster |
+| Min reduction (f32x4) | ~1.0x | At parity |
+
+1M elements, 100-200 runs, averaged. Full benchmark code in `benchmarks/`.
+
+## Why not...
+
+**C with intrinsics?**
+Works, but `_mm256_fmadd_ps(_mm256_loadu_ps(&a[i]), ...)` is unreadable and error-prone.
+Ea compiles `fma(load(a, i), load(b, i), load(c, i))` to the same instructions.
+
+**Rust with `std::simd`?**
+`std::simd` is nightly-only and Rust's type system adds friction for kernel code.
+Ea is purpose-built: no lifetimes, no borrows, no generics. Just SIMD.
+
+**ISPC?**
+ISPC auto-vectorizes scalar code. Ea gives you explicit control over vector width and operations.
+Different philosophy -- Ea is closer to "portable intrinsics" than an auto-vectorizer.
+
+## Features
+
+- **SIMD**: `f32x4`, `f32x8`, `i32x4`, `i32x8` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
+- **Reductions**: `reduce_add`, `reduce_max`, `reduce_min`
+- **Structs**: C-compatible layout, pointer-to-struct, array-of-structs
+- **Pointers**: `*T`, `*mut T`, pointer indexing (`arr[i]`)
+- **Types**: `i8`-`i64`, `u8`-`u64`, `f32`, `f64`, `bool`
+- **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
+- **C ABI**: every `export func` is callable from any language
+
+## Quick Start
+
+```bash
+# Requirements: LLVM 14, Rust
 sudo apt install llvm-14-dev clang-14
 
 # Build
 cargo build --features=llvm
 
-# Compile a kernel
-cargo run --features=llvm -- kernel.ea  # Produces kernel.o
-cargo run --features=llvm -- kernel.ea --lib  # Produces kernel.so
+# Compile a kernel to object file
+ea kernel.ea              # -> kernel.o
 
-# Run tests
+# Compile to shared library
+ea kernel.ea --lib        # -> kernel.so
+
+# Compile standalone executable
+ea app.ea -o app          # -> app
+
+# Run tests (95 passing)
 cargo test --features=llvm
 ```
 
-## Test Status
+## Call from Python
 
-All 95 tests passing:
+```python
+import ctypes
+import numpy as np
 
-- **Phase 2** (End-to-end): 22 tests — basic types, arithmetic, functions, C interop
-- **Phase 3** (Control flow): 17 tests — if/else, while loops, boolean logic
-- **Phase 4** (Pointers): 10 tests — pointer arithmetic, array access, recursive functions
-- **Phase 5** (SIMD): 12 tests — vector literals, element access, SIMD arithmetic
-- **Phase 6** (Deep SIMD): 21 tests — fma, reductions, shuffle, select, f32x8
-- **Phase 7** (Structs + Shared Libs): 13 tests — struct field access, pointer-to-struct, array-of-structs, shared library output
+lib = ctypes.CDLL("./kernel.so")
+lib.fma_kernel.argtypes = [
+    ctypes.POINTER(ctypes.c_float),  # a
+    ctypes.POINTER(ctypes.c_float),  # b
+    ctypes.POINTER(ctypes.c_float),  # c
+    ctypes.POINTER(ctypes.c_float),  # out
+    ctypes.c_int32,                  # len
+]
+lib.fma_kernel.restype = None
 
-```
-running 95 tests
-test result: ok. 95 passed; 0 failed; 0 ignored
-```
+a = np.random.rand(1_000_000).astype(np.float32)
+b = np.random.rand(1_000_000).astype(np.float32)
+c = np.random.rand(1_000_000).astype(np.float32)
+out = np.zeros(1_000_000, dtype=np.float32)
 
-## Examples
-
-**SIMD kernel:**
-
-```
-export func dot_product(a: *f32, b: *f32, n: i32) -> f32 {
-    let mut sum: f32 = 0.0
-    let mut i: i32 = 0
-    while i < n {
-        let av: f32x4 = load(a, i)
-        let bv: f32x4 = load(b, i)
-        sum = sum + reduce_add(av .* bv)
-        i = i + 4
-    }
-    return sum
-}
-```
-
-**Struct with C interop:**
-
-```
-struct Particle {
-    x: f32,
-    y: f32,
-    mass: f32,
-}
-
-export func init_particles(p: *mut Particle, n: i32) {
-    let mut i: i32 = 0
-    while i < n {
-        p[i].x = 0.0
-        p[i].y = 0.0
-        p[i].mass = 1.0
-        i = i + 1
-    }
-}
-```
-
-Call from C:
-
-```c
-typedef struct { float x; float y; float mass; } Particle;
-extern void init_particles(Particle*, int);
-
-Particle ps[1000];
-init_particles(ps, 1000);
+lib.fma_kernel(
+    a.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    b.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    c.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
+    len(a),
+)
 ```
 
 ## Architecture
 
 ```
-Source → Lexer → Parser → Type Check → Codegen (LLVM) → Object File
+Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 14) -> .o / .so
 ```
 
-No JIT, no runtime, no intermediate representation in the standard path.
-
-## Development
-
-Each file stays under 500 lines. Every feature is proven by end-to-end tests. No dead code, no placeholders.
-
-See `CLAUDE.md` for design principles and build commands.
-See `EA_V2_SPECIFICATION.md` for the full language spec.
-
-## Roadmap
-
-All 7 core phases are complete. Future work may include:
-- Nested struct access
-- Vector fields in structs
-- Auto-vectorization hints
+~4,500 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+95 tests covering C interop, SIMD operations, structs, and shared library output.
 
 ## License
 
-See LICENSE file.
+Apache 2.0
