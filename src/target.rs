@@ -1,7 +1,5 @@
 #[cfg(feature = "llvm")]
-use inkwell::targets::{
-    CodeModel, FileType, RelocMode, Target, TargetMachine,
-};
+use inkwell::targets::{CodeModel, FileType, RelocMode, Target, TargetMachine};
 
 #[cfg(feature = "llvm")]
 use inkwell::passes::PassManager;
@@ -75,24 +73,23 @@ fn optimize_module(module: &Module) -> crate::error::Result<()> {
     let fpm = PassManager::create(module);
 
     // Scalar cleanup
-    fpm.add_promote_memory_to_register_pass();  // mem2reg — critical
-    fpm.add_instruction_combining_pass();       // instcombine
-    fpm.add_reassociate_pass();                 // reorder expressions
-    fpm.add_gvn_pass();                         // GVN
-    fpm.add_cfg_simplification_pass();          // simplifycfg
-    fpm.add_early_cse_pass();                   // common subexpression elimination
+    fpm.add_promote_memory_to_register_pass(); // mem2reg — critical
+    fpm.add_instruction_combining_pass(); // instcombine
+    fpm.add_reassociate_pass(); // reorder expressions
+    fpm.add_gvn_pass(); // GVN
+    fpm.add_cfg_simplification_pass(); // simplifycfg
+    fpm.add_early_cse_pass(); // common subexpression elimination
 
     // Loop optimization (no loop_rotate — it breaks fcmp+select vectorization)
-    fpm.add_licm_pass();                        // hoist invariants
-    fpm.add_ind_var_simplify_pass();            // simplify induction variables
-    fpm.add_loop_unroll_pass();                 // unroll loops
+    fpm.add_licm_pass(); // hoist invariants
+    fpm.add_ind_var_simplify_pass(); // simplify induction variables
+    fpm.add_loop_unroll_pass(); // unroll loops
 
     // Cleanup
-    fpm.add_instruction_combining_pass();       // instcombine again
-    fpm.add_dead_store_elimination_pass();      // dead stores
-    fpm.add_aggressive_dce_pass();              // dead code
-    fpm.add_cfg_simplification_pass();          // final simplification
-
+    fpm.add_instruction_combining_pass(); // instcombine again
+    fpm.add_dead_store_elimination_pass(); // dead stores
+    fpm.add_aggressive_dce_pass(); // dead code
+    fpm.add_cfg_simplification_pass(); // final simplification
 
     fpm.initialize();
     for function in module.get_functions() {

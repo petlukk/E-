@@ -114,9 +114,15 @@ impl Parser {
     }
 
     pub(super) fn parse_type(&mut self) -> crate::error::Result<TypeAnnotation> {
-        // Pointer types: *T or *mut T
+        // Pointer types: *T, *mut T, *restrict T, *restrict mut T
         if self.check(TokenKind::Star) {
             self.advance(); // consume *
+            let restrict = if self.check(TokenKind::Restrict) {
+                self.advance();
+                true
+            } else {
+                false
+            };
             let mutable = if self.check(TokenKind::Mut) {
                 self.advance();
                 true
@@ -126,6 +132,7 @@ impl Parser {
             let inner = self.parse_type()?;
             return Ok(TypeAnnotation::Pointer {
                 mutable,
+                restrict,
                 inner: Box::new(inner),
             });
         }

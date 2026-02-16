@@ -163,6 +163,7 @@ pub enum TypeAnnotation {
     Named(String),
     Pointer {
         mutable: bool,
+        restrict: bool,
         inner: Box<TypeAnnotation>,
     },
     Vector {
@@ -175,8 +176,16 @@ impl fmt::Display for TypeAnnotation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TypeAnnotation::Named(name) => write!(f, "{name}"),
-            TypeAnnotation::Pointer { mutable, inner } => {
-                if *mutable {
+            TypeAnnotation::Pointer {
+                mutable,
+                restrict,
+                inner,
+            } => {
+                if *restrict && *mutable {
+                    write!(f, "*restrict mut {inner}")
+                } else if *restrict {
+                    write!(f, "*restrict {inner}")
+                } else if *mutable {
                     write!(f, "*mut {inner}")
                 } else {
                     write!(f, "*{inner}")

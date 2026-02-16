@@ -43,46 +43,46 @@ Measured on AMD Ryzen 7 1700 (Zen 1, AVX2/FMA), GCC 11.4, LLVM 14, Linux (WSL2).
 compiled with `gcc -O3 -march=native -ffast-math`. Ea matching this baseline
 without fast-math is the stronger claim.
 
-### FMA Kernel (result[i] = a[i] * b[i] + c[i])
+### FMA Kernel (result[i] = a[i] \* b[i] + c[i])
 
-| Implementation | Avg (us) | vs Fastest C |
-|---|---|---|
-| GCC f32x8 (AVX2) | 1043 | 1.04x |
-| GCC f32x4 (SSE) | 1034 | 1.03x |
-| **Ea f32x4** | **1003** | **1.00x** |
-| Clang-14 f32x8 | 1023 | 1.02x |
-| ISPC | 978 | 0.98x |
-| Rust std::simd | 1045 | 1.04x |
+| Implementation   | Avg (us) | vs Fastest C |
+| ---------------- | -------- | ------------ |
+| GCC f32x8 (AVX2) | 1043     | 1.04x        |
+| GCC f32x4 (SSE)  | 1034     | 1.03x        |
+| **Ea f32x4**     | **1003** | **1.00x**    |
+| Clang-14 f32x8   | 1023     | 1.02x        |
+| ISPC             | 978      | 0.98x        |
+| Rust std::simd   | 1045     | 1.04x        |
 
 ### Sum Reduction
 
-| Implementation | Avg (us) | vs Fastest C |
-|---|---|---|
-| GCC f32x8 (AVX2) | 119 | 1.00x |
-| **Ea f32x8** | **117** | **0.98x** |
-| Clang-14 f32x8 | 115 | 0.96x |
-| ISPC | 120 | 1.00x |
-| Rust f32x8 | 120 | 1.01x |
+| Implementation   | Avg (us) | vs Fastest C |
+| ---------------- | -------- | ------------ |
+| GCC f32x8 (AVX2) | 119      | 1.00x        |
+| **Ea f32x8**     | **117**  | **0.98x**    |
+| Clang-14 f32x8   | 115      | 0.96x        |
+| ISPC             | 120      | 1.00x        |
+| Rust f32x8       | 120      | 1.01x        |
 
 ### Max Reduction
 
-| Implementation | Avg (us) | vs Fastest C |
-|---|---|---|
-| GCC f32x4 (SSE) | 80 | 1.00x |
-| **Ea f32x4** | **83** | **1.03x** |
-| Clang-14 f32x4 | 82 | 1.02x |
-| ISPC | 70 | 0.87x |
-| Rust f32x4 | 209 | 2.61x |
+| Implementation  | Avg (us) | vs Fastest C |
+| --------------- | -------- | ------------ |
+| GCC f32x4 (SSE) | 80       | 1.00x        |
+| **Ea f32x4**    | **83**   | **1.03x**    |
+| Clang-14 f32x4  | 82       | 1.02x        |
+| ISPC            | 70       | 0.87x        |
+| Rust f32x4      | 209      | 2.61x        |
 
 ### Min Reduction
 
-| Implementation | Avg (us) | vs Fastest C |
-|---|---|---|
-| GCC f32x4 (SSE) | 92 | 1.00x |
-| **Ea f32x4** | **87** | **0.95x** |
-| Clang-14 f32x4 | 87 | 0.95x |
-| ISPC | 64 | 0.69x |
-| Rust f32x4 | 187 | 2.05x |
+| Implementation  | Avg (us) | vs Fastest C |
+| --------------- | -------- | ------------ |
+| GCC f32x4 (SSE) | 92       | 1.00x        |
+| **Ea f32x4**    | **87**   | **0.95x**    |
+| Clang-14 f32x4  | 87       | 0.95x        |
+| ISPC            | 64       | 0.69x        |
+| Rust f32x4      | 187      | 2.05x        |
 
 ISPC outperforms Ea on some reductions due to its SPMD execution model
 and aggressive auto-vectorization -- this is expected given the different approach.
@@ -91,6 +91,50 @@ Rust std::simd compiled with `cargo +nightly`, `RUSTFLAGS='-C target-cpu=native'
 
 Competitors are optional -- benchmarks run with whatever toolchains are installed.
 GCC is required; Clang, ISPC, and Rust nightly are detected and included automatically.
+
+---
+
+## Additional Benchmark Results (Intel i7-1260P, WSL2)
+
+Measured on Intel i7-1260P (Alder Lake, AVX2/FMA), LLVM 14, Linux (WSL2).
+1M elements, 100–200 runs, **minimum** time reported.
+
+### Key Finding: `restrict` produces identical machine code
+
+The `noalias` attribute is correctly emitted in LLVM IR, but it has no measurable impact on these benchmarks because:
+
+- The generated assembly is byte-identical with and without `restrict` (confirmed via `objdump -d` + MD5 comparison)
+- Ea's explicit SIMD intrinsics (`load` / `store` / `fma`) already use distinct base pointers, so LLVM's alias analysis does not require `noalias` hints
+- The optimization pipeline intentionally excludes the loop vectorizer and SLP passes (which benefit most from `noalias`)
+- Reduction kernels have a single pointer parameter, making `noalias` vacuous
+
+The implementation is correct and complete — it is simply not performance-relevant for these specific kernels. The feature is positioned for value when the optimizer pipeline grows (auto-tiling, software pipelining, prefetching) or when users write more complex aliasing patterns.
+
+### FMA Kernel (1M f32, 100 runs, min time)
+
+| Implementation       | Min (us) |
+| -------------------- | -------- |
+| GCC f32x8 (AVX2)     | ~395     |
+| Clang-14 f32x8       | ~396     |
+| **Ea f32x4**         | **~326** |
+| Clang-14 f32x4       | ~376     |
+| Rust std::simd f32x4 | ~365     |
+| ISPC                 | ~656     |
+
+### Sum Reduction (1M f32, 200 runs, min time)
+
+| Implementation | Min (us) |
+| -------------- | -------- |
+| ISPC           | ~62      |
+| **Ea f32x8**   | **~65**  |
+| Rust f32x8     | ~66      |
+| C f32x8 (AVX2) | ~68      |
+
+### Notes
+
+- ISPC compilation flag fixed (`--PIC` → `--pic`) in `bench_common.py`
+- Benchmarks confirm that explicit SIMD already provides sufficient aliasing information to LLVM
+- `restrict` becomes valuable when introducing auto-optimization features or more complex aliasing scenarios
 
 ## Why not...
 

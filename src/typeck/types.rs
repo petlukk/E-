@@ -13,8 +13,15 @@ pub enum Type {
     FloatLiteral,
     String,
     Void,
-    Pointer { mutable: bool, inner: Box<Type> },
-    Vector { elem: Box<Type>, width: usize },
+    Pointer {
+        mutable: bool,
+        restrict: bool,
+        inner: Box<Type>,
+    },
+    Vector {
+        elem: Box<Type>,
+        width: usize,
+    },
     Struct(String),
 }
 
@@ -68,6 +75,18 @@ pub fn types_compatible(actual: &Type, expected: &Type) -> bool {
                 width: e_width,
             },
         ) => a_width == e_width && types_compatible(a_elem, e_elem),
+        (
+            Type::Pointer {
+                mutable: a_mut,
+                inner: a_inner,
+                ..
+            },
+            Type::Pointer {
+                mutable: e_mut,
+                inner: e_inner,
+                ..
+            },
+        ) => a_mut == e_mut && types_compatible(a_inner, e_inner),
         (Type::Struct(a), Type::Struct(b)) => a == b,
         _ => false,
     }
@@ -142,10 +161,15 @@ pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
             "bool" => Ok(Type::Bool),
             other => Ok(Type::Struct(other.to_string())),
         },
-        TypeAnnotation::Pointer { mutable, inner } => {
+        TypeAnnotation::Pointer {
+            mutable,
+            restrict,
+            inner,
+        } => {
             let inner_type = resolve_type(inner)?;
             Ok(Type::Pointer {
                 mutable: *mutable,
+                restrict: *restrict,
                 inner: Box::new(inner_type),
             })
         }

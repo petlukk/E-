@@ -70,7 +70,7 @@ impl TypeChecker {
                         )
                     })?;
                     match &var_type {
-                        Type::Pointer { mutable, inner } => {
+                        Type::Pointer { mutable, inner, .. } => {
                             if !mutable {
                                 return Err(CompileError::type_error(
                                     format!("cannot write through immutable pointer '{object}'"),
@@ -182,6 +182,7 @@ impl TypeChecker {
                         Type::Pointer {
                             mutable: true,
                             inner,
+                            ..
                         } => match inner.as_ref() {
                             Type::Struct(name) => name.clone(),
                             _ => {
@@ -194,6 +195,7 @@ impl TypeChecker {
                         Type::Pointer {
                             mutable: false,
                             inner,
+                            ..
                         } if matches!(inner.as_ref(), Type::Struct(_)) => {
                             return Err(CompileError::type_error(
                                 "cannot assign field through immutable pointer",

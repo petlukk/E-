@@ -2,10 +2,10 @@
 // Computes: result[i] = a[i] * b[i] + c[i] for vectors of f32
 
 export func fma_kernel_f32x4(
-    a: *f32,
-    b: *f32, 
-    c: *f32,
-    result: *mut f32,
+    a: *restrict f32,
+    b: *restrict f32,
+    c: *restrict f32,
+    result: *restrict mut f32,
     len: i32
 ) {
     let mut i: i32 = 0

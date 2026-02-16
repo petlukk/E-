@@ -13,6 +13,7 @@ pub fn token_name(kind: &TokenKind) -> &'static str {
         TokenKind::True => "true",
         TokenKind::False => "false",
         TokenKind::Struct => "struct",
+        TokenKind::Restrict => "restrict",
         TokenKind::I32 => "i32",
         TokenKind::I64 => "i64",
         TokenKind::F32 => "f32",

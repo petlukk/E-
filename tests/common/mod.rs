@@ -70,6 +70,7 @@ pub fn compile_and_link_with_c(ea_source: &str, c_source: &str) -> TestOutput {
     }
 }
 
+#[allow(dead_code)]
 pub fn assert_output(source: &str, expected: &str) {
     let result = compile_and_run(source);
     assert_eq!(result.stdout.trim(), expected);

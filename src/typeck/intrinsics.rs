@@ -156,6 +156,7 @@ impl TypeChecker {
                 Type::Pointer {
                     mutable: true,
                     inner,
+                    ..
                 },
                 Type::Vector { elem, .. },
             ) => {

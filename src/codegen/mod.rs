@@ -166,10 +166,15 @@ impl<'ctx> CodeGenerator<'ctx> {
                 "bool" => Type::Bool,
                 other => Type::Struct(other.to_string()),
             },
-            TypeAnnotation::Pointer { mutable, inner } => {
+            TypeAnnotation::Pointer {
+                mutable,
+                restrict,
+                inner,
+            } => {
                 let inner_type = self.resolve_annotation(inner);
                 Type::Pointer {
                     mutable: *mutable,
+                    restrict: *restrict,
                     inner: Box::new(inner_type),
                 }
             }
@@ -220,6 +225,15 @@ impl<'ctx> CodeGenerator<'ctx> {
         };
 
         let function = self.module.add_function(name, fn_type, linkage);
+
+        for (i, param) in params.iter().enumerate() {
+            if let TypeAnnotation::Pointer { restrict: true, .. } = &param.ty {
+                let kind_id = inkwell::attributes::Attribute::get_named_enum_kind_id("noalias");
+                let attr = self.context.create_enum_attribute(kind_id, 0);
+                function.add_attribute(inkwell::attributes::AttributeLoc::Param(i as u32), attr);
+            }
+        }
+
         self.functions.insert(name.to_string(), function);
         Ok(())
     }

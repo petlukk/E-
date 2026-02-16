@@ -84,6 +84,8 @@ pub enum TokenKind {
     False,
     #[token("struct")]
     Struct,
+    #[token("restrict")]
+    Restrict,
 
     #[token("i32")]
     I32,

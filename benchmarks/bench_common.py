@@ -125,7 +125,7 @@ def compile_ispc(
     try:
         r1 = subprocess.run(
             ["ispc", str(src), "-o", str(obj),
-             f"--target={target}", "-O2", "--PIC"],
+             f"--target={target}", "-O2", "--pic"],
             capture_output=True, text=True, cwd=str(cwd), timeout=30,
         )
         if r1.returncode != 0:

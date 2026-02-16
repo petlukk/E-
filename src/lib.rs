@@ -148,7 +148,7 @@ pub fn compile_with_options(
 #[cfg(feature = "llvm")]
 pub fn compile_to_ir(source: &str) -> error::Result<String> {
     init_llvm(); // Thread-safe one-time initialization
-    
+
     let tokens = tokenize(source)?;
     let stmts = parse(tokens)?;
     check_types(&stmts)?;

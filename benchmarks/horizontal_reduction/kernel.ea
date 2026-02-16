@@ -1,7 +1,7 @@
 // Horizontal Reduction Benchmark: Sum, Max, Min across arrays
 // Compute-bound: reduction operations dominate, not memory bandwidth
 
-export func sum_f32x4(data: *f32, len: i32) -> f32 {
+export func sum_f32x4(data: *restrict f32, len: i32) -> f32 {
     let mut acc: f32x4 = splat(0.0)
     let mut i: i32 = 0
     while i + 4 <= len {
@@ -17,7 +17,7 @@ export func sum_f32x4(data: *f32, len: i32) -> f32 {
     return total
 }
 
-export func sum_f32x8(data: *f32, len: i32) -> f32 {
+export func sum_f32x8(data: *restrict f32, len: i32) -> f32 {
     let mut acc: f32x8 = splat(0.0)
     let mut i: i32 = 0
     while i + 8 <= len {
@@ -33,7 +33,7 @@ export func sum_f32x8(data: *f32, len: i32) -> f32 {
     return total
 }
 
-export func max_f32x4(data: *f32, len: i32) -> f32 {
+export func max_f32x4(data: *restrict f32, len: i32) -> f32 {
     let mut acc: f32x4 = load(data, 0)
     let mut i: i32 = 4
     while i + 4 <= len {
@@ -51,7 +51,7 @@ export func max_f32x4(data: *f32, len: i32) -> f32 {
     return result
 }
 
-export func min_f32x4(data: *f32, len: i32) -> f32 {
+export func min_f32x4(data: *restrict f32, len: i32) -> f32 {
     let mut acc: f32x4 = load(data, 0)
     let mut i: i32 = 4
     while i + 4 <= len {

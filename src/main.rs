@@ -125,9 +125,7 @@ fn main() {
 
         if emit_llvm {
             let ir_path = PathBuf::from(format!("{stem}.ll"));
-            match ea_compiler::compile_with_options(
-                &source, &ir_path, OutputMode::LlvmIr, &opts,
-            ) {
+            match ea_compiler::compile_with_options(&source, &ir_path, OutputMode::LlvmIr, &opts) {
                 Ok(()) => {
                     let ir = std::fs::read_to_string(&ir_path).unwrap_or_default();
                     print!("{ir}");
