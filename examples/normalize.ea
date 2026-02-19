@@ -1,0 +1,42 @@
+// Normalize array to zero mean, unit scale: out[i] = (data[i] - mean) * inv_std
+// Two-pass kernel: first reduce for sum, then streaming scale.
+// Demonstrates: reduction + streaming combination, multi-acc sum.
+
+export func mean_f32(data: *restrict f32, len: i32) -> f32 {
+    let mut acc0: f32x8 = splat(0.0)
+    let mut acc1: f32x8 = splat(0.0)
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        let v0: f32x8 = load(data, i)
+        let v1: f32x8 = load(data, i + 8)
+        acc0 = acc0 .+ v0
+        acc1 = acc1 .+ v1
+        i = i + 16
+    }
+    let mut total: f32 = reduce_add(acc0 .+ acc1)
+    while i < len {
+        total = total + data[i]
+        i = i + 1
+    }
+    // Caller converts len to f32 for division — Ea has no i32→f32 cast yet
+    return total
+}
+
+// Scale and shift: out[i] = (data[i] - offset) * scale
+// Caller computes mean and inv_std, then passes them here.
+export func scale_shift_f32x8(data: *restrict f32, out: *mut f32, len: i32, offset: f32, scale: f32) {
+    let voffset: f32x8 = splat(offset)
+    let vscale: f32x8 = splat(scale)
+    let mut i: i32 = 0
+    while i + 8 <= len {
+        let v: f32x8 = load(data, i)
+        let shifted: f32x8 = v .- voffset
+        let scaled: f32x8 = shifted .* vscale
+        store(out, i, scaled)
+        i = i + 8
+    }
+    while i < len {
+        out[i] = (data[i] - offset) * scale
+        i = i + 1
+    }
+}

@@ -1,0 +1,24 @@
+// Image threshold: out[i] = (data[i] > threshold) ? 1.0 : 0.0
+// Branchless SIMD — select replaces if/else, no divergent execution.
+// Demonstrates: splat, select, vector compare, streaming output.
+
+export func threshold_f32x8(data: *restrict f32, out: *mut f32, len: i32, thresh: f32) {
+    let vthresh: f32x8 = splat(thresh)
+    let vone: f32x8 = splat(1.0)
+    let vzero: f32x8 = splat(0.0)
+    let mut i: i32 = 0
+    while i + 8 <= len {
+        let v: f32x8 = load(data, i)
+        let mask: f32x8 = select(v .> vthresh, vone, vzero)
+        store(out, i, mask)
+        i = i + 8
+    }
+    while i < len {
+        if data[i] > thresh {
+            out[i] = 1.0
+        } else {
+            out[i] = 0.0
+        }
+        i = i + 1
+    }
+}
