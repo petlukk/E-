@@ -1,0 +1,133 @@
+# Sobel Edge Detection — Eä Demo
+
+This demo compares three implementations of Sobel edge detection
+on a 1920x1080 grayscale image:
+
+- **NumPy** — idiomatic Python, array slicing
+- **OpenCV** — industry-standard optimized C++
+- **Eä** — compute kernel, compiled to shared library
+
+All three produce identical output.
+
+## Results
+
+AMD Ryzen 7 1700 (Zen 1, AVX2). 1920x1080. 50 runs, median time.
+
+```
+NumPy          :  28.9 ms
+OpenCV (C++)   :   8.3 ms
+Eä (sobel.so)  :   3.1 ms
+```
+
+Eä vs NumPy: 9.3x faster.
+Eä vs OpenCV: 2.7x faster.
+
+Correctness: Eä vs NumPy max pixel difference = 0.000000.
+
+## Output
+
+| Input | Eä | NumPy | OpenCV |
+|---|---|---|---|
+| ![Input](input.png) | ![Eä](output_ea.png) | ![NumPy](output_numpy.png) | ![OpenCV](output_opencv.png) |
+
+## The kernel
+
+This is the entire Eä implementation. Nothing is hidden.
+
+```
+export func sobel(
+    input: *restrict f32,
+    out: *mut f32,
+    width: i32,
+    height: i32
+) {
+    let vzero: f32x4 = splat(0.0)
+    let vtwo: f32x4 = splat(2.0)
+
+    let mut y: i32 = 1
+    while y < height - 1 {
+        let row_above: i32 = (y - 1) * width
+        let row_curr: i32 = y * width
+        let row_below: i32 = (y + 1) * width
+        let mut x: i32 = 1
+
+        while x + 4 <= width - 1 {
+            let r0a: f32x4 = load(input, row_above + x - 1)
+            let r0b: f32x4 = load(input, row_above + x)
+            let r0c: f32x4 = load(input, row_above + x + 1)
+
+            let r1a: f32x4 = load(input, row_curr + x - 1)
+            let r1c: f32x4 = load(input, row_curr + x + 1)
+
+            let r2a: f32x4 = load(input, row_below + x - 1)
+            let r2b: f32x4 = load(input, row_below + x)
+            let r2c: f32x4 = load(input, row_below + x + 1)
+
+            let gx: f32x4 = (r0c .- r0a) .+ (r1c .- r1a) .* vtwo .+ (r2c .- r2a)
+            let gy: f32x4 = (r2a .- r0a) .+ (r2b .- r0b) .* vtwo .+ (r2c .- r0c)
+
+            let abs_gx: f32x4 = select(gx .< vzero, vzero .- gx, gx)
+            let abs_gy: f32x4 = select(gy .< vzero, vzero .- gy, gy)
+
+            store(out, row_curr + x, abs_gx .+ abs_gy)
+            x = x + 4
+        }
+
+        while x < width - 1 {
+            let r0a: f32 = input[row_above + x - 1]
+            let r0b: f32 = input[row_above + x]
+            let r0c: f32 = input[row_above + x + 1]
+            let r1a: f32 = input[row_curr + x - 1]
+            let r1c: f32 = input[row_curr + x + 1]
+            let r2a: f32 = input[row_below + x - 1]
+            let r2b: f32 = input[row_below + x]
+            let r2c: f32 = input[row_below + x + 1]
+
+            let gx: f32 = (r0c - r0a) + (r1c - r1a) * 2.0 + (r2c - r2a)
+            let gy: f32 = (r2a - r0a) + (r2b - r0b) * 2.0 + (r2c - r0c)
+
+            let mut abs_gx: f32 = gx
+            if gx < 0.0 { abs_gx = 0.0 - gx }
+            let mut abs_gy: f32 = gy
+            if gy < 0.0 { abs_gy = 0.0 - gy }
+
+            out[row_curr + x] = abs_gx + abs_gy
+            x = x + 1
+        }
+
+        y = y + 1
+    }
+}
+```
+
+## Why is Eä faster?
+
+- Explicit SIMD structure — four pixels per iteration, no auto-vectorizer guessing
+- Predictable memory access — sequential loads, no indirection, no allocation
+- Zero runtime abstraction — compiles to native code, called via C ABI
+
+## How to run
+
+```bash
+# Build compiler (once)
+cargo build --features=llvm --release
+
+# Run demo
+python demo/sobel/run.py                    # synthetic test image
+python demo/sobel/run.py path/to/photo.jpg  # your own image
+```
+
+## How it works
+
+Python loads the image and measures timing. Eä does the compute.
+The kernel compiles to a `.so` and is called via `ctypes` — no runtime,
+no framework, no bindings library.
+
+```bash
+ea sobel.ea --lib   # → sobel.so
+```
+
+```python
+lib = ctypes.CDLL("./sobel.so")
+lib.sobel(input_ptr, output_ptr, width, height)
+```
