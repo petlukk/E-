@@ -159,6 +159,22 @@ no compiler flags or optimizer tuning required.
 
 See `examples/reduction_single.ea` and `examples/reduction_multi_acc.ea`.
 
+## Compute Model
+
+Ea defines six kernel patterns that cover most compute workloads:
+
+| Pattern | What it does | Example |
+|---------|-------------|---------|
+| Streaming | Element-wise transform | `fma.ea` |
+| Reduction | Array → scalar with multi-acc ILP | `reduction.ea` |
+| Branchless | Conditional logic via `select` | `threshold.ea` |
+| Multi-pass | Reduction then streaming | `normalize.ea` |
+| Stencil | Neighborhood access (convolution) | `conv2d.ea` |
+| Pipeline | Multiple kernels composed | `sobel.ea` |
+
+The full compute model — dependency structure, memory patterns, vector width
+selection, and design principles — is documented in [`COMPUTE.md`](COMPUTE.md).
+
 ## Why not...
 
 **C with intrinsics?**
