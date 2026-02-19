@@ -1,0 +1,39 @@
+// Multi-accumulator max reduction.
+// Two independent dependency chains let the CPU execute vmaxps in parallel:
+//   acc0 → acc0 → acc0
+//   acc1 → acc1 → acc1
+// On Zen 1 this doubles throughput (~0.5 IPC → ~1.0 IPC).
+//
+// This is not a compiler optimization — it is an explicit expression of
+// instruction-level parallelism. LLVM will not transform the single-accumulator
+// version into this; the programmer must express the structure.
+
+export func max_f32x4(data: *restrict f32, len: i32) -> f32 {
+    let mut acc0: f32x4 = load(data, 0)
+    let mut acc1: f32x4 = load(data, 0)
+    let mut i: i32 = 4
+    while i + 8 <= len {
+        let v0: f32x4 = load(data, i)
+        let v1: f32x4 = load(data, i + 4)
+        acc0 = select(acc0 .> v0, acc0, v0)
+        acc1 = select(acc1 .> v1, acc1, v1)
+        i = i + 8
+    }
+    // Merge accumulators
+    let mut acc: f32x4 = select(acc0 .> acc1, acc0, acc1)
+    // Handle remaining full vectors
+    while i + 4 <= len {
+        let v: f32x4 = load(data, i)
+        acc = select(acc .> v, acc, v)
+        i = i + 4
+    }
+    // Scalar tail
+    let mut result: f32 = reduce_max(acc)
+    while i < len {
+        if data[i] > result {
+            result = data[i]
+        }
+        i = i + 1
+    }
+    return result
+}

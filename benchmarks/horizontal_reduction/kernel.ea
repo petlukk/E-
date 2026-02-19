@@ -33,9 +33,20 @@ export func sum_f32x8(data: *restrict f32, len: i32) -> f32 {
     return total
 }
 
+// Multi-accumulator: 2 independent dependency chains → ILP on superscalar CPUs.
+// LLVM 18 does not auto-unroll reduction loops; express parallelism explicitly.
 export func max_f32x4(data: *restrict f32, len: i32) -> f32 {
-    let mut acc: f32x4 = load(data, 0)
+    let mut acc0: f32x4 = load(data, 0)
+    let mut acc1: f32x4 = load(data, 0)
     let mut i: i32 = 4
+    while i + 8 <= len {
+        let v0: f32x4 = load(data, i)
+        let v1: f32x4 = load(data, i + 4)
+        acc0 = select(acc0 .> v0, acc0, v0)
+        acc1 = select(acc1 .> v1, acc1, v1)
+        i = i + 8
+    }
+    let mut acc: f32x4 = select(acc0 .> acc1, acc0, acc1)
     while i + 4 <= len {
         let v: f32x4 = load(data, i)
         acc = select(acc .> v, acc, v)
@@ -51,9 +62,19 @@ export func max_f32x4(data: *restrict f32, len: i32) -> f32 {
     return result
 }
 
+// Multi-accumulator min reduction
 export func min_f32x4(data: *restrict f32, len: i32) -> f32 {
-    let mut acc: f32x4 = load(data, 0)
+    let mut acc0: f32x4 = load(data, 0)
+    let mut acc1: f32x4 = load(data, 0)
     let mut i: i32 = 4
+    while i + 8 <= len {
+        let v0: f32x4 = load(data, i)
+        let v1: f32x4 = load(data, i + 4)
+        acc0 = select(acc0 .< v0, acc0, v0)
+        acc1 = select(acc1 .< v1, acc1, v1)
+        i = i + 8
+    }
+    let mut acc: f32x4 = select(acc0 .< acc1, acc0, acc1)
     while i + 4 <= len {
         let v: f32x4 = load(data, i)
         acc = select(acc .< v, acc, v)
