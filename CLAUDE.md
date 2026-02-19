@@ -100,9 +100,9 @@ fn test_add_export() {
 
 ## LLVM
 
-- **LLVM 14 exactly** (not 15+)
-- `inkwell` with `features = ["llvm14-0"]`
-- System: `sudo apt install llvm-14-dev clang-14`
+- **LLVM 18**
+- `inkwell` with `features = ["llvm18-0"]`
+- System: `sudo apt install llvm-18-dev clang-18 libpolly-18-dev libzstd-dev`
 - Object files via `TargetMachine::write_to_file()` — no `llc` subprocess
 
 ## The Language (kernel subset)

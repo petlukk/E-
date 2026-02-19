@@ -95,7 +95,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     fn declare_printf(&mut self) {
         let i32_type = self.context.i32_type();
-        let i8_ptr_type = self.context.i8_type().ptr_type(AddressSpace::default());
+        let i8_ptr_type = self.context.ptr_type(AddressSpace::default());
         let printf_type = i32_type.fn_type(&[BasicMetadataTypeEnum::from(i8_ptr_type)], true);
         let printf = self
             .module
@@ -131,9 +131,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             Type::F32 => BasicTypeEnum::FloatType(self.context.f32_type()),
             Type::F64 | Type::FloatLiteral => BasicTypeEnum::FloatType(self.context.f64_type()),
             Type::Bool => BasicTypeEnum::IntType(self.context.bool_type()),
-            Type::Pointer { inner, .. } => {
-                let inner_ty = self.llvm_type(inner);
-                BasicTypeEnum::PointerType(inner_ty.ptr_type(AddressSpace::default()))
+            Type::Pointer { .. } => {
+                BasicTypeEnum::PointerType(self.context.ptr_type(AddressSpace::default()))
             }
             Type::Vector { elem, width } => {
                 let elem_ty = self.llvm_type(elem);

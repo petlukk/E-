@@ -127,14 +127,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                     self.variables.get(object).cloned().ok_or_else(|| {
                         CompileError::codegen_error(format!("undefined variable '{object}'"))
                     })?;
+                let ptr_ty = self.llvm_type(&var_type);
                 let ptr = self
                     .builder
-                    .build_load(ptr_alloca, object)
+                    .build_load(ptr_ty, ptr_alloca, object)
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?
                     .into_pointer_value();
                 let idx = self.compile_expr(index, function)?.into_int_value();
-                let elem_ptr = unsafe { self.builder.build_gep(ptr, &[idx], "elemptr") }
-                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 let inner_type = match &var_type {
                     Type::Pointer { inner, .. } => inner.as_ref().clone(),
                     _ => {
@@ -143,6 +142,12 @@ impl<'ctx> CodeGenerator<'ctx> {
                         ))
                     }
                 };
+                let inner_llvm_ty = self.llvm_type(&inner_type);
+                let elem_ptr = unsafe {
+                    self.builder
+                        .build_gep(inner_llvm_ty, ptr, &[idx], "elemptr")
+                }
+                .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 let val = self.compile_expr_typed(value, Some(&inner_type), function)?;
                 self.builder
                     .build_store(elem_ptr, val)

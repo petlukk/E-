@@ -70,12 +70,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Ok(BasicValueEnum::IntValue(result))
             }
             Expr::Variable(name) => {
-                let (ptr, _ty) = self.variables.get(name).ok_or_else(|| {
+                let (ptr, ty) = self.variables.get(name).ok_or_else(|| {
                     CompileError::codegen_error(format!("undefined variable '{name}'"))
                 })?;
+                let pointee_ty = self.llvm_type(ty);
                 let val = self
                     .builder
-                    .build_load(*ptr, name)
+                    .build_load(pointee_ty, *ptr, name)
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(val)
             }
@@ -90,11 +91,21 @@ impl<'ctx> CodeGenerator<'ctx> {
                     Ok(val)
                 } else {
                     let ptr = obj_val.into_pointer_value();
-                    let elem_ptr = unsafe { self.builder.build_gep(ptr, &[idx], "elemptr") }
-                        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                    let inner_type = if let Expr::Variable(name) = object.as_ref() {
+                        if let Some((_, Type::Pointer { inner, .. })) = self.variables.get(name) {
+                            self.llvm_type(inner)
+                        } else {
+                            self.context.i32_type().into()
+                        }
+                    } else {
+                        self.context.i32_type().into()
+                    };
+                    let elem_ptr =
+                        unsafe { self.builder.build_gep(inner_type, ptr, &[idx], "elemptr") }
+                            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                     let val = self
                         .builder
-                        .build_load(elem_ptr, "elem")
+                        .build_load(inner_type, elem_ptr, "elem")
                         .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                     Ok(val)
                 }
