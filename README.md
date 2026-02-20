@@ -184,17 +184,30 @@ Real workloads. Real data. Verified against established tools.
 
 | Demo | Domain | Patterns | Result |
 |------|--------|----------|--------|
-| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 2.7x faster than OpenCV, 9.3x faster than NumPy |
-| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, branchless, reduction | ~1.2x vs NumPy (NumPy is already good here) |
-| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 6.3x faster, 16x less memory than NumPy |
+| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 3.1x faster than OpenCV, 5.3x faster than NumPy |
+| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, fused pipeline | 3 kernels: 0.8x vs NumPy. **Fused: 13.4x faster** |
+| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 3.4x faster, 16x less memory than NumPy |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
 
-The video anomaly result is intentionally modest. For simple element-wise operations,
-NumPy is already close to optimal. Ea's advantage shows in dependency structure
-(reductions), spatial access (stencils), and memory model (streaming datasets).
-See [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for the full analysis.
+### Kernel fusion: the most important result
+
+The video anomaly demo ships both an unfused (3-kernel) and fused (1-kernel)
+implementation of the same pipeline. Same language. Same compiler. Same data.
+
+```
+Ea (3 kernels)      :  1.12 ms   (slower than NumPy — FFI + memory overhead)
+Ea fused (1 kernel) :  0.08 ms   (13x faster than NumPy, 12x faster than OpenCV)
+```
+
+The only difference: where the kernel boundary was drawn. Performance comes from
+expressing the computation boundary correctly — not from a better optimizer.
+
+> **If data leaves registers, you probably ended a kernel too early.**
+
+See [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for the full analysis of all
+five compute classes, including when Ea wins and when it doesn't.
 
 ## Why not...
 

@@ -1,11 +1,11 @@
 # Eä Compute Patterns
 
-Four compute classes. Each has a memory model, a dependency structure,
+Five compute classes. Each has a memory model, a dependency structure,
 and a measurable boundary where it wins or loses.
 
 This is not marketing. This is measurement.
 
-## The four classes
+## The five classes
 
 ```
                     ┌─────────────────────────────────────────┐
@@ -20,6 +20,9 @@ This is not marketing. This is measurement.
   ├─────────────┤  ├──────────────┼──────────────────────────┤
   │ Multi-frame │  │ 4. Streaming │ (accumulate + scale      │
   │             │  │    Dataset   │  = iterative streaming)   │
+  ├─────────────┤  ├──────────────┼──────────────────────────┤
+  │ Fused       │  │ 5. Fused     │ (diff + threshold + count│
+  │ pipeline    │  │    Pipeline  │  = one pass, no RAM)     │
   └─────────────┘  └──────────────┴──────────────────────────┘
 ```
 
@@ -394,6 +397,143 @@ The speedup comes from two sources:
 
 ---
 
+## 5. Fused Pipeline Kernel
+
+**Pattern:** Multiple operations in a single pass. No intermediate arrays.
+
+The key insight: if data leaves registers between operations, you ended
+a kernel too early.
+
+```
+  BEFORE: 3 kernels, 3 memory passes
+
+  a[i], b[i]  →  diff[i]   →  mask[i]   →  count
+               (write RAM)   (write RAM)   (read RAM)
+               (read RAM)    (read RAM)
+
+  ctypes ×3
+  intermediate arrays ×2
+  memory passes ×3
+
+
+  AFTER: 1 fused kernel, 1 memory pass
+
+  a[i], b[i]  →  |diff|  →  >thresh?  →  accumulate  →  count
+                (register)  (register)    (register)
+
+  ctypes ×1
+  intermediate arrays ×0
+  memory passes ×1
+```
+
+### Memory model
+
+- Reads: N elements (input only)
+- Writes: 0 (returns scalar or minimal output)
+- Extra memory: **0** — no intermediate arrays
+- Bandwidth: minimal — each element loaded once, never written back
+
+Compare with multi-kernel pipeline:
+- 3 separate kernels: 3 reads + 3 writes = 6N memory operations
+- Fused kernel: 2 reads + 0 writes = 2N memory operations
+
+### Eä example
+
+```
+// Fused: diff + threshold + count in one pass
+export func anomaly_count_fused(a: *restrict f32, b: *restrict f32, len: i32, thresh: f32) -> f32 {
+    let vzero: f32x8 = splat(0.0)
+    let vone: f32x8 = splat(1.0)
+    let vthresh: f32x8 = splat(thresh)
+    let mut acc0: f32x8 = splat(0.0)
+    let mut acc1: f32x8 = splat(0.0)
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        let va0: f32x8 = load(a, i)
+        let vb0: f32x8 = load(b, i)
+        let diff0: f32x8 = va0 .- vb0
+        let abs0: f32x8 = select(diff0 .< vzero, vzero .- diff0, diff0)
+        acc0 = acc0 .+ select(abs0 .> vthresh, vone, vzero)
+
+        let va1: f32x8 = load(a, i + 8)
+        let vb1: f32x8 = load(b, i + 8)
+        let diff1: f32x8 = va1 .- vb1
+        let abs1: f32x8 = select(diff1 .< vzero, vzero .- diff1, diff1)
+        acc1 = acc1 .+ select(abs1 .> vthresh, vone, vzero)
+
+        i = i + 16
+    }
+    return reduce_add(acc0 .+ acc1)
+    // ... scalar tail omitted
+}
+```
+
+### When it wins
+
+- **Always, compared to the unfused version of the same pipeline.** This is not
+  an optimization hint — it is an architectural transformation. Eliminating
+  intermediate memory traffic is a guaranteed win.
+- When the unfused pipeline is memory-bound. Fusion converts a memory-bound
+  pipeline into a compute-bound kernel.
+- When FFI overhead is significant. One ctypes call instead of three removes
+  ~0.3-0.5 ms of fixed cost on small data.
+
+### When it doesn't help
+
+- When the pipeline has only one stage (nothing to fuse).
+- When intermediate results are needed by the caller (diff image for visualization).
+- When stages have fundamentally different access patterns (e.g., stencil followed
+  by global reduction — the stencil must complete before the reduction can begin).
+
+### Measured
+
+Video anomaly detection, 768x576, real video data (OpenCV vtest.avi):
+```
+NumPy              :  1.10 ms
+OpenCV (C++)       :  0.97 ms
+Ea (3 kernels)     :  1.12 ms    0.8x vs NumPy (slower — FFI + memory overhead)
+Ea fused (1 kernel):  0.08 ms   13.4x vs NumPy, 11.9x vs OpenCV
+```
+
+Fusion speedup: **13.7x** (3 kernels → 1 kernel).
+
+The unfused Ea was *slower* than NumPy. The fused Ea is *13x faster*.
+Nothing changed in the compiler, the LLVM version, or the language.
+Only the kernel boundary changed.
+
+### Why the compiler cannot fuse for you
+
+Kernel fusion requires semantic knowledge: which operations compose, which
+intermediate results are discarded, and what the final output is. This is
+a design decision, not an optimization.
+
+LLVM sees three separate function calls from Python. It cannot merge them.
+Even a whole-program optimizer cannot fuse across FFI boundaries.
+
+The programmer defines the compute boundary. The compiler optimizes within it.
+
+### The principle
+
+> **If data leaves registers, you probably ended a kernel too early.**
+
+This is the same principle behind:
+- CUDA kernel fusion (reduce kernel launch overhead)
+- XLA operator fusion (eliminate temporary tensors)
+- Polyhedral compilation (fuse loop nests)
+
+Eä makes it explicit: the programmer writes the fused kernel.
+No magic. No heuristics. The code *is* the optimization.
+
+### Real-world instances
+
+- Image processing pipelines (blur + threshold + count)
+- Signal processing chains (filter + detect + measure)
+- Feature extraction (gradient + magnitude + suppression)
+- Anomaly detection (diff + classify + aggregate)
+- Any multi-stage pipeline where intermediate data is not needed
+
+---
+
 ## Summary
 
 | Class | Bottleneck | Eä advantage | When NumPy is enough |
@@ -402,6 +542,7 @@ The speedup comes from two sources:
 | Reduction | Dependency chain | Explicit ILP (multi-acc) | Small arrays (< 1K) |
 | Stencil | Compute intensity | Explicit SIMD, register control | Never (NumPy is 10x slower) |
 | Streaming Dataset | Peak memory | O(1) extra memory | Small N, small frames |
+| Fused Pipeline | Memory passes | Zero intermediate arrays | Single-stage pipeline |
 
 ### The honest answer
 
@@ -414,7 +555,7 @@ Eä wins when:
 - The operation has dependency structure that matters (reductions)
 - The access pattern benefits from explicit SIMD (stencils)
 - Memory residency matters (streaming datasets)
-- Multiple operations compose without intermediate allocation (pipelines)
+- Multiple operations compose without intermediate allocation (fused pipelines)
 
 Eä loses when:
 - The operation is trivially memory-bound and NumPy already calls optimized BLAS
@@ -423,3 +564,25 @@ Eä loses when:
 
 This is not a limitation. This is the design space.
 A kernel language that claims to win everywhere is lying.
+
+### The lesson from kernel fusion
+
+The video anomaly demo tells the full story:
+
+```
+3 separate kernels :  1.12 ms   (slower than NumPy)
+1 fused kernel     :  0.08 ms   (13x faster than NumPy)
+```
+
+Same language. Same compiler. Same LLVM. Same data. Same result.
+
+The only difference: **where the kernel boundary was drawn.**
+
+Performance comes from expressing the computation boundary correctly —
+not from a better compiler, more features, or a smarter optimizer.
+
+This is the same principle that drives CUDA kernel design, XLA fusion,
+and every high-performance computing framework: minimize data movement,
+maximize register residency, let the programmer define the compute boundary.
+
+> **If data leaves registers, you probably ended a kernel too early.**

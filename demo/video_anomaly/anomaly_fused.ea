@@ -1,0 +1,46 @@
+// Fused video frame anomaly detection.
+// Single kernel: diff + threshold + count in one pass.
+// No intermediate arrays. No extra memory passes. All in register.
+//
+// Compare with anomaly.ea (three separate kernels) to see
+// the effect of kernel fusion on memory-bound workloads.
+
+// One pass: |a[i] - b[i]| > thresh ? count++
+// Returns anomaly pixel count.
+export func anomaly_count_fused(a: *restrict f32, b: *restrict f32, len: i32, thresh: f32) -> f32 {
+    let vzero: f32x8 = splat(0.0)
+    let vone: f32x8 = splat(1.0)
+    let vthresh: f32x8 = splat(thresh)
+    let mut acc0: f32x8 = splat(0.0)
+    let mut acc1: f32x8 = splat(0.0)
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        // Unroll 2x for ILP
+        let va0: f32x8 = load(a, i)
+        let vb0: f32x8 = load(b, i)
+        let diff0: f32x8 = va0 .- vb0
+        let abs0: f32x8 = select(diff0 .< vzero, vzero .- diff0, diff0)
+        let mask0: f32x8 = select(abs0 .> vthresh, vone, vzero)
+        acc0 = acc0 .+ mask0
+
+        let va1: f32x8 = load(a, i + 8)
+        let vb1: f32x8 = load(b, i + 8)
+        let diff1: f32x8 = va1 .- vb1
+        let abs1: f32x8 = select(diff1 .< vzero, vzero .- diff1, diff1)
+        let mask1: f32x8 = select(abs1 .> vthresh, vone, vzero)
+        acc1 = acc1 .+ mask1
+
+        i = i + 16
+    }
+    let mut total: f32 = reduce_add(acc0 .+ acc1)
+    while i < len {
+        let d: f32 = a[i] - b[i]
+        let mut abs_d: f32 = d
+        if d < 0.0 { abs_d = 0.0 - d }
+        if abs_d > thresh {
+            total = total + 1.0
+        }
+        i = i + 1
+    }
+    return total
+}

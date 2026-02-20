@@ -161,15 +161,15 @@ def save_image(data, path):
 # Build
 # ---------------------------------------------------------------------------
 
-def build_ea_kernel():
-    """Compile anomaly.ea to anomaly.so if needed."""
-    so_path = DEMO_DIR / "anomaly.so"
-    ea_path = DEMO_DIR / "anomaly.ea"
+def build_ea_kernel(ea_name="anomaly"):
+    """Compile an .ea file to .so if needed."""
+    so_path = DEMO_DIR / f"{ea_name}.so"
+    ea_path = DEMO_DIR / f"{ea_name}.ea"
 
     if so_path.exists() and so_path.stat().st_mtime > ea_path.stat().st_mtime:
         return so_path
 
-    print("Building Ea kernel...")
+    print(f"Building Ea kernel ({ea_name})...")
     result = subprocess.run(
         ["cargo", "run", "--features=llvm", "--release", "--",
          str(ea_path), "--lib"],
@@ -180,7 +180,7 @@ def build_ea_kernel():
         sys.exit(1)
 
     # Move from project root to demo dir
-    built = EA_ROOT / "anomaly.so"
+    built = EA_ROOT / f"{ea_name}.so"
     if built.exists():
         built.rename(so_path)
 
@@ -248,6 +248,27 @@ def anomaly_ea(frame_a, frame_b, threshold, so_path):
     return diff.reshape(h, w), mask.reshape(h, w), float(count)
 
 
+def anomaly_ea_fused(frame_a, frame_b, threshold, so_path):
+    """Run fused Ea kernel: diff+threshold+count in one pass. No intermediate arrays."""
+    lib = ctypes.CDLL(str(so_path))
+
+    lib.anomaly_count_fused.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32,
+                                        ctypes.c_float]
+    lib.anomaly_count_fused.restype = ctypes.c_float
+
+    flat_a = np.ascontiguousarray(frame_a, dtype=np.float32).ravel()
+    flat_b = np.ascontiguousarray(frame_b, dtype=np.float32).ravel()
+    n = len(flat_a)
+
+    count = lib.anomaly_count_fused(
+        flat_a.ctypes.data_as(FLOAT_PTR),
+        flat_b.ctypes.data_as(FLOAT_PTR),
+        n,
+        ctypes.c_float(threshold),
+    )
+    return float(count)
+
+
 # ---------------------------------------------------------------------------
 # Benchmarking
 # ---------------------------------------------------------------------------
@@ -299,14 +320,16 @@ def main():
     h, w = frame_a.shape
     print(f"Frames: {w}x{h} ({w*h:,} pixels)\n")
 
-    # Build Ea kernel
-    so_path = build_ea_kernel()
+    # Build Ea kernels
+    so_path = build_ea_kernel("anomaly")
+    so_fused_path = build_ea_kernel("anomaly_fused")
 
     # --- Correctness ---
     print("=== Correctness ===")
     diff_np, mask_np, count_np = anomaly_numpy(frame_a, frame_b, THRESHOLD)
     diff_ea, mask_ea, count_ea = anomaly_ea(frame_a, frame_b, THRESHOLD,
                                             so_path)
+    count_fused = anomaly_ea_fused(frame_a, frame_b, THRESHOLD, so_fused_path)
 
     max_diff_diff = np.abs(diff_ea - diff_np).max()
     max_diff_mask = np.abs(mask_ea - mask_np).max()
@@ -314,6 +337,7 @@ def main():
     print(f"  Ea vs NumPy threshold  : max diff = {max_diff_mask:.6f}")
     print(f"  Anomaly count NumPy    : {count_np:.0f}")
     print(f"  Anomaly count Ea       : {count_ea:.0f}")
+    print(f"  Anomaly count Ea fused : {count_fused:.0f}")
     if max_diff_diff < 0.001 and max_diff_mask < 0.001:
         print("  Match: YES (within floating-point tolerance)")
     else:
@@ -343,7 +367,11 @@ def main():
     print(f"  NumPy              : {t_numpy:8.2f} ms")
 
     t_ea = benchmark(anomaly_ea, frame_a, frame_b, THRESHOLD, so_path)
-    print(f"  Ea (anomaly.so)    : {t_ea:8.2f} ms")
+    print(f"  Ea (3 kernels)     : {t_ea:8.2f} ms")
+
+    t_fused = benchmark(anomaly_ea_fused, frame_a, frame_b, THRESHOLD,
+                        so_fused_path)
+    print(f"  Ea fused (1 kernel): {t_fused:8.2f} ms")
 
     if has_opencv:
         t_cv = benchmark(anomaly_opencv, frame_a, frame_b, THRESHOLD)
@@ -351,12 +379,15 @@ def main():
 
     print()
     print("=== Summary ===")
-    print(f"  Ea vs NumPy  : {t_numpy / t_ea:.1f}x "
+    print(f"  Ea 3-kernel vs NumPy  : {t_numpy / t_ea:.1f}x "
           f"{'faster' if t_ea < t_numpy else 'slower'}")
+    print(f"  Ea fused vs NumPy     : {t_numpy / t_fused:.1f}x "
+          f"{'faster' if t_fused < t_numpy else 'slower'}")
     if has_opencv:
-        print(f"  Ea vs OpenCV : {t_cv / t_ea:.1f}x "
-              f"{'faster' if t_ea < t_cv else 'slower'}")
-        print(f"  Note: OpenCV uses optimized C++ with possible multithreading")
+        print(f"  Ea fused vs OpenCV    : {t_cv / t_fused:.1f}x "
+              f"{'faster' if t_fused < t_cv else 'slower'}")
+    print(f"  Fusion speedup        : {t_ea / t_fused:.1f}x "
+          f"(3 kernels -> 1 kernel)")
 
     print()
     print("Output images saved to demo/video_anomaly/")
