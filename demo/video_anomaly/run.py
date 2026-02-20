@@ -8,13 +8,14 @@ thresholds anomalous pixels, counts them. Compares correctness and performance.
 Usage:
     python run.py [frame_a_path frame_b_path]
 
-If no images given, uses the included test frames.
+If no images given, downloads OpenCV sample video and extracts frames (or uses synthetic).
 """
 
 import sys
 import time
 import ctypes
 import subprocess
+import urllib.request
 from pathlib import Path
 import numpy as np
 
@@ -22,7 +23,66 @@ DEMO_DIR = Path(__file__).parent
 EA_ROOT = DEMO_DIR / ".." / ".."
 THRESHOLD = 0.1
 
+OPENCV_VIDEO_URL = "https://raw.githubusercontent.com/opencv/opencv/master/samples/data/vtest.avi"
+
 FLOAT_PTR = ctypes.POINTER(ctypes.c_float)
+
+# ---------------------------------------------------------------------------
+# Video download and frame extraction
+# ---------------------------------------------------------------------------
+
+def download_test_video():
+    """Download OpenCV sample video and extract two consecutive frames."""
+    video_path = DEMO_DIR / "vtest.avi"
+    frame_a_path = DEMO_DIR / "frame_a.png"
+    frame_b_path = DEMO_DIR / "frame_b.png"
+
+    # If extracted frames already exist, skip
+    if frame_a_path.exists() and frame_b_path.exists():
+        return frame_a_path, frame_b_path
+
+    # Download video if needed
+    if not video_path.exists():
+        print(f"Downloading OpenCV sample video...")
+        print(f"  Source: {OPENCV_VIDEO_URL}")
+        try:
+            urllib.request.urlretrieve(OPENCV_VIDEO_URL, str(video_path))
+            print(f"  Saved: {video_path}")
+        except Exception as e:
+            print(f"  Download failed: {e}")
+            return None, None
+
+    # Extract two frames with visible differences (frames 0 and 30 for motion)
+    try:
+        import cv2
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            print("  Cannot open video")
+            return None, None
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        ret, frame_a_bgr = cap.read()
+        if not ret:
+            return None, None
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 30)
+        ret, frame_b_bgr = cap.read()
+        cap.release()
+        if not ret:
+            return None, None
+
+        # Convert to grayscale and save
+        frame_a_gray = cv2.cvtColor(frame_a_bgr, cv2.COLOR_BGR2GRAY)
+        frame_b_gray = cv2.cvtColor(frame_b_bgr, cv2.COLOR_BGR2GRAY)
+        cv2.imwrite(str(frame_a_path), frame_a_gray)
+        cv2.imwrite(str(frame_b_path), frame_b_gray)
+        print(f"  Extracted frames 0 and 30 ({frame_a_gray.shape[1]}x{frame_a_gray.shape[0]})")
+        return frame_a_path, frame_b_path
+    except ImportError:
+        # Without OpenCV, try Pillow approach — but AVI needs cv2
+        print("  Need OpenCV to extract video frames: pip install opencv-python")
+        return None, None
+
 
 # ---------------------------------------------------------------------------
 # Image loading
@@ -219,15 +279,22 @@ def main():
         print(f"Loading: {path_a}, {path_b}")
         frame_a = load_image(path_a)
         frame_b = load_image(path_b)
-    elif (DEMO_DIR / "frame_a.png").exists():
-        print("Using included test frames")
-        frame_a = load_image(DEMO_DIR / "frame_a.png")
-        frame_b = load_image(DEMO_DIR / "frame_b.png")
     else:
-        print("No frames provided, generating 1920x1080 synthetic test frames")
-        frame_a, frame_b = generate_test_frames()
-        save_image(frame_a, DEMO_DIR / "frame_a.png")
-        save_image(frame_b, DEMO_DIR / "frame_b.png")
+        # Try to download real video data
+        path_a, path_b = download_test_video()
+        if path_a is not None:
+            print(f"Using OpenCV sample video frames")
+            frame_a = load_image(path_a)
+            frame_b = load_image(path_b)
+        elif (DEMO_DIR / "frame_a.png").exists():
+            print("Using included test frames")
+            frame_a = load_image(DEMO_DIR / "frame_a.png")
+            frame_b = load_image(DEMO_DIR / "frame_b.png")
+        else:
+            print("Generating synthetic test frames (install opencv-python for real video)")
+            frame_a, frame_b = generate_test_frames()
+            save_image(frame_a, DEMO_DIR / "frame_a.png")
+            save_image(frame_b, DEMO_DIR / "frame_b.png")
 
     h, w = frame_a.shape
     print(f"Frames: {w}x{h} ({w*h:,} pixels)\n")

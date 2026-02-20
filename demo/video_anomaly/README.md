@@ -1,7 +1,9 @@
 # Video Frame Anomaly Detection — Ea Demo
 
 This demo compares three implementations of frame-difference anomaly detection
-on 1280x720 grayscale frames:
+using real video data from the OpenCV sample dataset (pedestrian surveillance).
+On first run, it auto-downloads the video and extracts two frames with motion.
+Falls back to synthetic frames if OpenCV is not installed.
 
 - **NumPy** — idiomatic Python, array operations
 - **OpenCV** — industry-standard optimized C++
@@ -117,7 +119,9 @@ python demo/video_anomaly/run.py
 
 ## How it works
 
-Python generates two synthetic frames and measures timing. Ea does the compute.
+On first run, the script downloads the OpenCV `vtest.avi` sample video and extracts
+frames 0 and 30 (which have pedestrian motion between them) as grayscale PNGs.
+If OpenCV is not installed, it falls back to synthetic frames. Ea does the compute.
 The three kernels compile to a single `.so` and are called via `ctypes` —
 no runtime, no framework, no bindings library.
 

@@ -8,18 +8,39 @@ compares correctness and performance.
 Usage:
     python run.py [image_path]
 
-If no image is given, generates a 1920x1080 synthetic test image.
+If no image is given, downloads a Kodak benchmark image (or generates synthetic).
 """
 
 import sys
 import time
 import ctypes
 import subprocess
+import urllib.request
 from pathlib import Path
 import numpy as np
 
 DEMO_DIR = Path(__file__).parent
 EA_ROOT = DEMO_DIR / ".." / ".."
+
+KODAK_URL = "https://r0k.us/graphics/kodak/kodak/kodim23.png"
+
+
+def download_test_image():
+    """Download a Kodak benchmark image if no input image exists."""
+    dest = DEMO_DIR / "input.png"
+    if dest.exists():
+        return dest
+    print(f"Downloading Kodak benchmark image...")
+    print(f"  Source: {KODAK_URL}")
+    try:
+        urllib.request.urlretrieve(KODAK_URL, str(dest))
+        print(f"  Saved: {dest}")
+        return dest
+    except Exception as e:
+        print(f"  Download failed: {e}")
+        print(f"  Falling back to synthetic image")
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Image loading
@@ -212,9 +233,14 @@ def main():
         print(f"Loading: {img_path}")
         img = load_image(img_path)
     else:
-        print("No image provided, generating 1920x1080 test image")
-        img = generate_test_image()
-        save_image(img, DEMO_DIR / "input.png")
+        img_path = download_test_image()
+        if img_path is not None:
+            print(f"Using Kodak benchmark image: {img_path.name}")
+            img = load_image(img_path)
+        else:
+            print("Generating 1920x1080 synthetic test image")
+            img = generate_test_image()
+            save_image(img, DEMO_DIR / "input.png")
 
     h, w = img.shape
     print(f"Image: {w}x{h} ({w*h:,} pixels)\n")
