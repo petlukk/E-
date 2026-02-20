@@ -179,7 +179,8 @@ def benchmark(func, *args, warmup=5, runs=50):
         t1 = time.perf_counter()
         times.append((t1 - t0) * 1000)
     times.sort()
-    return times[len(times) // 2]
+    median = times[len(times) // 2]
+    return median, float(np.std(times))
 
 
 # ---------------------------------------------------------------------------
@@ -232,9 +233,9 @@ def main():
     results = []
 
     for np_func, (ea_name, params), nops in zip(numpy_funcs, ea_configs, op_counts):
-        t_np = benchmark(np_func, data)
+        t_np, _ = benchmark(np_func, data)
         ea_bench = lambda: ea_call(lib, ea_name, flat, out, n, *params)
-        t_ea = benchmark(ea_bench)
+        t_ea, _ = benchmark(ea_bench)
         speedup = t_np / t_ea
         results.append((nops, t_np, t_ea, speedup))
         print(f"  {nops:>4}  {t_np:>10.1f}  {t_ea:>13.1f}  {speedup:>7.1f}x  {nops:>12}  {'1':>9}")

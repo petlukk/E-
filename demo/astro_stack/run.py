@@ -356,7 +356,8 @@ def benchmark(func, *args, warmup=5, runs=50):
         times.append((t1 - t0) * 1000)
 
     times.sort()
-    return times[len(times) // 2]
+    median = times[len(times) // 2]
+    return median, float(np.std(times))
 
 
 # ---------------------------------------------------------------------------
@@ -438,11 +439,11 @@ def main():
     print("=== Performance ===")
     print(f"  {n_frames} frames, {w}x{h} image, 50 runs, median time\n")
 
-    t_numpy = benchmark(stack_numpy, frames)
-    print(f"  NumPy               : {t_numpy:8.2f} ms")
+    t_numpy, s_numpy = benchmark(stack_numpy, frames)
+    print(f"  NumPy               : {t_numpy:8.2f} ms  ±{s_numpy:.2f}")
 
-    t_ea = benchmark(stack_ea, frames, so_path)
-    print(f"  Ea (stack.so)       : {t_ea:8.2f} ms")
+    t_ea, s_ea = benchmark(stack_ea, frames, so_path)
+    print(f"  Ea (stack.so)       : {t_ea:8.2f} ms  ±{s_ea:.2f}")
     print()
 
     # Memory note

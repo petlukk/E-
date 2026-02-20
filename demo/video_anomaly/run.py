@@ -201,8 +201,9 @@ def anomaly_numpy(frame_a, frame_b, threshold):
 
 
 def anomaly_opencv(frame_a, frame_b, threshold):
-    """OpenCV anomaly detection."""
+    """OpenCV anomaly detection. Single-threaded for fairness."""
     import cv2
+    cv2.setNumThreads(1)
     diff = cv2.absdiff(frame_a, frame_b)
     _, mask = cv2.threshold(diff, threshold, 1.0, cv2.THRESH_BINARY)
     count = float(cv2.countNonZero(mask))
@@ -286,7 +287,8 @@ def benchmark(func, *args, warmup=5, runs=50):
         times.append((t1 - t0) * 1000)
 
     times.sort()
-    return times[len(times) // 2]
+    median = times[len(times) // 2]
+    return median, float(np.std(times))
 
 
 # ---------------------------------------------------------------------------
@@ -363,19 +365,19 @@ def main():
     print("=== Performance ===")
     print(f"  {w}x{h} frames, 50 runs, median time\n")
 
-    t_numpy = benchmark(anomaly_numpy, frame_a, frame_b, THRESHOLD)
-    print(f"  NumPy              : {t_numpy:8.2f} ms")
+    t_numpy, s_numpy = benchmark(anomaly_numpy, frame_a, frame_b, THRESHOLD)
+    print(f"  NumPy              : {t_numpy:8.2f} ms  ±{s_numpy:.2f}")
 
-    t_ea = benchmark(anomaly_ea, frame_a, frame_b, THRESHOLD, so_path)
-    print(f"  Ea (3 kernels)     : {t_ea:8.2f} ms")
+    t_ea, s_ea = benchmark(anomaly_ea, frame_a, frame_b, THRESHOLD, so_path)
+    print(f"  Ea (3 kernels)     : {t_ea:8.2f} ms  ±{s_ea:.2f}")
 
-    t_fused = benchmark(anomaly_ea_fused, frame_a, frame_b, THRESHOLD,
-                        so_fused_path)
-    print(f"  Ea fused (1 kernel): {t_fused:8.2f} ms")
+    t_fused, s_fused = benchmark(anomaly_ea_fused, frame_a, frame_b, THRESHOLD,
+                                 so_fused_path)
+    print(f"  Ea fused (1 kernel): {t_fused:8.2f} ms  ±{s_fused:.2f}")
 
     if has_opencv:
-        t_cv = benchmark(anomaly_opencv, frame_a, frame_b, THRESHOLD)
-        print(f"  OpenCV             : {t_cv:8.2f} ms")
+        t_cv, s_cv = benchmark(anomaly_opencv, frame_a, frame_b, THRESHOLD)
+        print(f"  OpenCV             : {t_cv:8.2f} ms  ±{s_cv:.2f}")
 
     print()
     print("=== Summary ===")

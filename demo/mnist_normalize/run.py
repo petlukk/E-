@@ -192,7 +192,8 @@ def benchmark(func, *args, warmup=5, runs=50):
         times.append((t1 - t0) * 1000)
 
     times.sort()
-    return times[len(times) // 2]
+    median = times[len(times) // 2]
+    return median, float(np.std(times))
 
 
 # ---------------------------------------------------------------------------
@@ -244,11 +245,11 @@ def main():
     print("=== Performance ===")
     print(f"  {total_pixels:,} pixels, 50 runs, median time\n")
 
-    t_numpy = benchmark(normalize_numpy, images)
-    print(f"  NumPy (x / 255.0)  : {t_numpy:8.2f} ms")
+    t_numpy, s_numpy = benchmark(normalize_numpy, images)
+    print(f"  NumPy (x / 255.0)  : {t_numpy:8.2f} ms  ±{s_numpy:.2f}")
 
-    t_ea = benchmark(normalize_ea, images, so_path)
-    print(f"  Ea (1 kernel)      : {t_ea:8.2f} ms")
+    t_ea, s_ea = benchmark(normalize_ea, images, so_path)
+    print(f"  Ea (1 kernel)      : {t_ea:8.2f} ms  ±{s_ea:.2f}")
 
     print()
     speedup1 = t_numpy / t_ea
@@ -284,11 +285,11 @@ def main():
     print(f"  Ea:    fused single pass                   [1 memory pass]")
     print()
 
-    t_np_full = benchmark(preprocess_numpy, images)
-    print(f"  NumPy (multi-pass) : {t_np_full:8.2f} ms")
+    t_np_full, s_np_full = benchmark(preprocess_numpy, images)
+    print(f"  NumPy (multi-pass) : {t_np_full:8.2f} ms  ±{s_np_full:.2f}")
 
-    t_ea_full = benchmark(preprocess_ea_fused, images, so_fused_path)
-    print(f"  Ea fused (1 pass)  : {t_ea_full:8.2f} ms")
+    t_ea_full, s_ea_full = benchmark(preprocess_ea_fused, images, so_fused_path)
+    print(f"  Ea fused (1 pass)  : {t_ea_full:8.2f} ms  ±{s_ea_full:.2f}")
 
     print()
 
