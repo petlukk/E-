@@ -141,8 +141,9 @@ def anomaly_numpy(frame_a, frame_b, threshold):
 
 
 def anomaly_opencv(frame_a, frame_b, threshold):
-    """OpenCV anomaly detection."""
+    """OpenCV anomaly detection. Single-threaded for fairness."""
     import cv2
+    cv2.setNumThreads(1)
     diff = cv2.absdiff(frame_a, frame_b)
     _, mask = cv2.threshold(diff, threshold, 1.0, cv2.THRESH_BINARY)
     count = float(cv2.countNonZero(mask))
@@ -205,7 +206,8 @@ def benchmark(func, *args, warmup=5, runs=50):
         times.append((t1 - t0) * 1000)
 
     times.sort()
-    return times[len(times) // 2]
+    median = times[len(times) // 2]
+    return median, float(np.std(times))
 
 
 # ---------------------------------------------------------------------------
@@ -272,15 +274,15 @@ def main():
     print("=== Performance ===")
     print(f"  {w}x{h} frames, 50 runs, median time\n")
 
-    t_numpy = benchmark(anomaly_numpy, frame_a, frame_b, THRESHOLD)
-    print(f"  NumPy              : {t_numpy:8.2f} ms")
+    t_numpy, s_numpy = benchmark(anomaly_numpy, frame_a, frame_b, THRESHOLD)
+    print(f"  NumPy              : {t_numpy:8.2f} ms  ±{s_numpy:.2f}")
 
-    t_ea = benchmark(anomaly_ea, frame_a, frame_b, THRESHOLD, so_path)
-    print(f"  Ea (anomaly.so)    : {t_ea:8.2f} ms")
+    t_ea, s_ea = benchmark(anomaly_ea, frame_a, frame_b, THRESHOLD, so_path)
+    print(f"  Ea (anomaly.so)    : {t_ea:8.2f} ms  ±{s_ea:.2f}")
 
     if has_opencv:
-        t_cv = benchmark(anomaly_opencv, frame_a, frame_b, THRESHOLD)
-        print(f"  OpenCV             : {t_cv:8.2f} ms")
+        t_cv, s_cv = benchmark(anomaly_opencv, frame_a, frame_b, THRESHOLD)
+        print(f"  OpenCV             : {t_cv:8.2f} ms  ±{s_cv:.2f}")
 
     print()
     print("=== Summary ===")
@@ -289,7 +291,7 @@ def main():
     if has_opencv:
         print(f"  Ea vs OpenCV : {t_cv / t_ea:.1f}x "
               f"{'faster' if t_ea < t_cv else 'slower'}")
-        print(f"  Note: OpenCV uses optimized C++ with possible multithreading")
+        print(f"  Note: OpenCV pinned to 1 thread (cv2.setNumThreads(1)) for fair comparison")
 
     print()
     print("Output images saved to demo/video_anomaly/")

@@ -8,8 +8,19 @@ Results reported in the README were measured on:
 - **Features**: SSE4.2, AVX2, FMA
 - **OS**: Ubuntu 22.04 on WSL2 (kernel 5.15.146.1)
 - **GCC**: 11.4.0 (`gcc -O3 -march=native -ffast-math`)
-- **LLVM**: 14.0.0 (via inkwell, no external `llc`)
+- **LLVM**: 18.1.x (via inkwell 0.5, `features = ["llvm18-0"]`, no external `llc`)
 - **Ea**: strict IEEE — no fast-math flags
+
+## Measurement Conditions
+
+- **Cache state**: warm — warmup runs prime caches before timing. This is the expected
+  usage pattern for repeated kernel invocations (e.g. processing a video stream).
+- **CPU frequency**: benchmarks run at OS-default governor. Turbo Boost enabled.
+  Thermal steady state reached via warmup runs.
+- **Threads**: all kernels are single-threaded. Eä, GCC, and Clang reference kernels
+  use no parallelism. OpenCV demos pinned to 1 thread via `cv2.setNumThreads(1)`.
+- **WSL2**: minor virtualization overhead present. Results on native Linux will be
+  equal or faster.
 
 ## Parameters
 
