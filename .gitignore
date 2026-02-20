@@ -34,6 +34,7 @@ docs/plans/
 demo/astro_stack/nasa_data/
 demo/video_anomaly/vtest.avi
 demo/sobel/input.png
+demo/mnist_normalize/mnist_data/
 
 # Session notes (not part of the release)
 Session_summary*.md

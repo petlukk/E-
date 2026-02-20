@@ -187,6 +187,7 @@ Real workloads. Real data. Verified against established tools.
 | [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 3.1x faster than OpenCV, 5.3x faster than NumPy |
 | [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, fused pipeline | 3 kernels: 0.8x vs NumPy. **Fused: 13.4x faster** |
 | [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 3.4x faster, 16x less memory than NumPy |
+| [MNIST normalization](demo/mnist_normalize/) | ML preprocessing | Streaming | 0.9x vs NumPy (memory-bound — honest baseline) |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
