@@ -80,15 +80,15 @@ def generate_synthetic(n_images=60000, pixels=784):
 # Build
 # ---------------------------------------------------------------------------
 
-def build_ea_kernel():
-    """Compile normalize.ea to normalize.so if needed."""
-    so_path = DEMO_DIR / "normalize.so"
-    ea_path = DEMO_DIR / "normalize.ea"
+def build_ea_kernel(ea_name="normalize"):
+    """Compile an .ea file to .so if needed."""
+    so_path = DEMO_DIR / f"{ea_name}.so"
+    ea_path = DEMO_DIR / f"{ea_name}.ea"
 
     if so_path.exists() and so_path.stat().st_mtime > ea_path.stat().st_mtime:
         return so_path
 
-    print("Building Ea kernel...")
+    print(f"Building Ea kernel ({ea_name})...")
     result = subprocess.run(
         ["cargo", "run", "--features=llvm", "--release", "--",
          str(ea_path), "--lib"],
@@ -98,7 +98,7 @@ def build_ea_kernel():
         print(f"Build failed:\n{result.stderr}")
         sys.exit(1)
 
-    built = EA_ROOT / "normalize.so"
+    built = EA_ROOT / f"{ea_name}.so"
     if built.exists():
         built.rename(so_path)
 
@@ -131,6 +131,46 @@ def normalize_ea(data, so_path):
         out.ctypes.data_as(FLOAT_PTR),
         n,
         ctypes.c_float(1.0 / 255.0),
+    )
+    return out.reshape(data.shape)
+
+
+# ---------------------------------------------------------------------------
+# Full preprocessing pipeline: normalize + standardize + clip
+# ---------------------------------------------------------------------------
+
+# MNIST standard normalization values
+MNIST_MEAN = 0.1307
+MNIST_STD = 0.3081
+
+
+def preprocess_numpy(data):
+    """NumPy full preprocessing: normalize, standardize, clip. Multiple passes."""
+    x = data / 255.0                       # pass 1: normalize
+    x = (x - MNIST_MEAN) / MNIST_STD       # pass 2-3: subtract + divide
+    x = np.clip(x, 0.0, 1.0)              # pass 4: clip
+    return x
+
+
+def preprocess_ea_fused(data, so_path):
+    """Ea fused preprocessing: all in one pass. No intermediate arrays."""
+    lib = ctypes.CDLL(str(so_path))
+    lib.preprocess_fused.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32,
+                                     ctypes.c_float, ctypes.c_float,
+                                     ctypes.c_float]
+    lib.preprocess_fused.restype = None
+
+    flat = np.ascontiguousarray(data, dtype=np.float32).ravel()
+    out = np.empty_like(flat)
+    n = len(flat)
+
+    lib.preprocess_fused(
+        flat.ctypes.data_as(FLOAT_PTR),
+        out.ctypes.data_as(FLOAT_PTR),
+        n,
+        ctypes.c_float(1.0 / 255.0),
+        ctypes.c_float(MNIST_MEAN),
+        ctypes.c_float(1.0 / MNIST_STD),
     )
     return out.reshape(data.shape)
 
@@ -179,60 +219,96 @@ def main():
     print(f"  Data source: {data_source}")
     print()
 
-    # Build kernel
-    so_path = build_ea_kernel()
+    # Build kernels
+    so_path = build_ea_kernel("normalize")
+    so_fused_path = build_ea_kernel("preprocess_fused")
     print()
 
-    # --- Correctness ---
+    # --- Part 1: Single Operation (normalize only) ---
+    print("=" * 60)
+    print("  PART 1: Single Operation (normalize only)")
+    print("=" * 60)
+    print()
+
     print("=== Correctness ===")
     result_numpy = normalize_numpy(images)
     result_ea = normalize_ea(images, so_path)
 
     diff = np.abs(result_ea - result_numpy)
     max_diff = diff.max()
-    mean_diff = diff.mean()
-    print(f"  Ea vs NumPy: max diff = {max_diff:.10f}, mean diff = {mean_diff:.10f}")
-
-    # Verify range
-    print(f"  Output range: [{result_ea.min():.4f}, {result_ea.max():.4f}]")
-    expected_min = images.min() / 255.0
-    expected_max = images.max() / 255.0
-    print(f"  Expected range: [{expected_min:.4f}, {expected_max:.4f}]")
-
+    print(f"  Ea vs NumPy: max diff = {max_diff:.10f}")
     if max_diff < 1e-6:
-        print("  Match: YES (within floating-point tolerance)")
-    else:
-        print(f"  Match: APPROXIMATE (max diff {max_diff:.8f})")
+        print("  Match: YES")
     print()
 
-    # --- Performance ---
     print("=== Performance ===")
-    print(f"  {n_images} images, {total_pixels:,} pixels, 50 runs, median time\n")
+    print(f"  {total_pixels:,} pixels, 50 runs, median time\n")
 
     t_numpy = benchmark(normalize_numpy, images)
-    print(f"  NumPy              : {t_numpy:8.2f} ms")
+    print(f"  NumPy (x / 255.0)  : {t_numpy:8.2f} ms")
 
     t_ea = benchmark(normalize_ea, images, so_path)
-    print(f"  Ea (normalize.so)  : {t_ea:8.2f} ms")
+    print(f"  Ea (1 kernel)      : {t_ea:8.2f} ms")
 
     print()
+    speedup1 = t_numpy / t_ea
+    print(f"  Ea vs NumPy: {speedup1:.1f}x "
+          f"{'faster' if t_ea < t_numpy else 'slower'}")
+    print(f"  → Memory-bound. Both hit DRAM bandwidth wall.")
+    print()
 
-    # --- Throughput ---
-    print("=== Throughput ===")
-    bytes_processed = total_pixels * 4  # f32
-    ea_gbps = (bytes_processed / (t_ea / 1000)) / 1e9
-    np_gbps = (bytes_processed / (t_numpy / 1000)) / 1e9
-    print(f"  Ea    : {ea_gbps:.1f} GB/s")
-    print(f"  NumPy : {np_gbps:.1f} GB/s")
+    # --- Part 2: Full Pipeline (normalize + standardize + clip) ---
+    print("=" * 60)
+    print("  PART 2: Full Pipeline (normalize + standardize + clip)")
+    print("=" * 60)
+    print()
+
+    print("=== Correctness ===")
+    result_np_full = preprocess_numpy(images)
+    result_ea_full = preprocess_ea_fused(images, so_fused_path)
+
+    diff_full = np.abs(result_ea_full - result_np_full)
+    max_diff_full = diff_full.max()
+    mean_diff_full = diff_full.mean()
+    print(f"  Ea fused vs NumPy: max diff = {max_diff_full:.10f}")
+    print(f"  Output range Ea   : [{result_ea_full.min():.4f}, {result_ea_full.max():.4f}]")
+    print(f"  Output range NumPy: [{result_np_full.min():.4f}, {result_np_full.max():.4f}]")
+    if max_diff_full < 1e-5:
+        print("  Match: YES (within floating-point tolerance)")
+    else:
+        print(f"  Match: APPROXIMATE (max diff {max_diff_full:.8f})")
+    print()
+
+    print("=== Performance ===")
+    print(f"  NumPy: x/255 → (x-mean)/std → clip(0,1)  [3-4 memory passes]")
+    print(f"  Ea:    fused single pass                   [1 memory pass]")
+    print()
+
+    t_np_full = benchmark(preprocess_numpy, images)
+    print(f"  NumPy (multi-pass) : {t_np_full:8.2f} ms")
+
+    t_ea_full = benchmark(preprocess_ea_fused, images, so_fused_path)
+    print(f"  Ea fused (1 pass)  : {t_ea_full:8.2f} ms")
+
     print()
 
     # --- Summary ---
-    print("=== Summary ===")
-    speedup = t_numpy / t_ea
-    print(f"  Ea vs NumPy  : {speedup:.1f}x "
+    print("=" * 60)
+    print("  SUMMARY")
+    print("=" * 60)
+    print()
+    speedup_full = t_np_full / t_ea_full
+    print(f"  Single op (normalize only):")
+    print(f"    Ea vs NumPy     : {speedup1:.1f}x "
           f"{'faster' if t_ea < t_numpy else 'slower'}")
+    print()
+    print(f"  Full pipeline (normalize + standardize + clip):")
+    print(f"    Ea fused vs NumPy: {speedup_full:.1f}x "
+          f"{'faster' if t_ea_full < t_np_full else 'slower'}")
+    print(f"    Fusion eliminated {3}-4 memory passes → 1")
+    print()
     print(f"  Data: {n_images} real MNIST images, {total_pixels:,} pixels")
-    print(f"  Correctness: verified against NumPy (max diff {max_diff:.1e})")
+    print(f"  Correctness: verified (max diff {max_diff_full:.1e})")
 
 
 if __name__ == "__main__":

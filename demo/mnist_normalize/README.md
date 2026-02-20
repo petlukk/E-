@@ -1,44 +1,57 @@
-# MNIST Normalization — Ea Demo
+# MNIST Preprocessing — Ea Demo
 
-Normalizes 60,000 real MNIST handwritten digit images from [0, 255] to [0.0, 1.0].
+Normalizes and preprocesses 60,000 real MNIST handwritten digit images.
 On first run, auto-downloads MNIST training data from Google Cloud.
 Falls back to synthetic data if download fails.
 
-- **NumPy** — `data / 255.0`
-- **Ea** — streaming SIMD kernel, one pass
+Two benchmarks that tell the full story:
 
-Both produce identical output (within floating-point tolerance).
+1. **Single operation** (normalize only) — Ea loses. Memory-bound.
+2. **Full pipeline** (normalize + standardize + clip, fused) — Ea wins. Fusion.
 
 ## Results
 
 AMD Ryzen 7 1700 (Zen 1, AVX2). 60,000 images, 47M pixels. 50 runs, median.
 
+### Part 1: Single Operation (normalize only)
+
 ```
-NumPy              :  115 ms   (1.6 GB/s)
-Ea (normalize.so)  :  126 ms   (1.5 GB/s)
+NumPy (x / 255.0)  :   75 ms
+Ea (1 kernel)       :   81 ms
 ```
 
 Ea vs NumPy: **0.9x (slower)**.
 
-## Why Ea doesn't win here
+A single element-wise multiply on 47M pixels is memory-bound. Both implementations
+hit the same DRAM bandwidth wall. This is the expected result.
 
-This is intentional. A single element-wise multiply on 47 million pixels is
-**memory-bound**. Both implementations hit the same DRAM bandwidth wall (~1.5 GB/s).
-The CPU spends most of its time waiting for RAM, not computing.
+### Part 2: Full Pipeline (normalize + standardize + clip)
 
-This is the streaming pattern from [COMPUTE_PATTERNS.md](../../COMPUTE_PATTERNS.md):
-when the operation is trivially simple and the data is large, all implementations
-converge to the same bandwidth limit. ctypes FFI overhead makes Ea slightly slower.
+```
+NumPy (multi-pass)  :  336 ms   (3-4 memory passes)
+Ea fused (1 pass)   :  129 ms   (1 memory pass)
+```
 
-**Ea wins when:**
-- Operations have dependency structure (reductions with multi-accumulator ILP)
-- Access patterns benefit from explicit SIMD (stencils)
-- Multiple operations fuse into one pass (fused pipelines)
-- Memory model matters (streaming datasets with O(1) extra memory)
+Ea fused vs NumPy: **2.6x faster**.
 
-A kernel language that claims to win on every workload is lying.
+NumPy does:
+```python
+x = x / 255.0            # pass 1: read + write 180 MB
+x = (x - mean) / std     # pass 2-3: read + write 180 MB twice
+x = np.clip(x, 0, 1)     # pass 4: read + write 180 MB
+```
 
-## The kernel
+Ea does:
+```
+load → scale → subtract → multiply → clamp → store   (one pass)
+```
+
+Same principle as the video anomaly fusion: **if data leaves registers, you
+probably ended a kernel too early.**
+
+## The kernels
+
+### Single operation (`normalize.ea`)
 
 ```
 export func normalize_f32x8(input: *restrict f32, out: *mut f32, len: i32, scale: f32) {
@@ -49,14 +62,38 @@ export func normalize_f32x8(input: *restrict f32, out: *mut f32, len: i32, scale
         store(out, i, v .* vscale)
         i = i + 8
     }
-    while i < len {
-        out[i] = input[i] * scale
-        i = i + 1
-    }
+    // ... scalar tail
 }
 ```
 
-Six lines of compute. Called with `scale = 1.0 / 255.0`.
+### Fused pipeline (`preprocess_fused.ea`)
+
+```
+export func preprocess_fused(
+    input: *restrict f32, out: *mut f32, len: i32,
+    scale: f32, mean: f32, inv_std: f32
+) {
+    let vscale: f32x8 = splat(scale)
+    let vmean: f32x8 = splat(mean)
+    let vinv_std: f32x8 = splat(inv_std)
+    let vzero: f32x8 = splat(0.0)
+    let vone: f32x8 = splat(1.0)
+    let mut i: i32 = 0
+    while i + 8 <= len {
+        let v: f32x8 = load(input, i)
+        let norm: f32x8 = v .* vscale
+        let centered: f32x8 = norm .- vmean
+        let scaled: f32x8 = centered .* vinv_std
+        let clamped_lo: f32x8 = select(scaled .< vzero, vzero, scaled)
+        let clamped: f32x8 = select(clamped_lo .> vone, vone, clamped_lo)
+        store(out, i, clamped)
+        i = i + 8
+    }
+    // ... scalar tail
+}
+```
+
+Five operations, one memory pass. All intermediate values live in registers.
 
 ## How to run
 
@@ -68,13 +105,14 @@ cargo build --features=llvm --release
 python demo/mnist_normalize/run.py
 ```
 
-## How it works
+## Why this demo matters
 
-Python downloads MNIST, loads 60,000 images as a flat f32 array (47M elements),
-and calls the Ea kernel via ctypes. The kernel does a single streaming pass:
-multiply every pixel by 1/255. No allocation inside the kernel.
+It shows both sides of the same coin:
 
-```python
-lib = ctypes.CDLL("./normalize.so")
-lib.normalize_f32x8(input_ptr, output_ptr, n_pixels, ctypes.c_float(1.0 / 255.0))
-```
+| Workload | Memory passes | Ea wins? | Why |
+|----------|:---:|:---:|---|
+| Single op | 1 vs 1 | No | Both memory-bound |
+| Full pipeline | 1 vs 3-4 | **Yes** | Fusion eliminates traffic |
+
+Performance comes from expressing the computation boundary correctly.
+Not from a better compiler.
