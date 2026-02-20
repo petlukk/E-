@@ -418,14 +418,16 @@ def main():
     snr_single = compute_snr(frames[0], reference)
     snr_numpy = compute_snr(result_numpy, reference)
     snr_ea = compute_snr(result_ea, reference)
-    expected_improvement_db = 10 * np.log10(n_frames) / 2
+    # Power SNR improvement from averaging N frames: noise power drops by N,
+    # so SNR improves by 10*log10(N). (The /2 form is for amplitude SNR only.)
+    expected_improvement_db = 10 * np.log10(n_frames)
 
     print(f"  Single noisy frame SNR : {snr_single:6.2f} dB")
     print(f"  Stacked (NumPy) SNR    : {snr_numpy:6.2f} dB")
     print(f"  Stacked (Ea) SNR       : {snr_ea:6.2f} dB")
     print(f"  Improvement (Ea)       : {snr_ea - snr_single:+.2f} dB")
     print(f"  Expected improvement   : ~{expected_improvement_db:+.2f} dB "
-          f"(sqrt({n_frames}) = {np.sqrt(n_frames):.1f}x noise reduction)")
+          f"(noise power / {n_frames} → power SNR + 10·log₁₀({n_frames}))")
     print()
 
     # Save output images
