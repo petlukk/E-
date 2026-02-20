@@ -1,0 +1,68 @@
+// Video frame anomaly detection.
+// Three composable kernels: diff, threshold, count.
+// Called in sequence from Python — kernels compute, caller orchestrates.
+
+// Per-pixel absolute difference: out[i] = |a[i] - b[i]|
+export func frame_diff_f32x8(a: *restrict f32, b: *restrict f32, out: *mut f32, len: i32) {
+    let vzero: f32x8 = splat(0.0)
+    let mut i: i32 = 0
+    while i + 8 <= len {
+        let va: f32x8 = load(a, i)
+        let vb: f32x8 = load(b, i)
+        let diff: f32x8 = va .- vb
+        let abs_diff: f32x8 = select(diff .< vzero, vzero .- diff, diff)
+        store(out, i, abs_diff)
+        i = i + 8
+    }
+    while i < len {
+        let d: f32 = a[i] - b[i]
+        if d < 0.0 {
+            out[i] = 0.0 - d
+        } else {
+            out[i] = d
+        }
+        i = i + 1
+    }
+}
+
+// Branchless threshold: out[i] = (data[i] > thresh) ? 1.0 : 0.0
+export func threshold_f32x8(data: *restrict f32, out: *mut f32, len: i32, thresh: f32) {
+    let vthresh: f32x8 = splat(thresh)
+    let vone: f32x8 = splat(1.0)
+    let vzero: f32x8 = splat(0.0)
+    let mut i: i32 = 0
+    while i + 8 <= len {
+        let v: f32x8 = load(data, i)
+        store(out, i, select(v .> vthresh, vone, vzero))
+        i = i + 8
+    }
+    while i < len {
+        if data[i] > thresh {
+            out[i] = 1.0
+        } else {
+            out[i] = 0.0
+        }
+        i = i + 1
+    }
+}
+
+// Sum reduction with multi-accumulator ILP.
+// Returns total (count of 1.0s when applied to thresholded output).
+export func sum_f32x8(data: *restrict f32, len: i32) -> f32 {
+    let mut acc0: f32x8 = splat(0.0)
+    let mut acc1: f32x8 = splat(0.0)
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        let v0: f32x8 = load(data, i)
+        let v1: f32x8 = load(data, i + 8)
+        acc0 = acc0 .+ v0
+        acc1 = acc1 .+ v1
+        i = i + 16
+    }
+    let mut total: f32 = reduce_add(acc0 .+ acc1)
+    while i < len {
+        total = total + data[i]
+        i = i + 1
+    }
+    return total
+}

@@ -36,7 +36,7 @@ fma_kernel(a, b, c, result, n);  // that's it
 
 ## Benchmark
 
-Measured on AMD Ryzen 7 1700 (Zen 1, AVX2/FMA), GCC 11.4, LLVM 14, Linux (WSL2).
+Measured on AMD Ryzen 7 1700 (Zen 1, AVX2/FMA), GCC 11.4, LLVM 18, Linux (WSL2).
 1M elements, 100-200 runs, averaged. Full methodology and scripts in `benchmarks/`.
 
 **Ea uses strict IEEE floating point -- no fast-math flags.** The C reference was
@@ -47,47 +47,45 @@ without fast-math is the stronger claim.
 
 | Implementation   | Avg (us) | vs Fastest C |
 | ---------------- | -------- | ------------ |
-| GCC f32x8 (AVX2) | 1043     | 1.04x        |
-| GCC f32x4 (SSE)  | 1034     | 1.03x        |
-| **Ea f32x4**     | **1003** | **1.00x**    |
-| Clang-14 f32x8   | 1023     | 1.02x        |
-| ISPC             | 978      | 0.98x        |
-| Rust std::simd   | 1045     | 1.04x        |
+| GCC f32x8 (AVX2) | 887      | 1.03x        |
+| **Ea f32x4**     | **885**  | **1.03x**    |
+| Clang-14 f32x8   | 859      | 1.00x        |
+| ISPC             | 828      | 0.96x        |
+| Rust std::simd   | 1001     | 1.17x        |
 
 ### Sum Reduction
 
 | Implementation   | Avg (us) | vs Fastest C |
 | ---------------- | -------- | ------------ |
-| GCC f32x8 (AVX2) | 119      | 1.00x        |
-| **Ea f32x8**     | **117**  | **0.98x**    |
-| Clang-14 f32x8   | 115      | 0.96x        |
-| ISPC             | 120      | 1.00x        |
-| Rust f32x8       | 120      | 1.01x        |
+| C f32x8 (AVX2)   | 110      | 1.00x        |
+| **Ea f32x8**     | **105**  | **0.96x**    |
+| Clang-14 f32x8   | 130      | 1.18x        |
+| ISPC             | 105      | 0.95x        |
+| Rust f32x8       | 111      | 1.01x        |
 
-### Max Reduction
-
-| Implementation  | Avg (us) | vs Fastest C |
-| --------------- | -------- | ------------ |
-| GCC f32x4 (SSE) | 80       | 1.00x        |
-| **Ea f32x4**    | **83**   | **1.03x**    |
-| Clang-14 f32x4  | 82       | 1.02x        |
-| ISPC            | 70       | 0.87x        |
-| Rust f32x4      | 209      | 2.61x        |
-
-### Min Reduction
+### Max Reduction (multi-accumulator)
 
 | Implementation  | Avg (us) | vs Fastest C |
 | --------------- | -------- | ------------ |
-| GCC f32x4 (SSE) | 92       | 1.00x        |
-| **Ea f32x4**    | **87**   | **0.95x**    |
-| Clang-14 f32x4  | 87       | 0.95x        |
-| ISPC            | 64       | 0.69x        |
-| Rust f32x4      | 187      | 2.05x        |
+| C f32x4 (SSE)   | 100      | 1.00x        |
+| **Ea f32x4**    | **78**   | **0.83x**    |
+| Clang-14 f32x4  | 89       | 0.95x        |
+| ISPC            | 71       | 0.76x        |
+| Rust f32x4      | 180      | 1.93x        |
 
-ISPC outperforms Ea on some reductions due to its SPMD execution model
-and aggressive auto-vectorization -- this is expected given the different approach.
-Rust std::simd compiled with `cargo +nightly`, `RUSTFLAGS='-C target-cpu=native'`
-(opt-level=3 is the cdylib release default).
+### Min Reduction (multi-accumulator)
+
+| Implementation  | Avg (us) | vs Fastest C |
+| --------------- | -------- | ------------ |
+| C f32x4 (SSE)   | 80       | 1.00x        |
+| **Ea f32x4**    | **78**   | **0.97x**    |
+| Clang-14 f32x4  | 88       | 1.10x        |
+| ISPC            | 73       | 0.91x        |
+| Rust f32x4      | 220      | 2.77x        |
+
+Ea's reduction kernels use explicit multi-accumulator patterns to break dependency
+chains -- see `examples/reduction_multi_acc.ea`. This is faster than relying on
+compiler auto-unrolling and stable across LLVM versions.
 
 Competitors are optional -- benchmarks run with whatever toolchains are installed.
 GCC is required; Clang, ISPC, and Rust nightly are detected and included automatically.
@@ -96,7 +94,7 @@ GCC is required; Clang, ISPC, and Rust nightly are detected and included automat
 
 ## Additional Benchmark Results (Intel i7-1260P, WSL2)
 
-Measured on Intel i7-1260P (Alder Lake, AVX2/FMA), LLVM 14, Linux (WSL2).
+Measured on Intel i7-1260P (Alder Lake, AVX2/FMA), LLVM 18, Linux (WSL2).
 1M elements, 100–200 runs, **minimum** time reported.
 
 ### Key Finding: `restrict` produces identical machine code
@@ -105,7 +103,7 @@ The `noalias` attribute is correctly emitted in LLVM IR, but it has no measurabl
 
 - The generated assembly is byte-identical with and without `restrict` (confirmed via `objdump -d` + MD5 comparison)
 - Ea's explicit SIMD intrinsics (`load` / `store` / `fma`) already use distinct base pointers, so LLVM's alias analysis does not require `noalias` hints
-- The optimization pipeline intentionally excludes the loop vectorizer and SLP passes (which benefit most from `noalias`)
+- Ea's explicit SIMD means the loop vectorizer and SLP passes have little to contribute beyond what is already expressed
 - Reduction kernels have a single pointer parameter, making `noalias` vacuous
 
 The implementation is correct and complete — it is simply not performance-relevant for these specific kernels. The feature is positioned for value when the optimizer pipeline grows (auto-tiling, software pipelining, prefetching) or when users write more complex aliasing patterns.
@@ -135,6 +133,68 @@ The implementation is correct and complete — it is simply not performance-rele
 - ISPC compilation flag fixed (`--PIC` → `--pic`) in `bench_common.py`
 - Benchmarks confirm that explicit SIMD already provides sufficient aliasing information to LLVM
 - `restrict` becomes valuable when introducing auto-optimization features or more complex aliasing scenarios
+
+## Performance Principle
+
+LLVM optimizes instructions. Ea lets you optimize dependency structure.
+
+A single-accumulator reduction creates a serial chain -- each iteration waits for
+the previous one. On a superscalar CPU, this wastes execution units:
+
+```
+// Single accumulator: serial dependency, ~0.25 IPC on Zen 1
+acc = max(acc, load(data, i))   // must wait for previous acc
+```
+
+Express the parallelism explicitly with multiple accumulators:
+
+```
+// Two accumulators: independent chains, ~1.0 IPC on Zen 1
+acc0 = max(acc0, load(data, i))      // independent
+acc1 = max(acc1, load(data, i + 4))  // independent
+```
+
+Result: 2x throughput from a source-level change, stable across LLVM versions,
+no compiler flags or optimizer tuning required.
+
+See `examples/reduction_single.ea` and `examples/reduction_multi_acc.ea`.
+
+## Compute Model
+
+Ea defines six kernel patterns that cover most compute workloads:
+
+| Pattern | What it does | Example |
+|---------|-------------|---------|
+| Streaming | Element-wise transform | `fma.ea` |
+| Reduction | Array → scalar with multi-acc ILP | `reduction.ea` |
+| Branchless | Conditional logic via `select` | `threshold.ea` |
+| Multi-pass | Reduction then streaming | `normalize.ea` |
+| Stencil | Neighborhood access (convolution) | `conv2d.ea` |
+| Pipeline | Multiple kernels composed | `sobel.ea` |
+
+The full compute model — dependency structure, memory patterns, vector width
+selection, and design principles — is documented in [`COMPUTE.md`](COMPUTE.md).
+
+For a deeper analysis of when each pattern wins and when it doesn't, with
+measured results and memory models, see [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md).
+
+## Demos
+
+Real workloads. Real data. Verified against established tools.
+
+| Demo | Domain | Patterns | Result |
+|------|--------|----------|--------|
+| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 2.7x faster than OpenCV, 9.3x faster than NumPy |
+| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, branchless, reduction | ~1.2x vs NumPy (NumPy is already good here) |
+| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 6.3x faster, 16x less memory than NumPy |
+
+Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
+and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
+
+The video anomaly result is intentionally modest. For simple element-wise operations,
+NumPy is already close to optimal. Ea's advantage shows in dependency structure
+(reductions), spatial access (stencils), and memory model (streaming datasets).
+See [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for the full analysis.
 
 ## Why not...
 
@@ -172,8 +232,8 @@ Currently tested on x86-64 with AVX2. Other architectures depend on LLVM backend
 ## Quick Start
 
 ```bash
-# Requirements: LLVM 14, Rust
-sudo apt install llvm-14-dev clang-14
+# Requirements: LLVM 18, Rust
+sudo apt install llvm-18-dev clang-18 libpolly-18-dev libzstd-dev
 
 # Build
 cargo build --features=llvm
@@ -187,7 +247,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (95 passing)
+# Run tests (109 passing)
 cargo test --features=llvm
 ```
 
@@ -224,11 +284,11 @@ lib.fma_kernel(
 ## Architecture
 
 ```
-Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 14) -> .o / .so
+Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
-~4,500 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-95 tests covering C interop, SIMD operations, structs, and shared library output.
+~4,600 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+109 tests covering C interop, SIMD operations, structs, and shared library output.
 
 ## License
 

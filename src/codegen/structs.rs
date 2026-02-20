@@ -38,7 +38,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             let val = self.compile_expr_typed(field_expr, Some(&field_type), function)?;
             let field_ptr = self
                 .builder
-                .build_struct_gep(alloca, idx, &format!("{name}.{field_name}"))
+                .build_struct_gep(struct_type, alloca, idx, &format!("{name}.{field_name}"))
                 .map_err(|e| CompileError::codegen_error(format!("struct gep error: {e}")))?;
             self.builder
                 .build_store(field_ptr, val)
@@ -47,7 +47,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let loaded = self
             .builder
-            .build_load(alloca, name)
+            .build_load(struct_type, alloca, name)
             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
         Ok(loaded)
     }
@@ -59,37 +59,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
         let (struct_ptr, struct_name) = self.resolve_struct_ptr(object, function)?;
-        let field_map = self.struct_fields.get(&struct_name).ok_or_else(|| {
-            CompileError::codegen_error(format!("unknown struct '{struct_name}'"))
+        let struct_type = *self.struct_types.get(&struct_name).ok_or_else(|| {
+            CompileError::codegen_error(format!("unknown struct type '{struct_name}'"))
         })?;
-        let idx = field_map
-            .iter()
-            .find(|(n, _, _)| n == field)
-            .map(|(_, i, _)| *i)
-            .ok_or_else(|| {
-                CompileError::codegen_error(format!(
-                    "struct '{struct_name}' has no field '{field}'"
-                ))
-            })?;
-        let field_ptr = self
-            .builder
-            .build_struct_gep(struct_ptr, idx, &format!("{struct_name}.{field}"))
-            .map_err(|e| CompileError::codegen_error(format!("struct gep error: {e}")))?;
-        let val = self
-            .builder
-            .build_load(field_ptr, field)
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
-        Ok(val)
-    }
-
-    pub(crate) fn compile_field_assign(
-        &mut self,
-        object: &Expr,
-        field: &str,
-        value: &Expr,
-        function: FunctionValue<'ctx>,
-    ) -> crate::error::Result<()> {
-        let (struct_ptr, struct_name) = self.resolve_struct_ptr(object, function)?;
         let field_map = self.struct_fields.get(&struct_name).ok_or_else(|| {
             CompileError::codegen_error(format!("unknown struct '{struct_name}'"))
         })?;
@@ -104,7 +76,52 @@ impl<'ctx> CodeGenerator<'ctx> {
             })?;
         let field_ptr = self
             .builder
-            .build_struct_gep(struct_ptr, idx, &format!("{struct_name}.{field}"))
+            .build_struct_gep(
+                struct_type,
+                struct_ptr,
+                idx,
+                &format!("{struct_name}.{field}"),
+            )
+            .map_err(|e| CompileError::codegen_error(format!("struct gep error: {e}")))?;
+        let field_llvm_ty = self.llvm_type(&field_type);
+        let val = self
+            .builder
+            .build_load(field_llvm_ty, field_ptr, field)
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+        Ok(val)
+    }
+
+    pub(crate) fn compile_field_assign(
+        &mut self,
+        object: &Expr,
+        field: &str,
+        value: &Expr,
+        function: FunctionValue<'ctx>,
+    ) -> crate::error::Result<()> {
+        let (struct_ptr, struct_name) = self.resolve_struct_ptr(object, function)?;
+        let struct_type = *self.struct_types.get(&struct_name).ok_or_else(|| {
+            CompileError::codegen_error(format!("unknown struct type '{struct_name}'"))
+        })?;
+        let field_map = self.struct_fields.get(&struct_name).ok_or_else(|| {
+            CompileError::codegen_error(format!("unknown struct '{struct_name}'"))
+        })?;
+        let (idx, field_type) = field_map
+            .iter()
+            .find(|(n, _, _)| n == field)
+            .map(|(_, i, t)| (*i, t.clone()))
+            .ok_or_else(|| {
+                CompileError::codegen_error(format!(
+                    "struct '{struct_name}' has no field '{field}'"
+                ))
+            })?;
+        let field_ptr = self
+            .builder
+            .build_struct_gep(
+                struct_type,
+                struct_ptr,
+                idx,
+                &format!("{struct_name}.{field}"),
+            )
             .map_err(|e| CompileError::codegen_error(format!("struct gep error: {e}")))?;
         let val = self.compile_expr_typed(value, Some(&field_type), function)?;
         self.builder
@@ -127,9 +144,10 @@ impl<'ctx> CodeGenerator<'ctx> {
                     Type::Struct(sn) => Ok((*alloca, sn.clone())),
                     Type::Pointer { inner, .. } => match inner.as_ref() {
                         Type::Struct(sn) => {
+                            let ptr_ty = self.llvm_type(ty);
                             let ptr = self
                                 .builder
-                                .build_load(*alloca, name)
+                                .build_load(ptr_ty, *alloca, name)
                                 .map_err(|e| CompileError::codegen_error(e.to_string()))?
                                 .into_pointer_value();
                             Ok((ptr, sn.clone()))
@@ -147,9 +165,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                 let arr_val = self.compile_expr(arr, function)?;
                 let idx = self.compile_expr(index, function)?.into_int_value();
                 let ptr = arr_val.into_pointer_value();
-                let elem_ptr = unsafe { self.builder.build_gep(ptr, &[idx], "elemptr") }
-                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 let struct_name = self.resolve_struct_name_from_expr(arr)?;
+                let struct_type = *self.struct_types.get(&struct_name).ok_or_else(|| {
+                    CompileError::codegen_error(format!("unknown struct type '{struct_name}'"))
+                })?;
+                let elem_ptr =
+                    unsafe { self.builder.build_gep(struct_type, ptr, &[idx], "elemptr") }
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok((elem_ptr, struct_name))
             }
             Expr::FieldAccess { .. } => Err(CompileError::codegen_error(

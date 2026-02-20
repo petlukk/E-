@@ -1,6 +1,6 @@
 [package]
 name = "ea-compiler"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Eä v2 — SIMD kernel compiler"
 authors = ["Peter Lukka <peter.lukka@gmail.com>"]
@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 logos = { version = "0.13", features = ["export_derive"] }
 anyhow = "1.0"
 thiserror = "1.0"
-inkwell = { version = "0.4", features = ["llvm14-0"], optional = true }
+inkwell = { version = "0.5", features = ["llvm18-0"], optional = true }
 
 [dev-dependencies]
 tempfile = "3.8"

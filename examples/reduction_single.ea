@@ -1,0 +1,23 @@
+// Single-accumulator max reduction.
+// Simple, correct, but has a loop-carried dependency chain:
+//   acc → acc → acc → acc ...
+// On superscalar CPUs this limits IPC to ~0.25 (one vmaxps every 4 cycles on Zen).
+// See reduction_multi_acc.ea for the explicit parallel version.
+
+export func max_f32x4(data: *restrict f32, len: i32) -> f32 {
+    let mut acc: f32x4 = load(data, 0)
+    let mut i: i32 = 4
+    while i + 4 <= len {
+        let v: f32x4 = load(data, i)
+        acc = select(acc .> v, acc, v)
+        i = i + 4
+    }
+    let mut result: f32 = reduce_max(acc)
+    while i < len {
+        if data[i] > result {
+            result = data[i]
+        }
+        i = i + 1
+    }
+    return result
+}

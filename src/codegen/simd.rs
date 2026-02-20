@@ -88,18 +88,17 @@ impl<'ctx> CodeGenerator<'ctx> {
         let ptr_val = self.compile_expr(&args[0], function)?.into_pointer_value();
         let idx_val = self.compile_expr(&args[1], function)?.into_int_value();
 
-        let elem_ptr = unsafe { self.builder.build_gep(ptr_val, &[idx_val], "load_gep") }
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
-
         let vec_ty = self.infer_load_vector_type(&args[0], type_hint);
-        let vec_ptr_ty = vec_ty.ptr_type(inkwell::AddressSpace::default());
-        let vec_ptr = self
-            .builder
-            .build_pointer_cast(elem_ptr, vec_ptr_ty, "vec_ptr")
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+        let elem_ty = vec_ty.get_element_type();
+        let elem_ptr = unsafe {
+            self.builder
+                .build_gep(elem_ty, ptr_val, &[idx_val], "load_gep")
+        }
+        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
         let val = self
             .builder
-            .build_load(vec_ptr, "vec_load")
+            .build_load(vec_ty, elem_ptr, "vec_load")
             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
         // Set alignment to element size, not vector width, for unaligned loads
@@ -130,19 +129,17 @@ impl<'ctx> CodeGenerator<'ctx> {
         let idx_val = self.compile_expr(&args[1], function)?.into_int_value();
         let vec_val = self.compile_expr(&args[2], function)?.into_vector_value();
 
-        let elem_ptr = unsafe { self.builder.build_gep(ptr_val, &[idx_val], "store_gep") }
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
-
         let vec_ty = vec_val.get_type();
-        let vec_ptr_ty = vec_ty.ptr_type(inkwell::AddressSpace::default());
-        let vec_ptr = self
-            .builder
-            .build_pointer_cast(elem_ptr, vec_ptr_ty, "vec_ptr")
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+        let elem_ty = vec_ty.get_element_type();
+        let elem_ptr = unsafe {
+            self.builder
+                .build_gep(elem_ty, ptr_val, &[idx_val], "store_gep")
+        }
+        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
         let store_inst = self
             .builder
-            .build_store(vec_ptr, vec_val)
+            .build_store(elem_ptr, vec_val)
             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
         // Set alignment to element size for unaligned stores

@@ -2,7 +2,7 @@
 use inkwell::targets::{CodeModel, FileType, RelocMode, Target, TargetMachine};
 
 #[cfg(feature = "llvm")]
-use inkwell::passes::PassManager;
+use inkwell::passes::PassBuilderOptions;
 
 #[cfg(feature = "llvm")]
 use inkwell::module::Module;
@@ -55,47 +55,23 @@ pub fn write_object_file(
     path: &std::path::Path,
     opts: &CompileOptions,
 ) -> crate::error::Result<()> {
+    let machine = create_target_machine(opts)?;
+
     if opts.opt_level > 0 {
-        optimize_module(module)?;
+        optimize_module(module, &machine)?;
     }
 
-    let machine = create_target_machine(opts)?;
     machine
         .write_to_file(module, FileType::Object, path)
         .map_err(|e| CompileError::codegen_error(format!("failed to write object file: {e}")))
 }
 
 #[cfg(feature = "llvm")]
-fn optimize_module(module: &Module) -> crate::error::Result<()> {
-    // Curated pipeline for SIMD kernel IR.
-    // Ea already emits vector IR — no auto-vectorizers needed.
-    // SLP/loop vectorizers hurt explicit SIMD without fast-math flags.
-    let fpm = PassManager::create(module);
-
-    // Scalar cleanup
-    fpm.add_promote_memory_to_register_pass(); // mem2reg — critical
-    fpm.add_instruction_combining_pass(); // instcombine
-    fpm.add_reassociate_pass(); // reorder expressions
-    fpm.add_gvn_pass(); // GVN
-    fpm.add_cfg_simplification_pass(); // simplifycfg
-    fpm.add_early_cse_pass(); // common subexpression elimination
-
-    // Loop optimization (no loop_rotate — it breaks fcmp+select vectorization)
-    fpm.add_licm_pass(); // hoist invariants
-    fpm.add_ind_var_simplify_pass(); // simplify induction variables
-    fpm.add_loop_unroll_pass(); // unroll loops
-
-    // Cleanup
-    fpm.add_instruction_combining_pass(); // instcombine again
-    fpm.add_dead_store_elimination_pass(); // dead stores
-    fpm.add_aggressive_dce_pass(); // dead code
-    fpm.add_cfg_simplification_pass(); // final simplification
-
-    fpm.initialize();
-    for function in module.get_functions() {
-        fpm.run_on(&function);
-    }
-    fpm.finalize();
-
+fn optimize_module(module: &Module, machine: &TargetMachine) -> crate::error::Result<()> {
+    let passes = "default<O2>";
+    let opts = PassBuilderOptions::create();
+    module
+        .run_passes(passes, machine, opts)
+        .map_err(|e| CompileError::codegen_error(format!("pass pipeline failed: {e}")))?;
     Ok(())
 }

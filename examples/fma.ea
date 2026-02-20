@@ -1,0 +1,33 @@
+// Fused multiply-add: out[i] = a[i] * b[i] + c[i]
+// Streaming kernel — no dependency chain, fully memory-bound at scale.
+// Demonstrates: load, store, fma intrinsic, f32x4 and f32x8 variants.
+
+export func fma_f32x4(a: *restrict f32, b: *restrict f32, c: *restrict f32, out: *mut f32, len: i32) {
+    let mut i: i32 = 0
+    while i + 4 <= len {
+        let va: f32x4 = load(a, i)
+        let vb: f32x4 = load(b, i)
+        let vc: f32x4 = load(c, i)
+        store(out, i, fma(va, vb, vc))
+        i = i + 4
+    }
+    while i < len {
+        out[i] = a[i] * b[i] + c[i]
+        i = i + 1
+    }
+}
+
+export func fma_f32x8(a: *restrict f32, b: *restrict f32, c: *restrict f32, out: *mut f32, len: i32) {
+    let mut i: i32 = 0
+    while i + 8 <= len {
+        let va: f32x8 = load(a, i)
+        let vb: f32x8 = load(b, i)
+        let vc: f32x8 = load(c, i)
+        store(out, i, fma(va, vb, vc))
+        i = i + 8
+    }
+    while i < len {
+        out[i] = a[i] * b[i] + c[i]
+        i = i + 1
+    }
+}

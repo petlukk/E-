@@ -1,0 +1,81 @@
+// 3x3 convolution on grayscale image stored as flat f32 array.
+// out[y*w+x] = sum over ky,kx of input[(y+ky)*w + (x+kx)] * kernel[ky*3+kx]
+// Processes 4 output pixels per iteration (same row, consecutive x).
+// Demonstrates: stencil access pattern, register reuse, splat for kernel weights.
+
+export func conv3x3(
+    input: *restrict f32,
+    kernel: *restrict f32,
+    out: *mut f32,
+    width: i32,
+    height: i32
+) {
+    // Load kernel weights as scalars, splat once
+    let k00: f32x4 = splat(kernel[0])
+    let k01: f32x4 = splat(kernel[1])
+    let k02: f32x4 = splat(kernel[2])
+    let k10: f32x4 = splat(kernel[3])
+    let k11: f32x4 = splat(kernel[4])
+    let k12: f32x4 = splat(kernel[5])
+    let k20: f32x4 = splat(kernel[6])
+    let k21: f32x4 = splat(kernel[7])
+    let k22: f32x4 = splat(kernel[8])
+
+    // Process interior pixels (skip 1-pixel border)
+    let mut y: i32 = 1
+    while y < height - 1 {
+        let row_above: i32 = (y - 1) * width
+        let row_curr: i32 = y * width
+        let row_below: i32 = (y + 1) * width
+        let mut x: i32 = 1
+
+        while x + 4 <= width - 1 {
+            // Row above: load 3 overlapping vectors (x-1, x, x+1)
+            let r0a: f32x4 = load(input, row_above + x - 1)
+            let r0b: f32x4 = load(input, row_above + x)
+            let r0c: f32x4 = load(input, row_above + x + 1)
+
+            // Row current
+            let r1a: f32x4 = load(input, row_curr + x - 1)
+            let r1b: f32x4 = load(input, row_curr + x)
+            let r1c: f32x4 = load(input, row_curr + x + 1)
+
+            // Row below
+            let r2a: f32x4 = load(input, row_below + x - 1)
+            let r2b: f32x4 = load(input, row_below + x)
+            let r2c: f32x4 = load(input, row_below + x + 1)
+
+            // Accumulate: 9 multiply-adds
+            let mut acc: f32x4 = r0a .* k00
+            acc = fma(r0b, k01, acc)
+            acc = fma(r0c, k02, acc)
+            acc = fma(r1a, k10, acc)
+            acc = fma(r1b, k11, acc)
+            acc = fma(r1c, k12, acc)
+            acc = fma(r2a, k20, acc)
+            acc = fma(r2b, k21, acc)
+            acc = fma(r2c, k22, acc)
+
+            store(out, row_curr + x, acc)
+            x = x + 4
+        }
+
+        // Scalar tail for remaining pixels in row
+        while x < width - 1 {
+            let mut sum: f32 = 0.0
+            sum = sum + input[row_above + x - 1] * kernel[0]
+            sum = sum + input[row_above + x]     * kernel[1]
+            sum = sum + input[row_above + x + 1] * kernel[2]
+            sum = sum + input[row_curr + x - 1]  * kernel[3]
+            sum = sum + input[row_curr + x]      * kernel[4]
+            sum = sum + input[row_curr + x + 1]  * kernel[5]
+            sum = sum + input[row_below + x - 1] * kernel[6]
+            sum = sum + input[row_below + x]     * kernel[7]
+            sum = sum + input[row_below + x + 1] * kernel[8]
+            out[row_curr + x] = sum
+            x = x + 1
+        }
+
+        y = y + 1
+    }
+}

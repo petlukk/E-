@@ -1,0 +1,85 @@
+// Sobel edge detection on grayscale f32 image.
+// Computes gradient magnitude using L1 norm: |Gx| + |Gy|
+// No sqrt needed — L1 is standard approximation for edge strength.
+// Demonstrates: multi-kernel stencil, abs via select, pipeline composition.
+//
+// Sobel kernels:
+//   Gx = [-1 0 1]    Gy = [-1 -2 -1]
+//        [-2 0 2]          [ 0  0  0]
+//        [-1 0 1]          [ 1  2  1]
+
+export func sobel(
+    input: *restrict f32,
+    out: *mut f32,
+    width: i32,
+    height: i32
+) {
+    let vzero: f32x4 = splat(0.0)
+    let vone: f32x4 = splat(1.0)
+    let vtwo: f32x4 = splat(2.0)
+
+    let mut y: i32 = 1
+    while y < height - 1 {
+        let row_above: i32 = (y - 1) * width
+        let row_curr: i32 = y * width
+        let row_below: i32 = (y + 1) * width
+        let mut x: i32 = 1
+
+        while x + 4 <= width - 1 {
+            // Load 3x3 neighborhood for 4 output pixels
+            let r0a: f32x4 = load(input, row_above + x - 1)
+            let r0b: f32x4 = load(input, row_above + x)
+            let r0c: f32x4 = load(input, row_above + x + 1)
+
+            let r1a: f32x4 = load(input, row_curr + x - 1)
+            let r1c: f32x4 = load(input, row_curr + x + 1)
+
+            let r2a: f32x4 = load(input, row_below + x - 1)
+            let r2b: f32x4 = load(input, row_below + x)
+            let r2c: f32x4 = load(input, row_below + x + 1)
+
+            // Gx = -r0a + r0c - 2*r1a + 2*r1c - r2a + r2c
+            let gx: f32x4 = (r0c .- r0a) .+ (r1c .- r1a) .* vtwo .+ (r2c .- r2a)
+
+            // Gy = -r0a - 2*r0b - r0c + r2a + 2*r2b + r2c
+            let gy: f32x4 = (r2a .- r0a) .+ (r2b .- r0b) .* vtwo .+ (r2c .- r0c)
+
+            // |Gx| + |Gy| via select (no abs intrinsic)
+            let abs_gx: f32x4 = select(gx .< vzero, vzero .- gx, gx)
+            let abs_gy: f32x4 = select(gy .< vzero, vzero .- gy, gy)
+            let mag: f32x4 = abs_gx .+ abs_gy
+
+            store(out, row_curr + x, mag)
+            x = x + 4
+        }
+
+        // Scalar tail
+        while x < width - 1 {
+            let r0a: f32 = input[row_above + x - 1]
+            let r0b: f32 = input[row_above + x]
+            let r0c: f32 = input[row_above + x + 1]
+            let r1a: f32 = input[row_curr + x - 1]
+            let r1c: f32 = input[row_curr + x + 1]
+            let r2a: f32 = input[row_below + x - 1]
+            let r2b: f32 = input[row_below + x]
+            let r2c: f32 = input[row_below + x + 1]
+
+            let gx: f32 = (r0c - r0a) + (r1c - r1a) * 2.0 + (r2c - r2a)
+            let gy: f32 = (r2a - r0a) + (r2b - r0b) * 2.0 + (r2c - r0c)
+
+            let mut abs_gx: f32 = gx
+            if gx < 0.0 {
+                abs_gx = 0.0 - gx
+            }
+            let mut abs_gy: f32 = gy
+            if gy < 0.0 {
+                abs_gy = 0.0 - gy
+            }
+
+            out[row_curr + x] = abs_gx + abs_gy
+            x = x + 1
+        }
+
+        y = y + 1
+    }
+}
