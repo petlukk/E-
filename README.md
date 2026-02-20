@@ -175,15 +175,26 @@ Ea defines six kernel patterns that cover most compute workloads:
 The full compute model — dependency structure, memory patterns, vector width
 selection, and design principles — is documented in [`COMPUTE.md`](COMPUTE.md).
 
+For a deeper analysis of when each pattern wins and when it doesn't, with
+measured results and memory models, see [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md).
+
 ## Demos
 
-| Demo | Domain | What it does |
-|------|--------|-------------|
-| [Sobel edge detection](demo/sobel/) | Image processing | 2.7x faster than OpenCV on 1080p |
-| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Frame differencing + threshold + counting |
-| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Mean-stack N noisy exposures, 6x faster, 16x less memory |
+Real workloads. Real data. Verified against established tools.
 
-Each demo compiles an Ea kernel to `.so`, calls it from Python, and benchmarks against NumPy and OpenCV.
+| Demo | Domain | Patterns | Result |
+|------|--------|----------|--------|
+| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 2.7x faster than OpenCV, 9.3x faster than NumPy |
+| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, branchless, reduction | ~1.2x vs NumPy (NumPy is already good here) |
+| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 6.3x faster, 16x less memory than NumPy |
+
+Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
+and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
+
+The video anomaly result is intentionally modest. For simple element-wise operations,
+NumPy is already close to optimal. Ea's advantage shows in dependency structure
+(reductions), spatial access (stencils), and memory model (streaming datasets).
+See [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for the full analysis.
 
 ## Why not...
 
