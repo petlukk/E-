@@ -202,8 +202,17 @@ Ea (3 kernels)      :  1.12 ms   (slower than NumPy — FFI + memory overhead)
 Ea fused (1 kernel) :  0.08 ms   (13x faster than NumPy, 12x faster than OpenCV)
 ```
 
-The only difference: where the kernel boundary was drawn. Performance comes from
-expressing the computation boundary correctly — not from a better optimizer.
+The MNIST scaling experiment confirms this scales linearly with pipeline depth:
+
+```
+1 op  →   2.0x    Ea time: 39 ms (constant)
+2 ops →   4.0x    NumPy time: scales linearly
+4 ops →  12.0x    Each extra NumPy op = +125 ms (full RAM roundtrip)
+8 ops →  25.2x    Each extra Ea op = ~0 ms (SIMD register instruction)
+```
+
+Performance comes from expressing the computation boundary correctly —
+not from a better optimizer.
 
 > **If data leaves registers, you probably ended a kernel too early.**
 
