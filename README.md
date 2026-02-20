@@ -175,6 +175,16 @@ Ea defines six kernel patterns that cover most compute workloads:
 The full compute model — dependency structure, memory patterns, vector width
 selection, and design principles — is documented in [`COMPUTE.md`](COMPUTE.md).
 
+## Demos
+
+| Demo | Domain | What it does |
+|------|--------|-------------|
+| [Sobel edge detection](demo/sobel/) | Image processing | 2.7x faster than OpenCV on 1080p |
+| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Frame differencing + threshold + counting |
+| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Mean-stack N noisy exposures, 6x faster, 16x less memory |
+
+Each demo compiles an Ea kernel to `.so`, calls it from Python, and benchmarks against NumPy and OpenCV.
+
 ## Why not...
 
 **C with intrinsics?**
