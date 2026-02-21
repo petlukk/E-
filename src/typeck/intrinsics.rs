@@ -27,6 +27,12 @@ impl TypeChecker {
             }
             "shuffle" => Some(self.check_shuffle(args, locals)),
             "select" => Some(self.check_select(args, locals)),
+            "widen_i8_f32x4" | "widen_u8_f32x4" => {
+                Some(self.check_widen_i8_f32x4(name, args, locals))
+            }
+            "narrow_f32x4_i8" => Some(self.check_narrow_f32x4_i8(args, locals)),
+            "maddubs_i16" => Some(self.check_maddubs_i16(args, locals)),
+            "maddubs_i32" => Some(self.check_maddubs_i32(args, locals)),
             _ => None,
         }
     }
@@ -65,17 +71,33 @@ impl TypeChecker {
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
-        let width = match type_hint {
-            Some(Type::Vector { width, .. }) => *width,
-            _ => 4,
+        let (width, hint_elem) = match type_hint {
+            Some(Type::Vector { width, elem }) => (*width, Some(elem.as_ref())),
+            _ => (4, None),
         };
         match arg_type {
-            Type::F32 | Type::FloatLiteral => Ok(Type::Vector {
-                elem: Box::new(Type::F32),
-                width,
-            }),
-            Type::I32 | Type::IntLiteral => Ok(Type::Vector {
-                elem: Box::new(Type::I32),
+            Type::FloatLiteral => {
+                let elem = hint_elem
+                    .filter(|e| e.is_float())
+                    .cloned()
+                    .unwrap_or(Type::F32);
+                Ok(Type::Vector {
+                    elem: Box::new(elem),
+                    width,
+                })
+            }
+            Type::IntLiteral => {
+                let elem = hint_elem
+                    .filter(|e| e.is_integer())
+                    .cloned()
+                    .unwrap_or(Type::I32);
+                Ok(Type::Vector {
+                    elem: Box::new(elem),
+                    width,
+                })
+            }
+            concrete if concrete.is_numeric() => Ok(Type::Vector {
+                elem: Box::new(concrete),
                 width,
             }),
             _ => Err(CompileError::type_error(
@@ -316,6 +338,116 @@ impl TypeChecker {
                 format!(
                     "select mask must be bool vector matching operand width, got {mask_type:?}"
                 ),
+                Position::default(),
+            )),
+        }
+    }
+
+    fn check_widen_i8_f32x4(
+        &self,
+        name: &str,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 1 {
+            return Err(CompileError::type_error(
+                format!("{name} expects 1 argument (i8x16 vector)"),
+                Position::default(),
+            ));
+        }
+        let arg_type = self.check_expr(&args[0], locals)?;
+        match &arg_type {
+            Type::Vector { elem, width: 16 }
+                if matches!(elem.as_ref(), Type::I8 | Type::U8) =>
+            {
+                Ok(Type::Vector {
+                    elem: Box::new(Type::F32),
+                    width: 4,
+                })
+            }
+            _ => Err(CompileError::type_error(
+                format!("{name} expects i8x16 or u8x16, got {arg_type:?}"),
+                Position::default(),
+            )),
+        }
+    }
+
+    fn check_narrow_f32x4_i8(
+        &self,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 1 {
+            return Err(CompileError::type_error(
+                "narrow_f32x4_i8 expects 1 argument (f32x4 vector)",
+                Position::default(),
+            ));
+        }
+        let arg_type = self.check_expr(&args[0], locals)?;
+        match &arg_type {
+            Type::Vector { elem, width: 4 } if matches!(elem.as_ref(), Type::F32) => {
+                // Returns i8x16 with lower 4 elements set, upper 12 undefined
+                Ok(Type::Vector {
+                    elem: Box::new(Type::I8),
+                    width: 16,
+                })
+            }
+            _ => Err(CompileError::type_error(
+                format!("narrow_f32x4_i8 expects f32x4, got {arg_type:?}"),
+                Position::default(),
+            )),
+        }
+    }
+
+    fn check_maddubs_i16(
+        &self,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 2 {
+            return Err(CompileError::type_error(
+                "maddubs_i16 expects 2 arguments: (u8x16, i8x16)",
+                Position::default(),
+            ));
+        }
+        let a = self.check_expr(&args[0], locals)?;
+        let b = self.check_expr(&args[1], locals)?;
+        match (&a, &b) {
+            (
+                Type::Vector { elem: ea, width: 16 },
+                Type::Vector { elem: eb, width: 16 },
+            ) if matches!(ea.as_ref(), Type::U8) && matches!(eb.as_ref(), Type::I8) => {
+                Ok(Type::Vector { elem: Box::new(Type::I16), width: 8 })
+            }
+            _ => Err(CompileError::type_error(
+                format!("maddubs_i16 expects (u8x16, i8x16), got ({a:?}, {b:?})"),
+                Position::default(),
+            )),
+        }
+    }
+
+    fn check_maddubs_i32(
+        &self,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 2 {
+            return Err(CompileError::type_error(
+                "maddubs_i32 expects 2 arguments: (u8x16, i8x16)",
+                Position::default(),
+            ));
+        }
+        let a = self.check_expr(&args[0], locals)?;
+        let b = self.check_expr(&args[1], locals)?;
+        match (&a, &b) {
+            (
+                Type::Vector { elem: ea, width: 16 },
+                Type::Vector { elem: eb, width: 16 },
+            ) if matches!(ea.as_ref(), Type::U8) && matches!(eb.as_ref(), Type::I8) => {
+                Ok(Type::Vector { elem: Box::new(Type::I32), width: 4 })
+            }
+            _ => Err(CompileError::type_error(
+                format!("maddubs_i32 expects (u8x16, i8x16), got ({a:?}, {b:?})"),
                 Position::default(),
             )),
         }

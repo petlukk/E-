@@ -87,6 +87,14 @@ pub enum TokenKind {
     #[token("restrict")]
     Restrict,
 
+    #[token("i8")]
+    I8,
+    #[token("u8")]
+    U8,
+    #[token("i16")]
+    I16,
+    #[token("u16")]
+    U16,
     #[token("i32")]
     I32,
     #[token("i64")]
@@ -97,6 +105,16 @@ pub enum TokenKind {
     F64,
     #[token("bool")]
     Bool,
+    #[token("i8x16")]
+    I8x16,
+    #[token("i8x32")]
+    I8x32,
+    #[token("u8x16")]
+    U8x16,
+    #[token("i16x8")]
+    I16x8,
+    #[token("i16x16")]
+    I16x16,
     #[token("f32x4")]
     F32x4,
     #[token("i32x4")]
@@ -105,6 +123,8 @@ pub enum TokenKind {
     F32x8,
     #[token("i32x8")]
     I32x8,
+    #[token("f32x16")]
+    F32x16,
     #[token("splat")]
     Splat,
 

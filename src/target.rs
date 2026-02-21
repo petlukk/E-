@@ -29,12 +29,19 @@ pub fn create_target_machine(opts: &CompileOptions) -> crate::error::Result<Targ
     let target = Target::from_triple(&triple)
         .map_err(|e| CompileError::codegen_error(format!("failed to get target: {e}")))?;
 
-    let (cpu_str, features_str) = if let Some(ref cpu) = opts.target_cpu {
+    let (cpu_str, base_features) = if let Some(ref cpu) = opts.target_cpu {
         (cpu.clone(), String::new())
     } else {
         let cpu = TargetMachine::get_host_cpu_name();
         let features = TargetMachine::get_host_cpu_features();
         (cpu.to_string(), features.to_string())
+    };
+    let features_str = if opts.extra_features.is_empty() {
+        base_features
+    } else if base_features.is_empty() {
+        opts.extra_features.clone()
+    } else {
+        format!("{},{}", base_features, opts.extra_features)
     };
 
     target

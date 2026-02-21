@@ -22,7 +22,7 @@ Write readable SIMD code → compile to `.o` or `.so` → call from C, Rust, Pyt
 
 ```bash
 cargo build --features=llvm                    # Build compiler
-cargo test --features=llvm                     # End-to-end tests
+cargo test --features=llvm                     # End-to-end tests (132 passing)
 cargo run --features=llvm -- kernel.ea         # → kernel.o
 cargo run --features=llvm -- kernel.ea --lib   # → kernel.so
 cargo run --features=llvm -- app.ea -o app     # → linked executable
@@ -107,7 +107,7 @@ fn test_add_export() {
 
 ## The Language (kernel subset)
 
-**Types**: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `*T`, `*mut T`, `f32x4`, `i32x4`
+**Types**: `i8`, `u8`, `i16`, `u16`, `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`, `*T`, `*mut T`, `f32x4`, `f32x8`, `f32x16`, `i32x4`, `i32x8`, `i8x16`, `i8x32`, `u8x16`, `i16x8`, `i16x16`
 **No**: strings, collections, references, generics, traits, modules, imports
 
 ## What NOT to Build (ever, for a kernel language)

@@ -36,6 +36,7 @@ fn main() {
     let mut emit_tokens = false;
     let mut opt_level: u8 = 3;
     let mut target_cpu: Option<String> = None;
+    let mut extra_features = String::new();
 
     let mut i = 1;
     while i < args.len() {
@@ -69,6 +70,9 @@ fn main() {
                 } else {
                     target_cpu = Some(val.to_string());
                 }
+            }
+            "--avx512" => {
+                extra_features = "+avx512f,+avx512vl,+avx512bw".to_string();
             }
             other => {
                 eprintln!("error: unknown option '{other}'");
@@ -116,6 +120,7 @@ fn main() {
         let opts = CompileOptions {
             opt_level,
             target_cpu,
+            extra_features,
         };
 
         let stem = std::path::Path::new(input_file)
@@ -182,7 +187,8 @@ fn print_usage() {
     eprintln!("  -o <name>          Compile and link to executable");
     eprintln!("  --lib              Produce shared library (.so/.dll)");
     eprintln!("  --opt-level=N      Optimization level 0-3 (default: 3)");
-    eprintln!("  --target=CPU       Target CPU (default: native)");
+    eprintln!("  --target=CPU       Target CPU (default: native)
+  --avx512           Enable AVX-512 (f32x16) — requires AVX-512 capable CPU");
     eprintln!("  --emit-llvm        Print LLVM IR");
     eprintln!("  --emit-ast         Print parsed AST");
     eprintln!("  --emit-tokens      Print lexer tokens");

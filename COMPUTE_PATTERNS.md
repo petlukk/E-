@@ -568,6 +568,104 @@ No magic. No heuristics. The code *is* the optimization.
 
 ---
 
+## 6. Quantized Inference Kernel (u8×i8 → i16x8 / i32x4)
+
+**Pattern:** Unsigned activations × signed weights → pairwise multiply-accumulate
+
+Each output channel is a dot product of u8 activations and i8 weights.
+The programmer explicitly chooses the output type — and with it, the overflow model:
+
+- `maddubs_i16(u8x16, i8x16) -> i16x8` — pmaddubsw, 16 pairs/cycle, accumulator wraps at ±32,767
+- `maddubs_i32(u8x16, i8x16) -> i32x4` — pmaddubsw + pmaddwd(ones), half the lanes, accumulator safe to ±2,147,483,647
+
+Output type encodes the semantic choice. No silent widening. No magic.
+
+```
+  maddubs_i16:                           maddubs_i32:
+  act[0..15]   wt[0..15]                act[0..15]   wt[0..15]
+      │              │                      │              │
+      └──────┬────────┘                     └──────┬────────┘
+         pmaddubsw    ← 8 i16 lanes            pmaddubsw    ← 8 i16 lanes (intermediate)
+             │                                     │
+         acc (i16x8)  ← fast, wraps           pmaddwd(ones) ← adjacent i16 pairs → i32
+                                                   │
+                                               acc (i32x4)  ← safe, 4 lanes
+```
+
+### Memory model
+
+- Reads: H × W × C_in activations (u8) + 9 × C_in weights per output channel (i8)
+- Writes: (H-2) × (W-2) output elements (i16 or i32 depending on intrinsic)
+- Extra memory: 2 accumulators × i16x8 (32 bytes) or 2 × i32x4 (32 bytes)
+- Throughput: 16 multiply-adds per cycle for maddubs_i16; ~8 effective for maddubs_i32
+
+### Eä example (inner loop)
+
+```
+// maddubs_i16 — fast, wraps at i16 boundary. Use when values are small.
+let mut acc0: i16x8 = splat(0)
+let mut acc1: i16x8 = splat(0)
+let mut ci: i32 = 0
+while ci < C_in {
+    acc0 = acc0 .+ maddubs_i16(load(src_row, ci), load(wt_row, ci))
+    acc1 = acc1 .+ maddubs_i16(load(src_row, ci + 16), load(wt_row, ci + 16))
+    ci = ci + 32
+}
+
+// maddubs_i32 — safe accumulator. Use when large C_in or large values.
+let mut acc0: i32x4 = splat(0)
+let mut acc1: i32x4 = splat(0)
+while ci < C_in {
+    acc0 = acc0 .+ maddubs_i32(load(src_row, ci), load(wt_row, ci))
+    acc1 = acc1 .+ maddubs_i32(load(src_row, ci + 16), load(wt_row, ci + 16))
+    ci = ci + 32
+}
+```
+
+5 lines express the innermost compute of a full 3×3 NHWC convolution.
+
+### When it wins
+
+- **Quantized inference.** Neural network activations fit in u8, weights in i8.
+  `maddubs_i16` / `maddubs_i32` map directly to SSSE3+SSE2 instructions — exactly
+  what TensorFlow Lite and ONNX Runtime use internally.
+- **8-bit vision pipelines.** Camera input is u8. Keeping data in u8 avoids
+  the 4× bandwidth expansion of float32.
+- **C_in ≥ 32.** The dual-accumulator pattern requires at least 2 × 16 = 32 channels
+  per iteration to fully utilize both accumulators.
+
+### When it loses (or requires care)
+
+- **Weights not pre-quantized.** If weights are float32, conversion adds overhead.
+  Pre-quantize and store as i8 before calling the kernel.
+- **Per-call overflow (both intrinsics).** pmaddubsw sums adjacent pairs into i16 before
+  any widening. When `a[2i]*b[2i] + a[2i+1]*b[2i+1] > 32,767`, the result wraps —
+  even for `maddubs_i32`. Safe range: both adjacent products combined ≤ 32,767.
+  For symmetric values: act ≤ 127, wt ≤ 127 (127×127×2 = 32,258 — safe).
+- **maddubs_i16 accumulator overflow.** i16 accumulates to ±32,767. `maddubs_i32`
+  eliminates this — the i32 accumulator holds values to ±2 billion. Use `maddubs_i32`
+  when accumulating over large C_in or many iterations.
+- **C_in not a multiple of 32.** Requires padding. The kernel assumes aligned input.
+
+### Measured
+
+conv2d_3x3 on 56×56×64 input, 3×3 kernel (NHWC):
+```
+NumPy   (float32, unoptimized)  :  ~870 ms
+Eä      (maddubs dual-acc)      :  ~18 ms    47.7x faster
+Throughput: 38.5 GMACs/s
+```
+
+### Real-world instances
+
+- Post-training quantization (PTQ) inference
+- MobileNet, EfficientNet-lite, ResNet-int8 inference layers
+- 8-bit convolutions in embedded vision (Coral, Hailo, ARM Ethos)
+- Camera ISP pipelines (demosaic, denoise, sharpening in u8)
+- Any pipeline where activations stay in u8 from input to output
+
+---
+
 ## Summary
 
 | Class | Bottleneck | Eä advantage | When NumPy is enough |
@@ -577,6 +675,7 @@ No magic. No heuristics. The code *is* the optimization.
 | Stencil | Compute intensity | Explicit SIMD, register control | Never (NumPy is 10x slower) |
 | Streaming Dataset | Peak memory | O(1) extra memory | Small N, small frames |
 | Fused Pipeline | Memory passes | Zero intermediate arrays | Single-stage pipeline |
+| Quantized Inference | Integer throughput | maddubs_i16 (16 pairs/cycle) / maddubs_i32 (safe i32 acc) | Weights not pre-quantized |
 
 ### The honest answer
 

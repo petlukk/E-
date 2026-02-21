@@ -184,13 +184,22 @@ Real workloads. Real data. Verified against established tools.
 
 | Demo | Domain | Patterns | Result |
 |------|--------|----------|--------|
-| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 3.1x faster than OpenCV, 5.3x faster than NumPy |
-| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, fused pipeline | 3 kernels: 0.8x vs NumPy. **Fused: 13.4x faster** |
-| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 3.4x faster, 16x less memory than NumPy |
-| [MNIST preprocessing](demo/mnist_normalize/) | ML preprocessing | Streaming, fused pipeline | Single op: 0.9x. **Fused pipeline: 2.6x faster** |
+| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 9.4x faster than NumPy, 4.4x faster than OpenCV |
+| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, fused pipeline | 3 kernels: **0.8x (slower)**. Fused: **10.9x faster** |
+| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 2.3x faster, 16x less memory than NumPy |
+| [MNIST preprocessing](demo/mnist_normalize/) | ML preprocessing | Streaming, fused pipeline | Single op: **1.0x (tie)**. Fused pipeline: **3.9x faster** |
+| [Pixel pipeline](demo/pixel_pipeline/) | Image processing | u8x16 threshold, u8→f32 widen | threshold: **21x warm / 14x cold**, normalize: **2.1x** vs NumPy |
+| [Conv2d (dot/1d)](demo/conv2d/) | Integer SIMD | maddubs_i16, u8×i8 | dot: **6.9x**, conv1d: **3.3x** vs NumPy |
+| [Conv2d 3×3 NHWC](demo/conv2d_3x3/) | Quantized inference | maddubs_i16 dual-acc / maddubs_i32 safe variant | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64 |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
+
+**Methodology:** all speedup numbers are warm-cache medians (50 runs after 5 warmup).
+Where cold-cache numbers differ materially they are noted. See [`AUDIT_v0.3.0.md`](AUDIT_v0.3.0.md)
+for the full integrity audit: assembly verification, cold-cache analysis, honest loss
+accounting, i16 overflow constraint, and cross-machine results. Run `python3 audit_losses.py`
+for the live v0.4.0 audit including the maddubs_i16 vs maddubs_i32 overflow comparison.
 
 ### Kernel fusion: the most important result
 
@@ -242,13 +251,16 @@ kernel code needs predictable performance without hidden checks.
 
 ## Features
 
-- **SIMD**: `f32x4`, `f32x8`, `i32x4`, `i32x8` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
+- **SIMD**: `f32x4`, `f32x8`, `f32x16`, `i32x4`, `i32x8`, `i8x16`, `i8x32`, `u8x16`, `i16x8`, `i16x16` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
 - **Reductions**: `reduce_add`, `reduce_max`, `reduce_min`
+- **Integer SIMD**: `maddubs_i16(u8x16, i8x16) -> i16x8` (SSSE3 pmaddubsw — 16 pairs/cycle, fast/wrapping); `maddubs_i32(u8x16, i8x16) -> i32x4` (pmaddubsw+pmaddwd — safe i32 accumulation)
+- **Widening/narrowing**: `widen_u8_f32x4`, `widen_i8_f32x4`, `narrow_f32x4_i8`
 - **Structs**: C-compatible layout, pointer-to-struct, array-of-structs
 - **Pointers**: `*T`, `*mut T`, pointer indexing (`arr[i]`)
-- **Types**: `i8`-`i64`, `u8`-`u64`, `f32`, `f64`, `bool`
+- **Types**: `i8`, `u8`, `i16`, `u16`, `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
 - **C ABI**: every `export func` is callable from any language
+- **AVX-512**: `f32x16` via `--avx512` flag
 
 Currently tested on x86-64 with AVX2. Other architectures depend on LLVM backend support.
 
@@ -270,7 +282,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (109 passing)
+# Run tests (136 passing)
 cargo test --features=llvm
 ```
 
@@ -310,8 +322,8 @@ lib.fma_kernel(
 Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
-~4,600 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-109 tests covering C interop, SIMD operations, structs, and shared library output.
+~5,200 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+136 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
 
 ## License
 

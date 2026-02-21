@@ -3,6 +3,7 @@ use inkwell::{FloatPredicate, IntPredicate};
 
 use crate::ast::{BinaryOp, Expr, Literal};
 use crate::error::CompileError;
+use crate::typeck::types::is_unsigned;
 use crate::typeck::Type;
 
 use super::CodeGenerator;
@@ -26,6 +27,14 @@ impl<'ctx> CodeGenerator<'ctx> {
             Expr::Literal(Literal::Integer(n)) => {
                 let ty = type_hint.unwrap_or(&Type::I32);
                 match ty {
+                    Type::I8 | Type::U8 => {
+                        let val = self.context.i8_type().const_int(*n as u64, true);
+                        Ok(BasicValueEnum::IntValue(val))
+                    }
+                    Type::I16 | Type::U16 => {
+                        let val = self.context.i16_type().const_int(*n as u64, true);
+                        Ok(BasicValueEnum::IntValue(val))
+                    }
                     Type::I64 => {
                         let val = self.context.i64_type().const_int(*n as u64, true);
                         Ok(BasicValueEnum::IntValue(val))
@@ -160,6 +169,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
         let hint = self.infer_binary_hint(lhs, rhs, type_hint);
+        let unsigned = hint.as_ref().map(is_unsigned).unwrap_or(false);
         let left = self.compile_expr_typed(lhs, hint.as_ref(), function)?;
         let right = self.compile_expr_typed(rhs, hint.as_ref(), function)?;
 
@@ -172,7 +182,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 | BinaryOp::Equal
                 | BinaryOp::NotEqual
         ) {
-            return self.compile_comparison(&left, &right, op);
+            return self.compile_comparison(&left, &right, op, unsigned);
         }
 
         if matches!(op, BinaryOp::And | BinaryOp::Or) {
@@ -193,7 +203,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                     BinaryOp::Add => self.builder.build_int_add(*l, *r, "add"),
                     BinaryOp::Subtract => self.builder.build_int_sub(*l, *r, "sub"),
                     BinaryOp::Multiply => self.builder.build_int_mul(*l, *r, "mul"),
+                    BinaryOp::Divide if unsigned => {
+                        self.builder.build_int_unsigned_div(*l, *r, "div")
+                    }
                     BinaryOp::Divide => self.builder.build_int_signed_div(*l, *r, "div"),
+                    BinaryOp::Modulo if unsigned => {
+                        self.builder.build_int_unsigned_rem(*l, *r, "rem")
+                    }
                     BinaryOp::Modulo => self.builder.build_int_signed_rem(*l, *r, "rem"),
                     _ => unreachable!(),
                 }
@@ -213,7 +229,11 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Ok(BasicValueEnum::FloatValue(result))
             }
             (BasicValueEnum::VectorValue(l), BasicValueEnum::VectorValue(r)) => {
-                self.compile_vector_binary(*l, *r, op)
+                let vec_unsigned = match hint.as_ref() {
+                    Some(Type::Vector { elem, .. }) => is_unsigned(elem),
+                    _ => false,
+                };
+                self.compile_vector_binary(*l, *r, op, vec_unsigned)
             }
             _ => Err(CompileError::codegen_error(
                 "mismatched operand types in binary expression",
@@ -240,14 +260,39 @@ impl<'ctx> CodeGenerator<'ctx> {
         left: &BasicValueEnum<'ctx>,
         right: &BasicValueEnum<'ctx>,
         op: &BinaryOp,
+        unsigned: bool,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
         match (left, right) {
             (BasicValueEnum::IntValue(l), BasicValueEnum::IntValue(r)) => {
                 let pred = match op {
-                    BinaryOp::Less => IntPredicate::SLT,
-                    BinaryOp::Greater => IntPredicate::SGT,
-                    BinaryOp::LessEqual => IntPredicate::SLE,
-                    BinaryOp::GreaterEqual => IntPredicate::SGE,
+                    BinaryOp::Less => {
+                        if unsigned {
+                            IntPredicate::ULT
+                        } else {
+                            IntPredicate::SLT
+                        }
+                    }
+                    BinaryOp::Greater => {
+                        if unsigned {
+                            IntPredicate::UGT
+                        } else {
+                            IntPredicate::SGT
+                        }
+                    }
+                    BinaryOp::LessEqual => {
+                        if unsigned {
+                            IntPredicate::ULE
+                        } else {
+                            IntPredicate::SLE
+                        }
+                    }
+                    BinaryOp::GreaterEqual => {
+                        if unsigned {
+                            IntPredicate::UGE
+                        } else {
+                            IntPredicate::SGE
+                        }
+                    }
                     BinaryOp::Equal => IntPredicate::EQ,
                     BinaryOp::NotEqual => IntPredicate::NE,
                     _ => unreachable!(),
@@ -280,6 +325,15 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
     }
 
+    fn arg_is_unsigned(&self, expr: &Expr) -> bool {
+        if let Expr::Variable(name) = expr {
+            if let Some((_, ty)) = self.variables.get(name) {
+                return ty.is_unsigned_integer();
+            }
+        }
+        false
+    }
+
     pub(crate) fn compile_println(
         &mut self,
         arg: &Expr,
@@ -290,14 +344,27 @@ impl<'ctx> CodeGenerator<'ctx> {
             .get("printf")
             .ok_or_else(|| CompileError::codegen_error("printf not declared"))?;
 
+        let unsigned = self.arg_is_unsigned(arg);
         let val = self.compile_expr(arg, function)?;
 
         match val {
             BasicValueEnum::IntValue(iv) => {
-                let fmt_str = if iv.get_type().get_bit_width() == 64 {
-                    "%ld\n"
+                let bit_width = iv.get_type().get_bit_width();
+                // Extend i8/u8/i16/u16 to i32 for printf
+                let (print_iv, fmt_str) = if bit_width < 32 {
+                    let extended = if unsigned {
+                        self.builder
+                            .build_int_z_extend(iv, self.context.i32_type(), "zext")
+                    } else {
+                        self.builder
+                            .build_int_s_extend(iv, self.context.i32_type(), "sext")
+                    }
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                    (extended, "%d\n")
+                } else if bit_width == 64 {
+                    (iv, "%ld\n")
                 } else {
-                    "%d\n"
+                    (iv, "%d\n")
                 };
                 let fmt = self
                     .builder
@@ -306,7 +373,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 self.builder
                     .build_call(
                         printf,
-                        &[fmt.as_pointer_value().into(), val.into()],
+                        &[fmt.as_pointer_value().into(), print_iv.into()],
                         "printf_call",
                     )
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
