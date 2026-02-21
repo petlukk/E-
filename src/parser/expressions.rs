@@ -210,9 +210,13 @@ impl Parser {
                 self.expect_kind(TokenKind::RightParen, "expected ')' after arguments")?;
                 return Ok(Expr::Call { name, args });
             }
-            // Struct literal: Name { field: val, ... } — name starts with uppercase
+            // Struct literal: Name { field: val, ... } — name starts with uppercase.
+            // Disambiguate from control-flow body: struct literals always have
+            // { Identifier : ... } so peek two tokens past the { to confirm.
             if self.check(TokenKind::LeftBrace)
                 && name.starts_with(|c: char| c.is_ascii_uppercase())
+                && self.peek_at(1) == Some(&TokenKind::Identifier)
+                && self.peek_at(2) == Some(&TokenKind::Colon)
             {
                 self.advance(); // consume {
                 let mut fields = Vec::new();
@@ -276,6 +280,56 @@ impl Parser {
             )?;
 
             // Check for vector type suffix
+            if self.check(TokenKind::I8x16) {
+                self.advance();
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("i8".to_string())),
+                        width: 16,
+                    },
+                });
+            }
+            if self.check(TokenKind::I8x32) {
+                self.advance();
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("i8".to_string())),
+                        width: 32,
+                    },
+                });
+            }
+            if self.check(TokenKind::U8x16) {
+                self.advance();
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("u8".to_string())),
+                        width: 16,
+                    },
+                });
+            }
+            if self.check(TokenKind::I16x8) {
+                self.advance();
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("i16".to_string())),
+                        width: 8,
+                    },
+                });
+            }
+            if self.check(TokenKind::I16x16) {
+                self.advance();
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("i16".to_string())),
+                        width: 16,
+                    },
+                });
+            }
             if self.check(TokenKind::F32x4) {
                 self.advance();
                 return Ok(Expr::Vector {
@@ -313,6 +367,16 @@ impl Parser {
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("i32".to_string())),
                         width: 8,
+                    },
+                });
+            }
+            if self.check(TokenKind::F32x16) {
+                self.advance();
+                return Ok(Expr::Vector {
+                    elements,
+                    ty: crate::ast::TypeAnnotation::Vector {
+                        elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
+                        width: 16,
                     },
                 });
             }

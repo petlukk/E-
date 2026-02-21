@@ -568,6 +568,83 @@ No magic. No heuristics. The code *is* the optimization.
 
 ---
 
+## 6. Quantized Inference Kernel (u8×i8 → i16)
+
+**Pattern:** Unsigned activations × signed weights → pairwise multiply-accumulate
+
+Each output channel is a dot product of u8 activations and i8 weights.
+`maddubs` / `pmaddubsw` computes 16 adjacent pairs per instruction,
+accumulating into i16 — twice the throughput of int32, and far ahead of float32.
+
+```
+  act[0..15]   wt[0..15]        (u8x16 × i8x16)
+      │              │
+      └──────┬────────┘
+         maddubs          ← 8 pairs → i16 per lane, 16 pairs total
+             │
+         acc (i16x8)      ← accumulates over C_in channels
+```
+
+### Memory model
+
+- Reads: H × W × C_in activations (u8) + 9 × C_in weights per output channel (i8)
+- Writes: (H-2) × (W-2) output elements (i16)
+- Extra memory: 2 accumulators × i16x8 (32 bytes)
+- Throughput: 16 multiply-adds per cycle (vs 8 for int32, ~4 for float32)
+
+### Eä example (inner loop of conv2d_3x3_u8i8)
+
+```
+// Dual-accumulator maddubs over C_in channels (must be multiple of 32)
+let mut acc0: i16x8 = splat(0)
+let mut acc1: i16x8 = splat(0)
+let mut ci: i32 = 0
+while ci < C_in {
+    acc0 = acc0 .+ maddubs(load(src_row, ci), load(wt_row, ci))
+    acc1 = acc1 .+ maddubs(load(src_row, ci + 16), load(wt_row, ci + 16))
+    ci = ci + 32
+}
+```
+
+5 lines express the innermost compute of a full 3×3 NHWC convolution.
+
+### When it wins
+
+- **Quantized inference.** Neural network activations fit in u8, weights in i8.
+  `maddubs` is the native SSSE3 instruction — exactly what TensorFlow Lite and
+  ONNX Runtime use internally.
+- **8-bit vision pipelines.** Camera input is u8. Keeping data in u8 avoids
+  the 4× bandwidth expansion of float32.
+- **C_in ≥ 32.** The dual-accumulator pattern requires at least 2 × 16 = 32 channels
+  per iteration to fully utilize both accumulators.
+
+### When it loses (or requires care)
+
+- **Weights not pre-quantized.** If weights are float32, conversion adds overhead.
+  Pre-quantize and store as i8 before calling the kernel.
+- **Accumulator overflow.** i16 can hold values up to ±32767. With large C_in,
+  partial sums can saturate. Watch for overflow when C_in > 128 with large weight values.
+- **C_in not a multiple of 32.** Requires padding. The kernel assumes aligned input.
+
+### Measured
+
+conv2d_3x3 on 56×56×64 input, 3×3 kernel (NHWC):
+```
+NumPy   (float32, unoptimized)  :  ~870 ms
+Eä      (maddubs dual-acc)      :  ~18 ms    47.7x faster
+Throughput: 38.5 GMACs/s
+```
+
+### Real-world instances
+
+- Post-training quantization (PTQ) inference
+- MobileNet, EfficientNet-lite, ResNet-int8 inference layers
+- 8-bit convolutions in embedded vision (Coral, Hailo, ARM Ethos)
+- Camera ISP pipelines (demosaic, denoise, sharpening in u8)
+- Any pipeline where activations stay in u8 from input to output
+
+---
+
 ## Summary
 
 | Class | Bottleneck | Eä advantage | When NumPy is enough |
@@ -577,6 +654,7 @@ No magic. No heuristics. The code *is* the optimization.
 | Stencil | Compute intensity | Explicit SIMD, register control | Never (NumPy is 10x slower) |
 | Streaming Dataset | Peak memory | O(1) extra memory | Small N, small frames |
 | Fused Pipeline | Memory passes | Zero intermediate arrays | Single-stage pipeline |
+| Quantized Inference | Integer throughput | maddubs (16 pairs/cycle), dual-acc | Weights not pre-quantized |
 
 ### The honest answer
 

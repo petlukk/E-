@@ -1,0 +1,35 @@
+// pipeline.ea — Raw uint8 pixel pipeline kernels
+// Phase 8: u8x16 SIMD + widen/narrow intrinsics
+//
+// These are the two operations every vision pipeline begins with:
+//   1. threshold_u8x16 — binary segmentation in u8 space (no float conversion)
+//   2. normalize_u8_f32x8 — load uint8, widen to float, scale (2 x f32x4 per iter)
+
+export func threshold_u8x16(src: *u8, dst: *mut u8, n: i32, thresh: u8) {
+    let mut i: i32 = 0
+    let t: u8x16 = splat(thresh)
+    let ff: u8x16 = splat(255)
+    let zero: u8x16 = splat(0)
+    while i < n {
+        let chunk: u8x16 = load(src, i)
+        let result: u8x16 = select(chunk .> t, ff, zero)
+        store(dst, i, result)
+        i = i + 16
+    }
+}
+
+export func normalize_u8_f32x8(src: *u8, dst: *mut f32, n: i32) {
+    let mut i: i32 = 0
+    let scale: f32x4 = splat(0.00392156863)
+    while i < n {
+        let chunk: u8x16 = load(src, i)
+        let lo: f32x4 = widen_u8_f32x4(chunk)
+        let norm_lo: f32x4 = lo .* scale
+        store(dst, i, norm_lo)
+        let shifted: u8x16 = shuffle(chunk, [4, 5, 6, 7, 0, 1, 2, 3, 8, 9, 10, 11, 12, 13, 14, 15])
+        let hi: f32x4 = widen_u8_f32x4(shifted)
+        let norm_hi: f32x4 = hi .* scale
+        store(dst, i + 4, norm_hi)
+        i = i + 8
+    }
+}

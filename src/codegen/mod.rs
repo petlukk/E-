@@ -3,6 +3,10 @@ mod expressions;
 #[cfg(feature = "llvm")]
 mod simd;
 #[cfg(feature = "llvm")]
+mod simd_arithmetic;
+#[cfg(feature = "llvm")]
+mod simd_memory;
+#[cfg(feature = "llvm")]
 mod statements;
 #[cfg(feature = "llvm")]
 mod structs;
@@ -126,6 +130,8 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     pub(crate) fn llvm_type(&self, ty: &Type) -> BasicTypeEnum<'ctx> {
         match ty {
+            Type::I8 | Type::U8 => BasicTypeEnum::IntType(self.context.i8_type()),
+            Type::I16 | Type::U16 => BasicTypeEnum::IntType(self.context.i16_type()),
             Type::I32 | Type::IntLiteral => BasicTypeEnum::IntType(self.context.i32_type()),
             Type::I64 => BasicTypeEnum::IntType(self.context.i64_type()),
             Type::F32 => BasicTypeEnum::FloatType(self.context.f32_type()),
@@ -158,6 +164,10 @@ impl<'ctx> CodeGenerator<'ctx> {
     pub(crate) fn resolve_annotation(&self, ann: &TypeAnnotation) -> Type {
         match ann {
             TypeAnnotation::Named(name) => match name.as_str() {
+                "i8" => Type::I8,
+                "u8" => Type::U8,
+                "i16" => Type::I16,
+                "u16" => Type::U16,
                 "i32" => Type::I32,
                 "i64" => Type::I64,
                 "f32" => Type::F32,

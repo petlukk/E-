@@ -1,0 +1,43 @@
+// conv.ea — Quantized inference kernels using maddubs (SSSE3 pmaddubsw)
+//
+// maddubs(u8x16, i8x16) -> i16x8
+// Each i16 lane = a[2i]*b[2i] + a[2i+1]*b[2i+1]  (pairwise multiply + horizontal add)
+//
+// Building block for int8 quantized matrix multiply (TFLite, ONNX RT, XNNPACK inner loop).
+
+// Dot product: n uint8 activations × n int8 weights → i16 sum.
+// Caller must ensure n is a multiple of 16.
+// Use small values to avoid i16 accumulator overflow (max 127*255*2 per i16 lane).
+export func dot_u8i8(act: *u8, wt: *i8, n: i32) -> i16 {
+    let mut acc0: i16x8 = splat(0)
+    let mut acc1: i16x8 = splat(0)
+    let mut i: i32 = 0
+    while i < n {
+        let a0: u8x16 = load(act, i)
+        let b0: i8x16 = load(wt, i)
+        acc0 = acc0 .+ maddubs(a0, b0)
+        i = i + 16
+    }
+    return reduce_add(acc0)
+}
+
+// 1-D convolution: output[j] = dot(src[j..j+k], weights[0..k])
+// src:     (n + k - 1) uint8 values
+// weights: k int8 values — must be multiple of 16
+// output:  n int16 values
+export func conv1d_u8i8(src: *u8, wt: *i8, dst: *mut i16, n: i32, k: i32) {
+    let mut j: i32 = 0
+    while j < n {
+        let mut acc: i16x8 = splat(0)
+        let mut ki: i32 = 0
+        while ki < k {
+            let a: u8x16 = load(src, j + ki)
+            let b: i8x16 = load(wt, ki)
+            acc = acc .+ maddubs(a, b)
+            ki = ki + 16
+        }
+        let s: i16 = reduce_add(acc)
+        dst[j] = s
+        j = j + 1
+    }
+}

@@ -39,6 +39,8 @@ pub enum OutputMode {
 pub struct CompileOptions {
     pub opt_level: u8,
     pub target_cpu: Option<String>,
+    /// Extra target features, e.g. "+avx512f" for AVX-512.
+    pub extra_features: String,
 }
 
 #[cfg(feature = "llvm")]
@@ -47,6 +49,7 @@ impl Default for CompileOptions {
         Self {
             opt_level: 3,
             target_cpu: None, // native
+            extra_features: String::new(),
         }
     }
 }

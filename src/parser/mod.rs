@@ -138,6 +138,10 @@ impl Parser {
         }
 
         let type_tokens = [
+            TokenKind::I8,
+            TokenKind::U8,
+            TokenKind::I16,
+            TokenKind::U16,
             TokenKind::I32,
             TokenKind::I64,
             TokenKind::F32,
@@ -145,6 +149,41 @@ impl Parser {
             TokenKind::Bool,
         ];
 
+        if self.check(TokenKind::I8x16) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("i8".to_string())),
+                width: 16,
+            });
+        }
+        if self.check(TokenKind::I8x32) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("i8".to_string())),
+                width: 32,
+            });
+        }
+        if self.check(TokenKind::U8x16) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("u8".to_string())),
+                width: 16,
+            });
+        }
+        if self.check(TokenKind::I16x8) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("i16".to_string())),
+                width: 8,
+            });
+        }
+        if self.check(TokenKind::I16x16) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("i16".to_string())),
+                width: 16,
+            });
+        }
         if self.check(TokenKind::F32x4) {
             self.advance();
             return Ok(TypeAnnotation::Vector {
@@ -171,6 +210,13 @@ impl Parser {
             return Ok(TypeAnnotation::Vector {
                 elem: Box::new(TypeAnnotation::Named("i32".to_string())),
                 width: 8,
+            });
+        }
+        if self.check(TokenKind::F32x16) {
+            self.advance();
+            return Ok(TypeAnnotation::Vector {
+                elem: Box::new(TypeAnnotation::Named("f32".to_string())),
+                width: 16,
             });
         }
 
@@ -221,6 +267,10 @@ impl Parser {
 
     pub(super) fn peek_next_kind(&self) -> Option<&TokenKind> {
         self.tokens.get(self.current + 1).map(|t| &t.kind)
+    }
+
+    pub(super) fn peek_at(&self, offset: usize) -> Option<&TokenKind> {
+        self.tokens.get(self.current + offset).map(|t| &t.kind)
     }
 
     pub(super) fn check(&self, kind: TokenKind) -> bool {
