@@ -5,6 +5,8 @@
 Write readable SIMD code. Compile to `.o` or `.so`. Call from C, Rust, Python via C ABI.
 No runtime. No garbage collector. Explicit memory control. Just kernels.
 
+→ **[Ea Showcase](https://github.com/petlukk/Ea_showcase)** — visual demo application showing Ea kernels running live.
+
 ## Example
 
 ```
