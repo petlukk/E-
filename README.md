@@ -184,16 +184,21 @@ Real workloads. Real data. Verified against established tools.
 
 | Demo | Domain | Patterns | Result |
 |------|--------|----------|--------|
-| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 3.1x faster than OpenCV, 5.3x faster than NumPy |
-| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, fused pipeline | 3 kernels: 0.8x vs NumPy. **Fused: 13.4x faster** |
-| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 3.4x faster, 16x less memory than NumPy |
-| [MNIST preprocessing](demo/mnist_normalize/) | ML preprocessing | Streaming, fused pipeline | Single op: 0.9x. **Fused pipeline: 2.6x faster** |
-| [Pixel pipeline](demo/pixel_pipeline/) | Image processing | u8x16 threshold, u8→f32 widen | threshold: **21.9x**, normalize: **2.1x** vs NumPy |
-| [Conv2d (dot/1d)](demo/conv2d/) | Integer SIMD | maddubs, u8×i8 | dot: 5.9x, conv1d: 3.0x vs NumPy |
-| [Conv2d 3×3 NHWC](demo/conv2d_3x3/) | Quantized inference | maddubs dual-acc, 4-level nested | **47.7x vs NumPy**, 38.5 GMACs/s on 56×56×64 |
+| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 9.4x faster than NumPy, 4.4x faster than OpenCV |
+| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, fused pipeline | 3 kernels: **0.8x (slower)**. Fused: **10.9x faster** |
+| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 2.3x faster, 16x less memory than NumPy |
+| [MNIST preprocessing](demo/mnist_normalize/) | ML preprocessing | Streaming, fused pipeline | Single op: **1.0x (tie)**. Fused pipeline: **3.9x faster** |
+| [Pixel pipeline](demo/pixel_pipeline/) | Image processing | u8x16 threshold, u8→f32 widen | threshold: **21x warm / 14x cold**, normalize: **2.1x** vs NumPy |
+| [Conv2d (dot/1d)](demo/conv2d/) | Integer SIMD | maddubs, u8×i8 | dot: **6.9x**, conv1d: **3.3x** vs NumPy |
+| [Conv2d 3×3 NHWC](demo/conv2d_3x3/) | Quantized inference | maddubs dual-acc, 4-level nested | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64 |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
+
+**Methodology:** all speedup numbers are warm-cache medians (50 runs after 5 warmup).
+Where cold-cache numbers differ materially they are noted. See [`AUDIT_v0.3.0.md`](AUDIT_v0.3.0.md)
+for the full integrity audit: assembly verification, cold-cache analysis, honest loss
+accounting, i16 overflow constraint, and cross-machine results.
 
 ### Kernel fusion: the most important result
 
