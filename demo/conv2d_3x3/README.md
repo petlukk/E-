@@ -46,10 +46,10 @@ export func conv2d_3x3_u8i8(src: *u8, wt: *i8, dst: *mut i16, H: i32, W: i32, C_
                     while ci < C_in {
                         let a0: u8x16 = load(src, src_off + ci)
                         let b0: i8x16 = load(wt, wt_off + ci)
-                        acc0 = acc0 .+ maddubs(a0, b0)
+                        acc0 = acc0 .+ maddubs_i16(a0, b0)
                         let a1: u8x16 = load(src, src_off + ci + 16)
                         let b1: i8x16 = load(wt, wt_off + ci + 16)
-                        acc1 = acc1 .+ maddubs(a1, b1)
+                        acc1 = acc1 .+ maddubs_i16(a1, b1)
                         ci = ci + 32
                     }
                     dc = dc + 1
@@ -77,8 +77,8 @@ in two parallel chains — the CPU can issue both in the same cycle.
 
 ```
 // 32 channels per iteration:
-acc0 = acc0 .+ maddubs(a0, b0)   // channels  0..15 — chain A
-acc1 = acc1 .+ maddubs(a1, b1)   // channels 16..31 — chain B (independent)
+acc0 = acc0 .+ maddubs_i16(a0, b0)   // channels  0..15 — chain A
+acc1 = acc1 .+ maddubs_i16(a1, b1)   // channels 16..31 — chain B (independent)
 ```
 
 Combined with `maddubs`'s 16-pair throughput, this achieves 32 multiply-adds

@@ -189,8 +189,8 @@ Real workloads. Real data. Verified against established tools.
 | [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 2.3x faster, 16x less memory than NumPy |
 | [MNIST preprocessing](demo/mnist_normalize/) | ML preprocessing | Streaming, fused pipeline | Single op: **1.0x (tie)**. Fused pipeline: **3.9x faster** |
 | [Pixel pipeline](demo/pixel_pipeline/) | Image processing | u8x16 threshold, u8→f32 widen | threshold: **21x warm / 14x cold**, normalize: **2.1x** vs NumPy |
-| [Conv2d (dot/1d)](demo/conv2d/) | Integer SIMD | maddubs, u8×i8 | dot: **6.9x**, conv1d: **3.3x** vs NumPy |
-| [Conv2d 3×3 NHWC](demo/conv2d_3x3/) | Quantized inference | maddubs dual-acc, 4-level nested | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64 |
+| [Conv2d (dot/1d)](demo/conv2d/) | Integer SIMD | maddubs_i16, u8×i8 | dot: **6.9x**, conv1d: **3.3x** vs NumPy |
+| [Conv2d 3×3 NHWC](demo/conv2d_3x3/) | Quantized inference | maddubs_i16 dual-acc / maddubs_i32 safe variant | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64 |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
@@ -198,7 +198,8 @@ and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directo
 **Methodology:** all speedup numbers are warm-cache medians (50 runs after 5 warmup).
 Where cold-cache numbers differ materially they are noted. See [`AUDIT_v0.3.0.md`](AUDIT_v0.3.0.md)
 for the full integrity audit: assembly verification, cold-cache analysis, honest loss
-accounting, i16 overflow constraint, and cross-machine results.
+accounting, i16 overflow constraint, and cross-machine results. Run `python3 audit_losses.py`
+for the live v0.4.0 audit including the maddubs_i16 vs maddubs_i32 overflow comparison.
 
 ### Kernel fusion: the most important result
 
@@ -252,7 +253,7 @@ kernel code needs predictable performance without hidden checks.
 
 - **SIMD**: `f32x4`, `f32x8`, `f32x16`, `i32x4`, `i32x8`, `i8x16`, `i8x32`, `u8x16`, `i16x8`, `i16x16` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
 - **Reductions**: `reduce_add`, `reduce_max`, `reduce_min`
-- **Integer SIMD**: `maddubs(u8x16, i8x16) -> i16x8` (SSSE3 pmaddubsw — 16 pairs/cycle)
+- **Integer SIMD**: `maddubs_i16(u8x16, i8x16) -> i16x8` (SSSE3 pmaddubsw — 16 pairs/cycle, fast/wrapping); `maddubs_i32(u8x16, i8x16) -> i32x4` (pmaddubsw+pmaddwd — safe i32 accumulation)
 - **Widening/narrowing**: `widen_u8_f32x4`, `widen_i8_f32x4`, `narrow_f32x4_i8`
 - **Structs**: C-compatible layout, pointer-to-struct, array-of-structs
 - **Pointers**: `*T`, `*mut T`, pointer indexing (`arr[i]`)
@@ -281,7 +282,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (132 passing)
+# Run tests (136 passing)
 cargo test --features=llvm
 ```
 
@@ -322,7 +323,7 @@ Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
 ~5,200 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-132 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
+136 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
 
 ## License
 

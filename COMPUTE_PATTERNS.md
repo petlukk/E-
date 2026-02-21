@@ -568,40 +568,56 @@ No magic. No heuristics. The code *is* the optimization.
 
 ---
 
-## 6. Quantized Inference Kernel (u8×i8 → i16)
+## 6. Quantized Inference Kernel (u8×i8 → i16x8 / i32x4)
 
 **Pattern:** Unsigned activations × signed weights → pairwise multiply-accumulate
 
 Each output channel is a dot product of u8 activations and i8 weights.
-`maddubs` / `pmaddubsw` computes 16 adjacent pairs per instruction,
-accumulating into i16 — twice the throughput of int32, and far ahead of float32.
+The programmer explicitly chooses the output type — and with it, the overflow model:
+
+- `maddubs_i16(u8x16, i8x16) -> i16x8` — pmaddubsw, 16 pairs/cycle, accumulator wraps at ±32,767
+- `maddubs_i32(u8x16, i8x16) -> i32x4` — pmaddubsw + pmaddwd(ones), half the lanes, accumulator safe to ±2,147,483,647
+
+Output type encodes the semantic choice. No silent widening. No magic.
 
 ```
-  act[0..15]   wt[0..15]        (u8x16 × i8x16)
-      │              │
-      └──────┬────────┘
-         maddubs          ← 8 pairs → i16 per lane, 16 pairs total
-             │
-         acc (i16x8)      ← accumulates over C_in channels
+  maddubs_i16:                           maddubs_i32:
+  act[0..15]   wt[0..15]                act[0..15]   wt[0..15]
+      │              │                      │              │
+      └──────┬────────┘                     └──────┬────────┘
+         pmaddubsw    ← 8 i16 lanes            pmaddubsw    ← 8 i16 lanes (intermediate)
+             │                                     │
+         acc (i16x8)  ← fast, wraps           pmaddwd(ones) ← adjacent i16 pairs → i32
+                                                   │
+                                               acc (i32x4)  ← safe, 4 lanes
 ```
 
 ### Memory model
 
 - Reads: H × W × C_in activations (u8) + 9 × C_in weights per output channel (i8)
-- Writes: (H-2) × (W-2) output elements (i16)
-- Extra memory: 2 accumulators × i16x8 (32 bytes)
-- Throughput: 16 multiply-adds per cycle (vs 8 for int32, ~4 for float32)
+- Writes: (H-2) × (W-2) output elements (i16 or i32 depending on intrinsic)
+- Extra memory: 2 accumulators × i16x8 (32 bytes) or 2 × i32x4 (32 bytes)
+- Throughput: 16 multiply-adds per cycle for maddubs_i16; ~8 effective for maddubs_i32
 
-### Eä example (inner loop of conv2d_3x3_u8i8)
+### Eä example (inner loop)
 
 ```
-// Dual-accumulator maddubs over C_in channels (must be multiple of 32)
+// maddubs_i16 — fast, wraps at i16 boundary. Use when values are small.
 let mut acc0: i16x8 = splat(0)
 let mut acc1: i16x8 = splat(0)
 let mut ci: i32 = 0
 while ci < C_in {
-    acc0 = acc0 .+ maddubs(load(src_row, ci), load(wt_row, ci))
-    acc1 = acc1 .+ maddubs(load(src_row, ci + 16), load(wt_row, ci + 16))
+    acc0 = acc0 .+ maddubs_i16(load(src_row, ci), load(wt_row, ci))
+    acc1 = acc1 .+ maddubs_i16(load(src_row, ci + 16), load(wt_row, ci + 16))
+    ci = ci + 32
+}
+
+// maddubs_i32 — safe accumulator. Use when large C_in or large values.
+let mut acc0: i32x4 = splat(0)
+let mut acc1: i32x4 = splat(0)
+while ci < C_in {
+    acc0 = acc0 .+ maddubs_i32(load(src_row, ci), load(wt_row, ci))
+    acc1 = acc1 .+ maddubs_i32(load(src_row, ci + 16), load(wt_row, ci + 16))
     ci = ci + 32
 }
 ```
@@ -611,8 +627,8 @@ while ci < C_in {
 ### When it wins
 
 - **Quantized inference.** Neural network activations fit in u8, weights in i8.
-  `maddubs` is the native SSSE3 instruction — exactly what TensorFlow Lite and
-  ONNX Runtime use internally.
+  `maddubs_i16` / `maddubs_i32` map directly to SSSE3+SSE2 instructions — exactly
+  what TensorFlow Lite and ONNX Runtime use internally.
 - **8-bit vision pipelines.** Camera input is u8. Keeping data in u8 avoids
   the 4× bandwidth expansion of float32.
 - **C_in ≥ 32.** The dual-accumulator pattern requires at least 2 × 16 = 32 channels
@@ -622,8 +638,13 @@ while ci < C_in {
 
 - **Weights not pre-quantized.** If weights are float32, conversion adds overhead.
   Pre-quantize and store as i8 before calling the kernel.
-- **Accumulator overflow.** i16 can hold values up to ±32767. With large C_in,
-  partial sums can saturate. Watch for overflow when C_in > 128 with large weight values.
+- **Per-call overflow (both intrinsics).** pmaddubsw sums adjacent pairs into i16 before
+  any widening. When `a[2i]*b[2i] + a[2i+1]*b[2i+1] > 32,767`, the result wraps —
+  even for `maddubs_i32`. Safe range: both adjacent products combined ≤ 32,767.
+  For symmetric values: act ≤ 127, wt ≤ 127 (127×127×2 = 32,258 — safe).
+- **maddubs_i16 accumulator overflow.** i16 accumulates to ±32,767. `maddubs_i32`
+  eliminates this — the i32 accumulator holds values to ±2 billion. Use `maddubs_i32`
+  when accumulating over large C_in or many iterations.
 - **C_in not a multiple of 32.** Requires padding. The kernel assumes aligned input.
 
 ### Measured
@@ -654,7 +675,7 @@ Throughput: 38.5 GMACs/s
 | Stencil | Compute intensity | Explicit SIMD, register control | Never (NumPy is 10x slower) |
 | Streaming Dataset | Peak memory | O(1) extra memory | Small N, small frames |
 | Fused Pipeline | Memory passes | Zero intermediate arrays | Single-stage pipeline |
-| Quantized Inference | Integer throughput | maddubs (16 pairs/cycle), dual-acc | Weights not pre-quantized |
+| Quantized Inference | Integer throughput | maddubs_i16 (16 pairs/cycle) / maddubs_i32 (safe i32 acc) | Weights not pre-quantized |
 
 ### The honest answer
 

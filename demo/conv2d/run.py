@@ -171,7 +171,7 @@ def main():
     print("  KERNEL 1: dot_u8i8 — dot product (n=512, act∈[0,10], wt∈[-5,5])")
     print("=" * 62)
     print()
-    print("  Eä:   maddubs(u8x16, i8x16) → i16x8, reduce_add → i16")
+    print("  Eä:   maddubs_i16(u8x16, i8x16) → i16x8, reduce_add → i16")
     print("  NumPy: np.dot(act.astype(int32), wt.astype(int32))")
     print()
 
@@ -237,7 +237,7 @@ def main():
     print(f"  conv1d    : Eä {t_ea2:.3f} ms  NumPy {t_np2:.3f} ms  → {tag2}")
     print()
     print(f"  Instruction: SSSE3 pmaddubsw (maddubs) — 1 cycle throughput")
-    print(f"  New in v0.3.0: i16x8, i16x16 vectors + maddubs(u8x16, i8x16) → i16x8")
+    print(f"  New in v0.3.0: i16x8, i16x16 vectors + maddubs_i16(u8x16, i8x16) → i16x8")
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@ export func dot_u8i8(act: *u8, wt: *i8, n: i32) -> i16 {
     while i < n {
         let a0: u8x16 = load(act, i)
         let b0: i8x16 = load(wt, i)
-        acc0 = acc0 .+ maddubs(a0, b0)
+        acc0 = acc0 .+ maddubs_i16(a0, b0)
         i = i + 16
     }
     return reduce_add(acc0)
@@ -51,7 +51,7 @@ export func conv1d_u8i8(src: *u8, wt: *i8, dst: *mut i16, n: i32, k: i32) {
         while ki < k {
             let a: u8x16 = load(src, j + ki)
             let b: i8x16 = load(wt, ki)
-            acc = acc .+ maddubs(a, b)
+            acc = acc .+ maddubs_i16(a, b)
             ki = ki + 16
         }
         dst[j] = reduce_add(acc)
@@ -62,7 +62,7 @@ export func conv1d_u8i8(src: *u8, wt: *i8, dst: *mut i16, n: i32, k: i32) {
 
 ## What is maddubs?
 
-`maddubs(u8x16, i8x16) -> i16x8` maps to the SSSE3 instruction `pmaddubsw`:
+`maddubs_i16(u8x16, i8x16) -> i16x8` maps to the SSSE3 instruction `pmaddubsw`:
 
 ```
 result[lane] = clamp(a[2*lane] * b[2*lane] + a[2*lane+1] * b[2*lane+1], -32768, 32767)
