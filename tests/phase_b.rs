@@ -5,7 +5,7 @@ mod common;
 mod tests {
     use super::common::*;
 
-    // === Phase B: i16x8, i16x16, maddubs ===
+    // === Phase B: i16x8, i16x16, maddubs_i16, maddubs_i32 ===
 
     #[test]
     fn test_i16x8_literal_element() {
@@ -135,11 +135,11 @@ mod tests {
         );
     }
 
-    // === maddubs: u8x16 × i8x16 → i16x8 ===
+    // === maddubs_i16: u8x16 × i8x16 → i16x8 (fast, wrapping) ===
 
     #[test]
     fn test_maddubs_basic() {
-        // maddubs([2,3,...], [4,5,...]):
+        // maddubs_i16([2,3,...], [4,5,...]):
         // pair (2*4)+(3*5) = 8+15 = 23, (2*4)+(3*5)=23, etc.
         // [2,3, 2,3, 2,3, 2,3, 2,3, 2,3, 2,3, 2,3] u8x16
         // [4,5, 4,5, 4,5, 4,5, 4,5, 4,5, 4,5, 4,5] i8x16
@@ -149,7 +149,7 @@ mod tests {
             func main() {
                 let a: u8x16 = [2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3]u8x16
                 let b: i8x16 = [4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5]i8x16
-                let c: i16x8 = maddubs(a, b)
+                let c: i16x8 = maddubs_i16(a, b)
                 let x: i16 = c[0]
                 println(x)
                 let y: i16 = c[7]
@@ -169,7 +169,7 @@ mod tests {
             func main() {
                 let a: u8x16 = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]u8x16
                 let b: i8x16 = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]i8x16
-                let c: i16x8 = maddubs(a, b)
+                let c: i16x8 = maddubs_i16(a, b)
                 let s: i16 = reduce_add(c)
                 println(s)
             }
@@ -188,7 +188,7 @@ mod tests {
                 while i < n {
                     let a: u8x16 = load(act, i)
                     let b: i8x16 = load(wt, i)
-                    acc = acc .+ maddubs(a, b)
+                    acc = acc .+ maddubs_i16(a, b)
                     i = i + 16
                 }
                 return reduce_add(acc)
@@ -208,6 +208,145 @@ mod tests {
             }
             "#,
             "64",
+        );
+    }
+
+    // === maddubs_i32: u8x16 × i8x16 → i32x4 (safe accumulation via pmaddubsw+pmaddwd) ===
+
+    #[test]
+    fn test_maddubs_i32_basic() {
+        // maddubs_i32([2,3,...], [4,5,...]):
+        // step1 pmaddubsw: each i16 lane = 2*4+3*5 = 23 (8 lanes)
+        // step2 pmaddwd(ones): adjacent i16 pairs summed → i32: 23+23 = 46 (4 lanes)
+        // reduce_add(i32x4) = 4 * 46 = 184
+        assert_output(
+            r#"
+            func main() {
+                let a: u8x16 = [2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3, 2, 3]u8x16
+                let b: i8x16 = [4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5, 4, 5]i8x16
+                let c: i32x4 = maddubs_i32(a, b)
+                let x: i32 = c[0]
+                println(x)
+                let y: i32 = c[3]
+                println(y)
+                let s: i32 = reduce_add(c)
+                println(s)
+            }
+            "#,
+            "46\n46\n184",
+        );
+    }
+
+    #[test]
+    fn test_maddubs_i32_overflow_regression() {
+        // Proves i32 accumulation holds where i16 would overflow.
+        // act=10, wt=5, all 16 elements.
+        // pmaddubsw: 10*5+10*5 = 100 per i16 lane (safe in i16)
+        // pmaddwd(ones): 100+100 = 200 per i32 lane (4 lanes)
+        // Accumulate over 200 iterations: each iteration adds 200 per lane.
+        // Final reduce_add = 4 * 200 * 200 = 160,000 — correct in i32.
+        // An i16 accumulator would wrap at 32,767 long before completion.
+        assert_c_interop(
+            r#"
+            export func accumulate_maddubs_i32(act: *u8, wt: *i8, n: i32, iters: i32) -> i32 {
+                let mut acc: i32x4 = splat(0)
+                let mut it: i32 = 0
+                while it < iters {
+                    let a: u8x16 = load(act, 0)
+                    let b: i8x16 = load(wt, 0)
+                    acc = acc .+ maddubs_i32(a, b)
+                    it = it + 1
+                }
+                return reduce_add(acc)
+            }
+            "#,
+            r#"
+            #include <stdio.h>
+            #include <stdint.h>
+            extern int32_t accumulate_maddubs_i32(const uint8_t *act, const int8_t *wt, int n, int iters);
+            int main() {
+                uint8_t act[16];
+                int8_t  wt[16];
+                for (int i = 0; i < 16; i++) { act[i] = 10; wt[i] = 5; }
+                int32_t result = accumulate_maddubs_i32(act, wt, 16, 200);
+                printf("%d\n", result);
+                return 0;
+            }
+            "#,
+            "160000",
+        );
+    }
+
+    #[test]
+    fn test_maddubs_i32_c_interop() {
+        assert_c_interop(
+            r#"
+            export func dot_u8i8_i32(act: *u8, wt: *i8, n: i32) -> i32 {
+                let mut acc: i32x4 = splat(0)
+                let mut i: i32 = 0
+                while i < n {
+                    let a: u8x16 = load(act, i)
+                    let b: i8x16 = load(wt, i)
+                    acc = acc .+ maddubs_i32(a, b)
+                    i = i + 16
+                }
+                return reduce_add(acc)
+            }
+            "#,
+            r#"
+            #include <stdio.h>
+            #include <stdint.h>
+            extern int32_t dot_u8i8_i32(const uint8_t *act, const int8_t *wt, int n);
+            int main() {
+                uint8_t act[32];
+                int8_t  wt[32];
+                for (int i = 0; i < 32; i++) { act[i] = 1; wt[i] = 2; }
+                int32_t result = dot_u8i8_i32(act, wt, 32);
+                printf("%d\n", result);
+                return 0;
+            }
+            "#,
+            "64",
+        );
+    }
+
+    #[test]
+    fn test_maddubs_i32_ir_check() {
+        // Verify the two-intrinsic chain (pmaddubsw + pmaddwd) appears in emitted IR.
+        use ea_compiler::{CompileOptions, OutputMode};
+
+        let source = r#"
+            export func dot_i32(act: *u8, wt: *i8, n: i32) -> i32 {
+                let mut acc: i32x4 = splat(0)
+                let mut i: i32 = 0
+                while i < n {
+                    let a: u8x16 = load(act, i)
+                    let b: i8x16 = load(wt, i)
+                    acc = acc .+ maddubs_i32(a, b)
+                    i = i + 16
+                }
+                return reduce_add(acc)
+            }
+        "#;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let ir_path = dir.path().join("dot_i32.ll");
+        let opts = CompileOptions {
+            opt_level: 0,
+            target_cpu: None,
+            extra_features: String::new(),
+        };
+        ea_compiler::compile_with_options(source, &ir_path, OutputMode::LlvmIr, &opts)
+            .expect("maddubs_i32 IR compilation failed");
+
+        let ir = std::fs::read_to_string(&ir_path).unwrap_or_default();
+        assert!(
+            ir.contains("pmadd.ub.sw.128"),
+            "expected pmadd.ub.sw.128 in IR, got:\n{ir}"
+        );
+        assert!(
+            ir.contains("pmadd.wd"),
+            "expected pmadd.wd in IR, got:\n{ir}"
         );
     }
 

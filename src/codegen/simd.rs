@@ -33,7 +33,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                 | "widen_i8_f32x4"
                 | "widen_u8_f32x4"
                 | "narrow_f32x4_i8"
-                | "maddubs"
+                | "maddubs_i16"
+                | "maddubs_i32"
         )
     }
 
@@ -68,7 +69,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             "widen_i8_f32x4" => self.compile_widen_i8_f32x4(args, false, function),
             "widen_u8_f32x4" => self.compile_widen_i8_f32x4(args, true, function),
             "narrow_f32x4_i8" => self.compile_narrow_f32x4_i8(args, function),
-            "maddubs" => self.compile_maddubs(args, function),
+            "maddubs_i16" => self.compile_maddubs_i16(args, function),
+            "maddubs_i32" => self.compile_maddubs_i32(args, function),
             _ => Err(CompileError::codegen_error(format!(
                 "unknown SIMD intrinsic '{name}'"
             ))),

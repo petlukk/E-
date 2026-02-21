@@ -31,7 +31,8 @@ impl TypeChecker {
                 Some(self.check_widen_i8_f32x4(name, args, locals))
             }
             "narrow_f32x4_i8" => Some(self.check_narrow_f32x4_i8(args, locals)),
-            "maddubs" => Some(self.check_maddubs(args, locals)),
+            "maddubs_i16" => Some(self.check_maddubs_i16(args, locals)),
+            "maddubs_i32" => Some(self.check_maddubs_i32(args, locals)),
             _ => None,
         }
     }
@@ -398,14 +399,14 @@ impl TypeChecker {
         }
     }
 
-    fn check_maddubs(
+    fn check_maddubs_i16(
         &self,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
     ) -> crate::error::Result<Type> {
         if args.len() != 2 {
             return Err(CompileError::type_error(
-                "maddubs expects 2 arguments: (u8x16, i8x16)",
+                "maddubs_i16 expects 2 arguments: (u8x16, i8x16)",
                 Position::default(),
             ));
         }
@@ -419,7 +420,34 @@ impl TypeChecker {
                 Ok(Type::Vector { elem: Box::new(Type::I16), width: 8 })
             }
             _ => Err(CompileError::type_error(
-                format!("maddubs expects (u8x16, i8x16), got ({a:?}, {b:?})"),
+                format!("maddubs_i16 expects (u8x16, i8x16), got ({a:?}, {b:?})"),
+                Position::default(),
+            )),
+        }
+    }
+
+    fn check_maddubs_i32(
+        &self,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 2 {
+            return Err(CompileError::type_error(
+                "maddubs_i32 expects 2 arguments: (u8x16, i8x16)",
+                Position::default(),
+            ));
+        }
+        let a = self.check_expr(&args[0], locals)?;
+        let b = self.check_expr(&args[1], locals)?;
+        match (&a, &b) {
+            (
+                Type::Vector { elem: ea, width: 16 },
+                Type::Vector { elem: eb, width: 16 },
+            ) if matches!(ea.as_ref(), Type::U8) && matches!(eb.as_ref(), Type::I8) => {
+                Ok(Type::Vector { elem: Box::new(Type::I32), width: 4 })
+            }
+            _ => Err(CompileError::type_error(
+                format!("maddubs_i32 expects (u8x16, i8x16), got ({a:?}, {b:?})"),
                 Position::default(),
             )),
         }

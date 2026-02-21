@@ -229,10 +229,10 @@ impl<'ctx> CodeGenerator<'ctx> {
         Ok(BasicValueEnum::VectorValue(i8x16))
     }
 
-    /// maddubs(u8x16, i8x16) -> i16x8
+    /// maddubs_i16(u8x16, i8x16) -> i16x8
     /// Multiplies unsigned 8-bit × signed 8-bit pairs, adds adjacent products → signed 16-bit.
-    /// Maps to SSSE3 pmaddubsw (_mm_maddubs_epi16).
-    pub(super) fn compile_maddubs(
+    /// Maps to SSSE3 pmaddubsw (_mm_maddubs_epi16). Fast but accumulator overflows at i16.
+    pub(super) fn compile_maddubs_i16(
         &mut self,
         args: &[Expr],
         function: FunctionValue<'ctx>,
@@ -254,11 +254,70 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let result = self
             .builder
-            .build_call(intrinsic, &[a.into(), b.into()], "maddubs")
+            .build_call(intrinsic, &[a.into(), b.into()], "maddubs_i16")
             .map_err(|e| CompileError::codegen_error(e.to_string()))?
             .try_as_basic_value()
             .left()
-            .ok_or_else(|| CompileError::codegen_error("maddubs did not return a value"))?;
+            .ok_or_else(|| CompileError::codegen_error("maddubs_i16 did not return a value"))?;
+
+        Ok(result)
+    }
+
+    /// maddubs_i32(u8x16, i8x16) -> i32x4
+    /// Two-intrinsic chain: pmaddubsw → pmaddwd(ones) → i32x4.
+    /// Safe against accumulator overflow; programmer explicitly chooses this wider type.
+    pub(super) fn compile_maddubs_i32(
+        &mut self,
+        args: &[Expr],
+        function: FunctionValue<'ctx>,
+    ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        let a = self.compile_expr(&args[0], function)?.into_vector_value(); // u8x16
+        let b = self.compile_expr(&args[1], function)?.into_vector_value(); // i8x16
+
+        let i8x16_ty = self.context.i8_type().vec_type(16);
+        let i16x8_ty = self.context.i16_type().vec_type(8);
+        let i32x4_ty = self.context.i32_type().vec_type(4);
+
+        // Step 1: pmaddubsw — same as maddubs_i16
+        let pmaddubsw_fn_type = i16x8_ty.fn_type(&[i8x16_ty.into(), i8x16_ty.into()], false);
+        let pmaddubsw = self
+            .module
+            .get_function("llvm.x86.ssse3.pmadd.ub.sw.128")
+            .unwrap_or_else(|| {
+                self.module
+                    .add_function("llvm.x86.ssse3.pmadd.ub.sw.128", pmaddubsw_fn_type, None)
+            });
+
+        let t = self
+            .builder
+            .build_call(pmaddubsw, &[a.into(), b.into()], "maddubs_i32_step1")
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| CompileError::codegen_error("pmaddubsw did not return a value"))?
+            .into_vector_value(); // i16x8
+
+        // Step 2: pmaddwd with compile-time constant ones vector (i16x8)
+        let one_i16 = self.context.i16_type().const_int(1, false);
+        let ones_vals = [one_i16; 8];
+        let ones = VectorType::const_vector(&ones_vals);
+
+        let pmaddwd_fn_type = i32x4_ty.fn_type(&[i16x8_ty.into(), i16x8_ty.into()], false);
+        let pmaddwd = self
+            .module
+            .get_function("llvm.x86.sse2.pmadd.wd")
+            .unwrap_or_else(|| {
+                self.module
+                    .add_function("llvm.x86.sse2.pmadd.wd", pmaddwd_fn_type, None)
+            });
+
+        let result = self
+            .builder
+            .build_call(pmaddwd, &[t.into(), ones.into()], "maddubs_i32_step2")
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?
+            .try_as_basic_value()
+            .left()
+            .ok_or_else(|| CompileError::codegen_error("pmaddwd did not return a value"))?;
 
         Ok(result)
     }
