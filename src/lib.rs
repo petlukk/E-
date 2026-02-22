@@ -118,23 +118,55 @@ pub fn compile_with_options(
         OutputMode::SharedLib(ref lib_name) => {
             target::write_object_file(gen.module(), output_path, opts)?;
 
-            let status = std::process::Command::new("cc")
-                .arg("-shared")
-                .arg(output_path)
-                .arg("-o")
-                .arg(lib_name)
-                .arg("-lm")
-                .status()
-                .map_err(|e| {
-                    error::CompileError::codegen_error(format!("failed to invoke linker: {e}"))
-                })?;
+            #[cfg(target_os = "windows")]
+            {
+                // On Windows use lld-link.exe (ships with LLVM 18).
+                // lld-link handles /NODEFAULTLIB cleanly for pure SIMD kernels
+                // and provides __chkstk / compiler-rt intrinsics internally,
+                // so the resulting DLL has zero external dependencies.
+                let out_flag = format!("/OUT:{}", lib_name);
+                let output = std::process::Command::new("lld-link.exe")
+                    .arg("/DLL")
+                    .arg("/NOLOGO")
+                    .arg("/NODEFAULTLIB")
+                    .arg("/NOENTRY")
+                    .arg(&out_flag)
+                    .arg(output_path)
+                    .output()
+                    .map_err(|e| {
+                        error::CompileError::codegen_error(format!("failed to invoke lld-link: {e}"))
+                    })?;
 
-            let _ = std::fs::remove_file(output_path);
+                let _ = std::fs::remove_file(output_path);
 
-            if !status.success() {
-                return Err(error::CompileError::codegen_error(
-                    "shared library linking failed",
-                ));
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let detail = if !stderr.is_empty() { stderr } else { stdout };
+                    return Err(error::CompileError::codegen_error(
+                        format!("lld-link failed:\n{}", detail.trim())
+                    ));
+                }
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let status = std::process::Command::new("cc")
+                    .arg("-shared")
+                    .arg(output_path)
+                    .arg("-o")
+                    .arg(lib_name)
+                    .arg("-lm")
+                    .status()
+                    .map_err(|e| {
+                        error::CompileError::codegen_error(format!("failed to invoke linker: {e}"))
+                    })?;
+
+                let _ = std::fs::remove_file(output_path);
+
+                if !status.success() {
+                    return Err(error::CompileError::codegen_error("shared library linking failed"));
+                }
             }
         }
         OutputMode::LlvmIr => {

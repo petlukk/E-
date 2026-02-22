@@ -21,6 +21,8 @@ use inkwell::context::Context;
 #[cfg(feature = "llvm")]
 use inkwell::module::{Linkage, Module};
 #[cfg(feature = "llvm")]
+use inkwell::DLLStorageClass;
+#[cfg(feature = "llvm")]
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 #[cfg(feature = "llvm")]
 use inkwell::values::{FunctionValue, PointerValue};
@@ -48,6 +50,19 @@ impl<'ctx> CodeGenerator<'ctx> {
     pub fn new(context: &'ctx Context, module_name: &str) -> Self {
         let module = context.create_module(module_name);
         let builder = context.create_builder();
+
+        // On Windows, LLVM emits a reference to _fltused in every object that
+        // uses floating-point.  It is an MSVC CRT sentinel (int = 1) that is
+        // never called at runtime.  Defining it here satisfies lld-link without
+        // /FORCE:UNRESOLVED and without linking against the CRT.
+        #[cfg(target_os = "windows")]
+        {
+            let i32_ty = context.i32_type();
+            let fltused = module.add_global(i32_ty, Some(AddressSpace::default()), "_fltused");
+            fltused.set_initializer(&i32_ty.const_int(1, false));
+            fltused.set_linkage(Linkage::External);
+        }
+
         Self {
             context,
             module,
@@ -234,6 +249,13 @@ impl<'ctx> CodeGenerator<'ctx> {
         };
 
         let function = self.module.add_function(name, fn_type, linkage);
+
+        // On Windows PE/COFF, ExternalLinkage alone does not place a symbol in
+        // the DLL export table — dllexport is required for that.  On Linux/ELF
+        // ExternalLinkage is sufficient; this attribute is a harmless no-op there.
+        if export {
+            function.as_global_value().set_dll_storage_class(DLLStorageClass::Export);
+        }
 
         for (i, param) in params.iter().enumerate() {
             if let TypeAnnotation::Pointer { restrict: true, .. } = &param.ty {
