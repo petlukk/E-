@@ -193,6 +193,7 @@ Real workloads. Real data. Verified against established tools.
 | [Pixel pipeline](demo/pixel_pipeline/) | Image processing | u8x16 threshold, u8→f32 widen | threshold: **21x warm / 14x cold**, normalize: **2.1x** vs NumPy |
 | [Conv2d (dot/1d)](demo/conv2d/) | Integer SIMD | maddubs_i16, u8×i8 | dot: **6.9x**, conv1d: **3.3x** vs NumPy |
 | [Conv2d 3×3 NHWC](demo/conv2d_3x3/) | Quantized inference | maddubs_i16 dual-acc / maddubs_i32 safe variant | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64 |
+| [Pipeline fusion](demo/skimage_fusion/) | Image processing | Stencil fusion, algebraic optimization | 6.2x vs NumPy, **1.3x fusion at 4K**, 7x memory reduction |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
@@ -205,8 +206,8 @@ for the live v0.4.0 audit including the maddubs_i16 vs maddubs_i32 overflow comp
 
 ### Kernel fusion: the most important result
 
-The video anomaly demo ships both an unfused (3-kernel) and fused (1-kernel)
-implementation of the same pipeline. Same language. Same compiler. Same data.
+**Streaming fusion** — the video anomaly demo ships both unfused (3-kernel) and
+fused (1-kernel) implementations. Same language. Same compiler. Same data.
 
 ```
 Ea (3 kernels)      :  1.12 ms   (slower than NumPy — FFI + memory overhead)
@@ -222,13 +223,25 @@ The MNIST scaling experiment confirms this scales linearly with pipeline depth:
 8 ops →  25.2x    Each extra Ea op = ~0 ms (SIMD register instruction)
 ```
 
-Performance comes from expressing the computation boundary correctly —
-not from a better optimizer.
+**Stencil fusion** — the pipeline fusion demo fuses Gaussian blur + Sobel +
+threshold into a single 5x5 stencil. The first attempt was *slower* than
+unfused — naive composition computed 8 redundant Gaussian blurs per output
+pixel. Algebraic reformulation (precomputing the combined convolution as a
+separable 5x5 kernel) reduced ops from ~120 to ~50 and made fusion win:
+
+```
+  768x512   →  1.02x fusion speedup   (fits in L3 cache)
+ 3840x2160  →  1.33x fusion speedup   (intermediates spill to DRAM)
+```
+
+Same language. Same compiler. The compute formulation changed.
 
 > **If data leaves registers, you probably ended a kernel too early.**
 
+> **Fusion does not make bad kernels fast. Fusion amplifies good kernel design.**
+
 See [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for the full analysis of all
-five compute classes, including when Ea wins and when it doesn't.
+compute classes, including when Ea wins, when it doesn't, and when fusion hurts.
 
 ## Why not...
 

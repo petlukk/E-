@@ -470,13 +470,15 @@ export func anomaly_count_fused(a: *restrict f32, b: *restrict f32, len: i32, th
 
 ### When it wins
 
-- **Always, compared to the unfused version of the same pipeline.** This is not
-  an optimization hint — it is an architectural transformation. Eliminating
-  intermediate memory traffic is a guaranteed win.
+- When the fused kernel's compute intensity does not exceed the memory traffic
+  it eliminates. Fusion trades memory passes for register compute. If the
+  added compute is less than the removed memory cost, fusion wins.
 - When the unfused pipeline is memory-bound. Fusion converts a memory-bound
   pipeline into a compute-bound kernel.
 - When FFI overhead is significant. One ctypes call instead of three removes
   ~0.3-0.5 ms of fixed cost on small data.
+- When data exceeds L3 cache. Fusion's benefit grows with image size because
+  eliminated intermediates become DRAM misses instead of cache hits.
 
 ### When it doesn't help
 
@@ -484,6 +486,25 @@ export func anomaly_count_fused(a: *restrict f32, b: *restrict f32, len: i32, th
 - When intermediate results are needed by the caller (diff image for visualization).
 - When stages have fundamentally different access patterns (e.g., stencil followed
   by global reduction — the stencil must complete before the reduction can begin).
+
+### When it hurts
+
+- **When the fused kernel introduces more compute than it removes memory traffic.**
+  A naive Gaussian+Sobel fusion that computes 8 separate Gaussian blurs per output
+  pixel (~120 ops, 25 loads) is *slower* than unfused (blur: 9 loads + 1 store,
+  sobel: 8 loads + 1 store, threshold: 1 load + 1 store). The unfused intermediates
+  have spatial locality — adjacent pixels share most of their 3x3 neighborhoods,
+  so L1/L2 cache serves the "intermediate" reads cheaply. The naive fusion paid
+  compute cost without recovering equivalent memory savings.
+
+  The fix: precompute the algebraic composition of Gaussian and Sobel as a single
+  5x5 convolution kernel (~50 ops, 24 loads). Same fusion, different formulation.
+  The rewritten kernel is faster than unfused — and the gap widens with image size.
+
+  This is the same failure mode as XLA fusion failures, TVM schedule tuning,
+  Halide algorithm-vs-schedule bugs, and CUDA kernel fusion disasters.
+
+  **Fusion does not make bad kernels fast. Fusion amplifies good kernel design.**
 
 ### Measured
 
@@ -500,6 +521,39 @@ Fusion speedup: **13.7x** (3 kernels → 1 kernel).
 The unfused Ea was *slower* than NumPy. The fused Ea is *13x faster*.
 Nothing changed in the compiler, the LLVM version, or the language.
 Only the kernel boundary changed.
+
+### Measured: stencil fusion (skimage pipeline)
+
+Edge detection pipeline (blur → sobel → threshold), Kodak 768x512 image:
+```
+NumPy (4 stages)     :   9.75 ms
+Ea unfused (4 calls) :   1.57 ms    6.2x vs NumPy
+Ea fused (2 calls)   :   1.65 ms    5.9x vs NumPy
+```
+
+Fusion speedup at 768x512: **1.0x** — no measurable benefit.
+Both Ea versions are ~6x faster than NumPy from native SIMD alone.
+
+But fusion speedup grows with image size as intermediates leave cache:
+```
+  768x512    →  1.02x    (fits in L3)
+ 1920x1080   →  1.10x    (L3 boundary)
+ 3840x2160   →  1.33x    (DRAM-bound intermediates)
+ 4096x4096   →  1.30x    (DRAM-bound)
+```
+
+This is cache-theory confirmation: fusion's value is proportional to
+the cost of eliminated memory traffic. When intermediates are in L1/L2
+(stencils have spatial locality), fusion saves little. When intermediates
+spill to DRAM (large images), fusion saves a lot.
+
+Memory: NumPy 20.9 MB → Ea fused 3.0 MB (**7x reduction**).
+
+**Critical insight:** The first fused kernel was *slower* than unfused (2.25 ms
+vs 1.64 ms) because it computed 8 redundant Gaussian blurs per output pixel.
+Algebraic reformulation — precomputing the combined Gaussian+Sobel as a single
+5x5 separable convolution — reduced ops from ~120 to ~50 per 4 pixels.
+The language didn't change. The LLVM didn't change. The compute formulation did.
 
 ### Fusion scaling: speedup grows linearly with pipeline depth
 
@@ -546,17 +600,27 @@ Even a whole-program optimizer cannot fuse across FFI boundaries.
 
 The programmer defines the compute boundary. The compiler optimizes within it.
 
-### The principle
+### The principles
 
 > **If data leaves registers, you probably ended a kernel too early.**
 
-This is the same principle behind:
-- CUDA kernel fusion (reduce kernel launch overhead)
-- XLA operator fusion (eliminate temporary tensors)
-- Polyhedral compilation (fuse loop nests)
+> **Fusion does not make bad kernels fast. Fusion amplifies good kernel design.**
+
+The first principle tells you *when* to fuse. The second tells you that fusion
+is necessary but not sufficient — the algebraic formulation of the fused kernel
+must be efficient. A naively-composed fusion can increase compute faster than
+it eliminates memory traffic. The programmer must understand both the compute
+and the memory model.
+
+This is the same problem that:
+- XLA hits when fusion increases register pressure beyond spill threshold
+- TVM hits when schedule search finds locally-optimal but globally-slow fusions
+- Halide separates as "algorithm vs schedule" — the algorithm must be right first
+- CUDA programmers learn after their first fused kernel is slower than the unfused version
 
 Eä makes it explicit: the programmer writes the fused kernel.
 No magic. No heuristics. The code *is* the optimization.
+The kernel must also be *the right* optimization.
 
 ### Real-world instances
 
@@ -698,36 +762,65 @@ Eä loses when:
 This is not a limitation. This is the design space.
 A kernel language that claims to win everywhere is lying.
 
-### The lesson from kernel fusion
+### The lessons from kernel fusion
 
-The video anomaly demo tells the full story:
+**Lesson 1: Fusion eliminates memory passes (video anomaly demo).**
 
 ```
 3 separate kernels :  1.12 ms   (slower than NumPy)
 1 fused kernel     :  0.08 ms   (13x faster than NumPy)
 ```
 
-The MNIST scaling experiment confirms this is not an anomaly — it is a law:
+Streaming operations (per-pixel, no neighborhood) fuse trivially — each pixel
+is independent, so fusion replaces N memory passes with N register operations.
+Speedup scales linearly with pipeline depth:
 
 ```
 1 op  →   2.0x     (memory-bound baseline)
-2 ops →   4.0x     (1 pass eliminated)
 4 ops →  12.0x     (3 passes eliminated)
 8 ops →  25.2x     (7 passes eliminated)
 ```
 
-Ea fused time is constant. NumPy time scales linearly with operations.
-Speedup is proportional to pipeline depth.
+**Lesson 2: Fusion requires algebraic optimization (skimage pipeline demo).**
 
-Same language. Same compiler. Same LLVM. Same data. Same result.
+Stencil fusion is harder. A naive Gaussian+Sobel fusion that computes 8 separate
+Gaussian blurs per output pixel was *slower* than unfused:
 
-The only difference: **where the kernel boundary was drawn.**
+```
+Ea unfused (4 calls) :  1.64 ms
+Ea fused (naive)     :  2.25 ms   ← SLOWER (0.7x)
+```
 
-Performance comes from expressing the computation boundary correctly —
+The fix was not a language change or a compiler change. It was a mathematical
+reformulation: precompute the algebraic composition of Gaussian and Sobel as
+a single 5x5 separable convolution. This reduced ops from ~120 to ~50 per
+4 output pixels:
+
+```
+Ea unfused (4 calls) :  1.57 ms
+Ea fused (optimized) :  1.65 ms   ← on par (small image, fits in cache)
+```
+
+And fusion's benefit grows as data leaves cache:
+
+```
+  768x512   →  1.02x    (L3-resident)
+ 3840x2160  →  1.33x    (DRAM-bound intermediates)
+```
+
+Same language. Same compiler. Same LLVM. Same data.
+
+The only differences: **where the kernel boundary was drawn** and
+**how the compute was formulated**.
+
+Performance comes from expressing the computation correctly —
 not from a better compiler, more features, or a smarter optimizer.
 
-This is the same principle that drives CUDA kernel design, XLA fusion,
-and every high-performance computing framework: minimize data movement,
-maximize register residency, let the programmer define the compute boundary.
-
 > **If data leaves registers, you probably ended a kernel too early.**
+
+> **Fusion does not make bad kernels fast. Fusion amplifies good kernel design.**
+
+This is the same challenge that drives CUDA kernel design, XLA fusion,
+Halide algorithm/schedule separation, and every high-performance computing
+framework: minimize data movement, maximize register residency, and get
+the algebra right before fusing.

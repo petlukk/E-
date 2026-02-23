@@ -1,0 +1,137 @@
+// Unfused edge detection pipeline — three separate kernels.
+// Each called independently from Python. Each writes a full intermediate array.
+// Compare with pipeline_fused.ea to see the effect of fusion.
+
+// 3x3 Gaussian blur: [1,2,1; 2,4,2; 1,2,1] / 16
+export func gaussian_blur_3x3(
+    input: *restrict f32,
+    out: *mut f32,
+    width: i32,
+    height: i32
+) {
+    let vtwo: f32x4 = splat(2.0)
+    let vfour: f32x4 = splat(4.0)
+    let inv16: f32x4 = splat(0.0625)
+
+    let mut y: i32 = 1
+    while y < height - 1 {
+        let ra: i32 = (y - 1) * width
+        let rc: i32 = y * width
+        let rb: i32 = (y + 1) * width
+        let mut x: i32 = 1
+
+        while x + 4 <= width - 1 {
+            let r0a: f32x4 = load(input, ra + x - 1)
+            let r0b: f32x4 = load(input, ra + x)
+            let r0c: f32x4 = load(input, ra + x + 1)
+            let r1a: f32x4 = load(input, rc + x - 1)
+            let r1b: f32x4 = load(input, rc + x)
+            let r1c: f32x4 = load(input, rc + x + 1)
+            let r2a: f32x4 = load(input, rb + x - 1)
+            let r2b: f32x4 = load(input, rb + x)
+            let r2c: f32x4 = load(input, rb + x + 1)
+
+            let blurred: f32x4 = (r0a .+ r0c .+ r2a .+ r2c .+ (r0b .+ r1a .+ r1c .+ r2b) .* vtwo .+ r1b .* vfour) .* inv16
+            store(out, rc + x, blurred)
+            x = x + 4
+        }
+
+        while x < width - 1 {
+            let r0a: f32 = input[ra + x - 1]
+            let r0b: f32 = input[ra + x]
+            let r0c: f32 = input[ra + x + 1]
+            let r1a: f32 = input[rc + x - 1]
+            let r1b: f32 = input[rc + x]
+            let r1c: f32 = input[rc + x + 1]
+            let r2a: f32 = input[rb + x - 1]
+            let r2b: f32 = input[rb + x]
+            let r2c: f32 = input[rb + x + 1]
+            out[rc + x] = (r0a + r0c + r2a + r2c + (r0b + r1a + r1c + r2b) * 2.0 + r1b * 4.0) * 0.0625
+            x = x + 1
+        }
+
+        y = y + 1
+    }
+}
+
+// Sobel gradient magnitude: |Gx| + |Gy| (L1 norm)
+// Gx = [-1 0 1; -2 0 2; -1 0 1]
+// Gy = [-1 -2 -1; 0 0 0; 1 2 1]
+export func sobel_magnitude(
+    input: *restrict f32,
+    out: *mut f32,
+    width: i32,
+    height: i32
+) {
+    let vzero: f32x4 = splat(0.0)
+    let vtwo: f32x4 = splat(2.0)
+
+    let mut y: i32 = 1
+    while y < height - 1 {
+        let ra: i32 = (y - 1) * width
+        let rc: i32 = y * width
+        let rb: i32 = (y + 1) * width
+        let mut x: i32 = 1
+
+        while x + 4 <= width - 1 {
+            let r0a: f32x4 = load(input, ra + x - 1)
+            let r0b: f32x4 = load(input, ra + x)
+            let r0c: f32x4 = load(input, ra + x + 1)
+            let r1a: f32x4 = load(input, rc + x - 1)
+            let r1c: f32x4 = load(input, rc + x + 1)
+            let r2a: f32x4 = load(input, rb + x - 1)
+            let r2b: f32x4 = load(input, rb + x)
+            let r2c: f32x4 = load(input, rb + x + 1)
+
+            let gx: f32x4 = (r0c .- r0a) .+ (r1c .- r1a) .* vtwo .+ (r2c .- r2a)
+            let gy: f32x4 = (r2a .- r0a) .+ (r2b .- r0b) .* vtwo .+ (r2c .- r0c)
+
+            let abs_gx: f32x4 = select(gx .< vzero, vzero .- gx, gx)
+            let abs_gy: f32x4 = select(gy .< vzero, vzero .- gy, gy)
+            store(out, rc + x, abs_gx .+ abs_gy)
+            x = x + 4
+        }
+
+        while x < width - 1 {
+            let r0a: f32 = input[ra + x - 1]
+            let r0b: f32 = input[ra + x]
+            let r0c: f32 = input[ra + x + 1]
+            let r1a: f32 = input[rc + x - 1]
+            let r1c: f32 = input[rc + x + 1]
+            let r2a: f32 = input[rb + x - 1]
+            let r2b: f32 = input[rb + x]
+            let r2c: f32 = input[rb + x + 1]
+            let gx: f32 = (r0c - r0a) + (r1c - r1a) * 2.0 + (r2c - r2a)
+            let gy: f32 = (r2a - r0a) + (r2b - r0b) * 2.0 + (r2c - r0c)
+            let mut abs_gx: f32 = gx
+            if gx < 0.0 { abs_gx = 0.0 - gx }
+            let mut abs_gy: f32 = gy
+            if gy < 0.0 { abs_gy = 0.0 - gy }
+            out[rc + x] = abs_gx + abs_gy
+            x = x + 1
+        }
+
+        y = y + 1
+    }
+}
+
+// Branchless threshold: out[i] = (data[i] > thresh) ? 1.0 : 0.0
+export func threshold_f32x8(data: *restrict f32, out: *mut f32, len: i32, thresh: f32) {
+    let vthresh: f32x8 = splat(thresh)
+    let vone: f32x8 = splat(1.0)
+    let vzero: f32x8 = splat(0.0)
+    let mut i: i32 = 0
+    while i + 8 <= len {
+        let v: f32x8 = load(data, i)
+        store(out, i, select(v .> vthresh, vone, vzero))
+        i = i + 8
+    }
+    while i < len {
+        if data[i] > thresh {
+            out[i] = 1.0
+        } else {
+            out[i] = 0.0
+        }
+        i = i + 1
+    }
+}

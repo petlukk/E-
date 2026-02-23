@@ -1,0 +1,159 @@
+// Fused edge detection: blur + sobel + threshold in one pass.
+// 5x5 effective stencil (3x3 Gaussian composed with 3x3 Sobel).
+// Zero intermediate arrays — combined kernel applied directly.
+//
+// The Gaussian [1,2,1; 2,4,2; 1,2,1]/16 composed with Sobel factors as:
+//   Gx = (horizontal diffs per row) weighted by vertical Gaussian [1,4,6,4,1]/16
+//   Gy = (vertical diffs per col) weighted by horizontal Gaussian [1,4,6,4,1]/16
+//
+// Combined_Gx[5x5] = [-1,-2,0,2,1; -4,-8,0,8,4; -6,-12,0,12,6; -4,-8,0,8,4; -1,-2,0,2,1] / 16
+// Combined_Gy[5x5] = [-1,-4,-6,-4,-1; -2,-8,-12,-8,-2; 0,0,0,0,0; 2,8,12,8,2; 1,4,6,4,1] / 16
+//
+// This avoids computing 8 separate Gaussian blurs — single direct convolution.
+// Only 24 loads needed (center pixel p22 has zero weight in both kernels).
+// Gradient magnitude: |Gx| + |Gy| (L1 norm)
+
+export func edge_detect_fused(
+    input: *restrict f32,
+    out: *mut f32,
+    width: i32,
+    height: i32,
+    thresh: f32
+) {
+    let vzero: f32x4 = splat(0.0)
+    let vone: f32x4 = splat(1.0)
+    let vtwo: f32x4 = splat(2.0)
+    let vfour: f32x4 = splat(4.0)
+    let vsix: f32x4 = splat(6.0)
+    let inv16: f32x4 = splat(0.0625)
+    let vthresh: f32x4 = splat(thresh)
+
+    let mut y: i32 = 2
+    while y < height - 2 {
+        let r0: i32 = (y - 2) * width
+        let r1: i32 = (y - 1) * width
+        let r2: i32 = y * width
+        let r3: i32 = (y + 1) * width
+        let r4: i32 = (y + 2) * width
+        let mut x: i32 = 2
+
+        while x + 4 <= width - 2 {
+            // --- Load 5x5 neighborhood (24 loads, skip p22) ---
+            let p00: f32x4 = load(input, r0 + x - 2)
+            let p01: f32x4 = load(input, r0 + x - 1)
+            let p02: f32x4 = load(input, r0 + x)
+            let p03: f32x4 = load(input, r0 + x + 1)
+            let p04: f32x4 = load(input, r0 + x + 2)
+
+            let p10: f32x4 = load(input, r1 + x - 2)
+            let p11: f32x4 = load(input, r1 + x - 1)
+            let p12: f32x4 = load(input, r1 + x)
+            let p13: f32x4 = load(input, r1 + x + 1)
+            let p14: f32x4 = load(input, r1 + x + 2)
+
+            let p20: f32x4 = load(input, r2 + x - 2)
+            let p21: f32x4 = load(input, r2 + x - 1)
+            // p22 skipped — zero weight in both Gx and Gy
+            let p23: f32x4 = load(input, r2 + x + 1)
+            let p24: f32x4 = load(input, r2 + x + 2)
+
+            let p30: f32x4 = load(input, r3 + x - 2)
+            let p31: f32x4 = load(input, r3 + x - 1)
+            let p32: f32x4 = load(input, r3 + x)
+            let p33: f32x4 = load(input, r3 + x + 1)
+            let p34: f32x4 = load(input, r3 + x + 2)
+
+            let p40: f32x4 = load(input, r4 + x - 2)
+            let p41: f32x4 = load(input, r4 + x - 1)
+            let p42: f32x4 = load(input, r4 + x)
+            let p43: f32x4 = load(input, r4 + x + 1)
+            let p44: f32x4 = load(input, r4 + x + 2)
+
+            // --- Gx: horizontal diffs weighted by vertical Gaussian [1,4,6,4,1]/16 ---
+            // d[row] = (p[row,4] - p[row,0]) + 2*(p[row,3] - p[row,1])
+            let d0: f32x4 = (p04 .- p00) .+ (p03 .- p01) .* vtwo
+            let d1: f32x4 = (p14 .- p10) .+ (p13 .- p11) .* vtwo
+            let d2: f32x4 = (p24 .- p20) .+ (p23 .- p21) .* vtwo
+            let d3: f32x4 = (p34 .- p30) .+ (p33 .- p31) .* vtwo
+            let d4: f32x4 = (p44 .- p40) .+ (p43 .- p41) .* vtwo
+            let gx: f32x4 = (d0 .+ d4 .+ (d1 .+ d3) .* vfour .+ d2 .* vsix) .* inv16
+
+            // --- Gy: vertical diffs weighted by horizontal Gaussian [1,4,6,4,1]/16 ---
+            // c[col] = (p[4,col] - p[0,col]) + 2*(p[3,col] - p[1,col])
+            let c0: f32x4 = (p40 .- p00) .+ (p30 .- p10) .* vtwo
+            let c1: f32x4 = (p41 .- p01) .+ (p31 .- p11) .* vtwo
+            let c2: f32x4 = (p42 .- p02) .+ (p32 .- p12) .* vtwo
+            let c3: f32x4 = (p43 .- p03) .+ (p33 .- p13) .* vtwo
+            let c4: f32x4 = (p44 .- p04) .+ (p34 .- p14) .* vtwo
+            let gy: f32x4 = (c0 .+ c4 .+ (c1 .+ c3) .* vfour .+ c2 .* vsix) .* inv16
+
+            // --- |Gx| + |Gy| → threshold ---
+            let abs_gx: f32x4 = select(gx .< vzero, vzero .- gx, gx)
+            let abs_gy: f32x4 = select(gy .< vzero, vzero .- gy, gy)
+            let mag: f32x4 = abs_gx .+ abs_gy
+
+            store(out, r2 + x, select(mag .> vthresh, vone, vzero))
+            x = x + 4
+        }
+
+        // Scalar tail
+        while x < width - 2 {
+            let s00: f32 = input[r0 + x - 2]
+            let s01: f32 = input[r0 + x - 1]
+            let s02: f32 = input[r0 + x]
+            let s03: f32 = input[r0 + x + 1]
+            let s04: f32 = input[r0 + x + 2]
+            let s10: f32 = input[r1 + x - 2]
+            let s11: f32 = input[r1 + x - 1]
+            let s12: f32 = input[r1 + x]
+            let s13: f32 = input[r1 + x + 1]
+            let s14: f32 = input[r1 + x + 2]
+            let s20: f32 = input[r2 + x - 2]
+            let s21: f32 = input[r2 + x - 1]
+            // s22 skipped — zero weight
+            let s23: f32 = input[r2 + x + 1]
+            let s24: f32 = input[r2 + x + 2]
+            let s30: f32 = input[r3 + x - 2]
+            let s31: f32 = input[r3 + x - 1]
+            let s32: f32 = input[r3 + x]
+            let s33: f32 = input[r3 + x + 1]
+            let s34: f32 = input[r3 + x + 2]
+            let s40: f32 = input[r4 + x - 2]
+            let s41: f32 = input[r4 + x - 1]
+            let s42: f32 = input[r4 + x]
+            let s43: f32 = input[r4 + x + 1]
+            let s44: f32 = input[r4 + x + 2]
+
+            // Gx: horizontal diffs weighted by [1,4,6,4,1]/16
+            let d0: f32 = (s04 - s00) + (s03 - s01) * 2.0
+            let d1: f32 = (s14 - s10) + (s13 - s11) * 2.0
+            let d2: f32 = (s24 - s20) + (s23 - s21) * 2.0
+            let d3: f32 = (s34 - s30) + (s33 - s31) * 2.0
+            let d4: f32 = (s44 - s40) + (s43 - s41) * 2.0
+            let gx: f32 = (d0 + d4 + (d1 + d3) * 4.0 + d2 * 6.0) * 0.0625
+
+            // Gy: vertical diffs weighted by [1,4,6,4,1]/16
+            let c0: f32 = (s40 - s00) + (s30 - s10) * 2.0
+            let c1: f32 = (s41 - s01) + (s31 - s11) * 2.0
+            let c2: f32 = (s42 - s02) + (s32 - s12) * 2.0
+            let c3: f32 = (s43 - s03) + (s33 - s13) * 2.0
+            let c4: f32 = (s44 - s04) + (s34 - s14) * 2.0
+            let gy: f32 = (c0 + c4 + (c1 + c3) * 4.0 + c2 * 6.0) * 0.0625
+
+            let mut ax: f32 = gx
+            if gx < 0.0 { ax = 0.0 - gx }
+            let mut ay: f32 = gy
+            if gy < 0.0 { ay = 0.0 - gy }
+
+            let mag: f32 = ax + ay
+            if mag > thresh {
+                out[r2 + x] = 1.0
+            } else {
+                out[r2 + x] = 0.0
+            }
+            x = x + 1
+        }
+
+        y = y + 1
+    }
+}
