@@ -87,9 +87,22 @@ impl TypeChecker {
                         }
                         Ok(Type::Bool)
                     }
-                    BinaryOp::AddDot | BinaryOp::SubDot | BinaryOp::MulDot | BinaryOp::DivDot
-                    | BinaryOp::AndDot | BinaryOp::OrDot | BinaryOp::XorDot => {
+                    BinaryOp::AddDot | BinaryOp::SubDot | BinaryOp::MulDot | BinaryOp::DivDot => {
                         types::unify_vector(&lt, &rt)
+                    }
+                    BinaryOp::AndDot | BinaryOp::OrDot | BinaryOp::XorDot => {
+                        let result = types::unify_vector(&lt, &rt)?;
+                        match &result {
+                            Type::Vector { elem, .. } if elem.is_integer() => Ok(result),
+                            Type::Vector { elem, .. } => Err(CompileError::type_error(
+                                format!("bitwise vector ops require integer element type, got {elem:?}"),
+                                Position::default(),
+                            )),
+                            _ => Err(CompileError::type_error(
+                                format!("bitwise vector ops require vector operands, got {result:?}"),
+                                Position::default(),
+                            )),
+                        }
                     }
                     BinaryOp::LessDot
                     | BinaryOp::GreaterDot
