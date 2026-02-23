@@ -46,6 +46,16 @@ impl<'ctx> CodeGenerator<'ctx> {
                     self.builder.build_int_signed_div(l, r, "vdiv")
                 }
             }
+            BinaryOp::AndDot => {
+                // Type checker guarantees integer vectors only
+                self.builder.build_and(l, r, "vand")
+            }
+            BinaryOp::OrDot => {
+                self.builder.build_or(l, r, "vor")
+            }
+            BinaryOp::XorDot => {
+                self.builder.build_xor(l, r, "vxor")
+            }
             BinaryOp::LessDot
             | BinaryOp::GreaterDot
             | BinaryOp::LessEqualDot
