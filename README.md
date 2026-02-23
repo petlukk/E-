@@ -194,6 +194,7 @@ Real workloads. Real data. Verified against established tools.
 | [Conv2d (dot/1d)](demo/conv2d/) | Integer SIMD | maddubs_i16, u8×i8 | dot: **6.9x**, conv1d: **3.3x** vs NumPy |
 | [Conv2d 3×3 NHWC](demo/conv2d_3x3/) | Quantized inference | maddubs_i16 dual-acc / maddubs_i32 safe variant | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64 |
 | [Pipeline fusion](demo/skimage_fusion/) | Image processing | Stencil fusion, algebraic optimization | 6.2x vs NumPy, **1.3x fusion at 4K**, 7x memory reduction |
+| [Tokenizer prepass](demo/tokenizer_prepass/) | Text/NLP | Streaming, fused pipeline, bitwise ops | unfused: **78.7x**, fused: **58.1x** vs NumPy (fusion: 0.74x — see README) |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
