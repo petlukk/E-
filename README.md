@@ -268,6 +268,7 @@ kernel code needs predictable performance without hidden checks.
 ## Features
 
 - **SIMD**: `f32x4`, `f32x8`, `f32x16`, `i32x4`, `i32x8`, `i8x16`, `i8x32`, `u8x16`, `i16x8`, `i16x16` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
+- **Vector bitwise**: `.&` (AND), `.|` (OR), `.^` (XOR) on integer vector types
 - **Reductions**: `reduce_add`, `reduce_max`, `reduce_min`
 - **Integer SIMD**: `maddubs_i16(u8x16, i8x16) -> i16x8` (SSSE3 pmaddubsw — 16 pairs/cycle, fast/wrapping); `maddubs_i32(u8x16, i8x16) -> i32x4` (pmaddubsw+pmaddwd — safe i32 accumulation)
 - **Widening/narrowing**: `widen_u8_f32x4`, `widen_i8_f32x4`, `narrow_f32x4_i8`
@@ -298,7 +299,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (136 passing)
+# Run tests (141 passing)
 cargo test --features=llvm
 ```
 
@@ -339,7 +340,7 @@ Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
 ~5,200 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-136 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
+141 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
 
 ## License
 
