@@ -1,0 +1,204 @@
+// Tokenizer prepass — fused kernel (1 pass)
+//
+// Classify + lowercase + boundary detect in a single kernel.
+// Zero intermediate arrays. One memory pass.
+
+export func text_prepass_fused(text: *u8, flags: *mut u8, lower: *mut u8, boundaries: *mut u8, len: i32) {
+    // Splat constants
+    let v_space: u8x16 = splat(32)
+    let v_tab: u8x16 = splat(9)
+    let v_nl: u8x16 = splat(10)
+    let v_cr: u8x16 = splat(13)
+    let v_A: u8x16 = splat(65)
+    let v_Z: u8x16 = splat(90)
+    let v_a: u8x16 = splat(97)
+    let v_z: u8x16 = splat(122)
+    let v_0: u8x16 = splat(48)
+    let v_9: u8x16 = splat(57)
+    let v_127: u8x16 = splat(127)
+    let v_bang: u8x16 = splat(33)
+    let v_tilde: u8x16 = splat(126)
+    let v_zero: u8x16 = splat(0)
+    let v_ones: u8x16 = splat(255)
+    let v_32: u8x16 = splat(32)
+    let v_ws_flag: u8x16 = splat(1)
+    let v_letter_flag: u8x16 = splat(2)
+    let v_digit_flag: u8x16 = splat(4)
+    let v_punct_flag: u8x16 = splat(8)
+    let v_nonascii_flag: u8x16 = splat(16)
+    let v_one: u8x16 = splat(1)
+
+    // First byte is always a boundary — handle scalar
+    if len > 0 {
+        let b0: u8 = text[0]
+        let mut f0: u8 = 0
+        if b0 == 32 || b0 == 9 || b0 == 10 || b0 == 13 {
+            f0 = 1
+        } else {
+            if (b0 >= 65 && b0 <= 90) || (b0 >= 97 && b0 <= 122) {
+                f0 = 2
+            } else {
+                if b0 >= 48 && b0 <= 57 {
+                    f0 = 4
+                } else {
+                    if b0 > 127 {
+                        f0 = 16
+                    } else {
+                        if b0 >= 33 && b0 <= 126 {
+                            f0 = 8
+                        }
+                    }
+                }
+            }
+        }
+        flags[0] = f0
+        if b0 >= 65 && b0 <= 90 {
+            lower[0] = b0 + 32
+        } else {
+            lower[0] = b0
+        }
+        boundaries[0] = 1
+    }
+
+    let mut i: i32 = 1
+    while i + 16 <= len {
+        let curr: u8x16 = load(text, i)
+        let prev: u8x16 = load(text, i - 1)
+
+        // --- Classify curr ---
+        let ws1_c: u8x16 = select(curr .== v_space, v_ws_flag, v_zero)
+        let ws2_c: u8x16 = select(curr .== v_tab, v_ws_flag, v_zero)
+        let ws3_c: u8x16 = select(curr .== v_nl, v_ws_flag, v_zero)
+        let ws4_c: u8x16 = select(curr .== v_cr, v_ws_flag, v_zero)
+        let ws_c: u8x16 = ws1_c .| ws2_c .| ws3_c .| ws4_c
+
+        let ge_A_c: u8x16 = select(curr .>= v_A, v_ones, v_zero)
+        let le_Z_c: u8x16 = select(curr .<= v_Z, v_ones, v_zero)
+        let upper_c: u8x16 = (ge_A_c .& le_Z_c) .& v_letter_flag
+
+        let ge_a_c: u8x16 = select(curr .>= v_a, v_ones, v_zero)
+        let le_z_c: u8x16 = select(curr .<= v_z, v_ones, v_zero)
+        let lower_c: u8x16 = (ge_a_c .& le_z_c) .& v_letter_flag
+
+        let ge_0_c: u8x16 = select(curr .>= v_0, v_ones, v_zero)
+        let le_9_c: u8x16 = select(curr .<= v_9, v_ones, v_zero)
+        let digit_c: u8x16 = (ge_0_c .& le_9_c) .& v_digit_flag
+
+        let nonascii_c: u8x16 = select(curr .> v_127, v_nonascii_flag, v_zero)
+
+        let known_c: u8x16 = ws_c .| upper_c .| lower_c .| digit_c
+        let ge_bang_c: u8x16 = select(curr .>= v_bang, v_ones, v_zero)
+        let le_tilde_c: u8x16 = select(curr .<= v_tilde, v_ones, v_zero)
+        let printable_c: u8x16 = (ge_bang_c .& le_tilde_c) .& v_punct_flag
+        let punct_c: u8x16 = select(known_c .== v_zero, printable_c, v_zero)
+
+        let curr_flags: u8x16 = ws_c .| upper_c .| lower_c .| digit_c .| nonascii_c .| punct_c
+
+        // --- Classify prev ---
+        let ws1_p: u8x16 = select(prev .== v_space, v_ws_flag, v_zero)
+        let ws2_p: u8x16 = select(prev .== v_tab, v_ws_flag, v_zero)
+        let ws3_p: u8x16 = select(prev .== v_nl, v_ws_flag, v_zero)
+        let ws4_p: u8x16 = select(prev .== v_cr, v_ws_flag, v_zero)
+        let ws_p: u8x16 = ws1_p .| ws2_p .| ws3_p .| ws4_p
+
+        let ge_A_p: u8x16 = select(prev .>= v_A, v_ones, v_zero)
+        let le_Z_p: u8x16 = select(prev .<= v_Z, v_ones, v_zero)
+        let upper_p: u8x16 = (ge_A_p .& le_Z_p) .& v_letter_flag
+
+        let ge_a_p: u8x16 = select(prev .>= v_a, v_ones, v_zero)
+        let le_z_p: u8x16 = select(prev .<= v_z, v_ones, v_zero)
+        let lower_p: u8x16 = (ge_a_p .& le_z_p) .& v_letter_flag
+
+        let ge_0_p: u8x16 = select(prev .>= v_0, v_ones, v_zero)
+        let le_9_p: u8x16 = select(prev .<= v_9, v_ones, v_zero)
+        let digit_p: u8x16 = (ge_0_p .& le_9_p) .& v_digit_flag
+
+        let nonascii_p: u8x16 = select(prev .> v_127, v_nonascii_flag, v_zero)
+
+        let known_p: u8x16 = ws_p .| upper_p .| lower_p .| digit_p
+        let ge_bang_p: u8x16 = select(prev .>= v_bang, v_ones, v_zero)
+        let le_tilde_p: u8x16 = select(prev .<= v_tilde, v_ones, v_zero)
+        let printable_p: u8x16 = (ge_bang_p .& le_tilde_p) .& v_punct_flag
+        let punct_p: u8x16 = select(known_p .== v_zero, printable_p, v_zero)
+
+        let prev_flags: u8x16 = ws_p .| upper_p .| lower_p .| digit_p .| nonascii_p .| punct_p
+
+        // --- Lowercase curr ---
+        let case_ge: u8x16 = select(curr .>= v_A, v_ones, v_zero)
+        let case_le: u8x16 = select(curr .<= v_Z, v_ones, v_zero)
+        let case_bit: u8x16 = (case_ge .& case_le) .& v_32
+        let lowered: u8x16 = curr .| case_bit
+
+        // --- Boundary: flag class change ---
+        let bound: u8x16 = select(curr_flags .== prev_flags, v_zero, v_one)
+
+        // --- Store all three outputs ---
+        store(flags, i, curr_flags)
+        store(lower, i, lowered)
+        store(boundaries, i, bound)
+
+        i = i + 16
+    }
+
+    // Scalar tail
+    while i < len {
+        let b: u8 = text[i]
+        let bp: u8 = text[i - 1]
+        // Classify curr
+        let mut f: u8 = 0
+        if b == 32 || b == 9 || b == 10 || b == 13 {
+            f = 1
+        } else {
+            if (b >= 65 && b <= 90) || (b >= 97 && b <= 122) {
+                f = 2
+            } else {
+                if b >= 48 && b <= 57 {
+                    f = 4
+                } else {
+                    if b > 127 {
+                        f = 16
+                    } else {
+                        if b >= 33 && b <= 126 {
+                            f = 8
+                        }
+                    }
+                }
+            }
+        }
+        // Classify prev
+        let mut fp: u8 = 0
+        if bp == 32 || bp == 9 || bp == 10 || bp == 13 {
+            fp = 1
+        } else {
+            if (bp >= 65 && bp <= 90) || (bp >= 97 && bp <= 122) {
+                fp = 2
+            } else {
+                if bp >= 48 && bp <= 57 {
+                    fp = 4
+                } else {
+                    if bp > 127 {
+                        fp = 16
+                    } else {
+                        if bp >= 33 && bp <= 126 {
+                            fp = 8
+                        }
+                    }
+                }
+            }
+        }
+        flags[i] = f
+        // Lowercase
+        if b >= 65 && b <= 90 {
+            lower[i] = b + 32
+        } else {
+            lower[i] = b
+        }
+        // Boundary
+        if f != fp {
+            boundaries[i] = 1
+        } else {
+            boundaries[i] = 0
+        }
+        i = i + 1
+    }
+}
