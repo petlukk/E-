@@ -195,6 +195,12 @@ pub enum TokenKind {
     LessDot,
     #[token(".>")]
     GreaterDot,
+    #[token(".&")]
+    AmpDot,
+    #[token(".|")]
+    PipeDot,
+    #[token(".^")]
+    CaretDot,
     #[token(".")]
     Dot,
     #[token("&&")]
