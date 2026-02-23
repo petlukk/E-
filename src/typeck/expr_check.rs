@@ -87,7 +87,8 @@ impl TypeChecker {
                         }
                         Ok(Type::Bool)
                     }
-                    BinaryOp::AddDot | BinaryOp::SubDot | BinaryOp::MulDot | BinaryOp::DivDot => {
+                    BinaryOp::AddDot | BinaryOp::SubDot | BinaryOp::MulDot | BinaryOp::DivDot
+                    | BinaryOp::AndDot | BinaryOp::OrDot | BinaryOp::XorDot => {
                         types::unify_vector(&lt, &rt)
                     }
                     BinaryOp::LessDot

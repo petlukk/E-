@@ -73,6 +73,9 @@ impl Parser {
             || self.check(TokenKind::Minus)
             || self.check(TokenKind::PlusDot)
             || self.check(TokenKind::MinusDot)
+            || self.check(TokenKind::AmpDot)
+            || self.check(TokenKind::PipeDot)
+            || self.check(TokenKind::CaretDot)
         {
             let op = if self.check(TokenKind::Plus) {
                 BinaryOp::Add
@@ -80,8 +83,14 @@ impl Parser {
                 BinaryOp::Subtract
             } else if self.check(TokenKind::PlusDot) {
                 BinaryOp::AddDot
-            } else {
+            } else if self.check(TokenKind::MinusDot) {
                 BinaryOp::SubDot
+            } else if self.check(TokenKind::AmpDot) {
+                BinaryOp::AndDot
+            } else if self.check(TokenKind::PipeDot) {
+                BinaryOp::OrDot
+            } else {
+                BinaryOp::XorDot
             };
             self.advance();
             let right = self.multiplicative()?;

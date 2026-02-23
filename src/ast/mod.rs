@@ -25,6 +25,9 @@ pub enum BinaryOp {
     GreaterEqualDot,
     EqualDot,
     NotEqualDot,
+    AndDot,
+    OrDot,
+    XorDot,
 }
 
 impl fmt::Display for BinaryOp {
@@ -53,6 +56,9 @@ impl fmt::Display for BinaryOp {
             BinaryOp::GreaterEqualDot => write!(f, ".>="),
             BinaryOp::EqualDot => write!(f, ".=="),
             BinaryOp::NotEqualDot => write!(f, ".!="),
+            BinaryOp::AndDot => write!(f, ".&"),
+            BinaryOp::OrDot => write!(f, ".|"),
+            BinaryOp::XorDot => write!(f, ".^"),
         }
     }
 }
