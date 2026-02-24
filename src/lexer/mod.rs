@@ -130,6 +130,10 @@ pub enum TokenKind {
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier,
+    #[regex("0x[0-9a-fA-F]+")]
+    HexLiteral,
+    #[regex("0b[01]+")]
+    BinLiteral,
     #[regex("[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+")]
     FloatLiteral,
     #[regex("[0-9]+")]
