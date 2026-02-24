@@ -78,6 +78,44 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(BasicValueEnum::IntValue(result))
             }
+            Expr::Negate(inner) => {
+                let val = self.compile_expr(inner, function)?;
+                match val {
+                    BasicValueEnum::IntValue(iv) => {
+                        let result = self
+                            .builder
+                            .build_int_neg(iv, "neg")
+                            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                        Ok(BasicValueEnum::IntValue(result))
+                    }
+                    BasicValueEnum::FloatValue(fv) => {
+                        let result = self
+                            .builder
+                            .build_float_neg(fv, "fneg")
+                            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                        Ok(BasicValueEnum::FloatValue(result))
+                    }
+                    BasicValueEnum::VectorValue(vv) => {
+                        let is_float = vv.get_type().get_element_type().is_float_type();
+                        if is_float {
+                            let result = self
+                                .builder
+                                .build_float_neg(vv, "vneg")
+                                .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                            Ok(BasicValueEnum::VectorValue(result))
+                        } else {
+                            let result = self
+                                .builder
+                                .build_int_neg(vv, "vneg")
+                                .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                            Ok(BasicValueEnum::VectorValue(result))
+                        }
+                    }
+                    _ => Err(CompileError::codegen_error(
+                        "unary '-' on unsupported type",
+                    )),
+                }
+            }
             Expr::Variable(name) => {
                 let (ptr, ty) = self.variables.get(name).ok_or_else(|| {
                     CompileError::codegen_error(format!("undefined variable '{name}'"))

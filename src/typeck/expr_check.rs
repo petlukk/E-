@@ -34,6 +34,17 @@ impl TypeChecker {
                 }
                 Ok(Type::Bool)
             }
+            Expr::Negate(inner) => {
+                let inner_type = self.check_expr(inner, locals)?;
+                if inner_type.is_numeric() || inner_type.is_vector() {
+                    Ok(inner_type)
+                } else {
+                    Err(CompileError::type_error(
+                        format!("unary '-' requires numeric or vector operand, got {inner_type:?}"),
+                        Position::default(),
+                    ))
+                }
+            }
             Expr::Index { object, index } => {
                 let obj_type = self.check_expr(object, locals)?;
                 let idx_type = self.check_expr(index, locals)?;
