@@ -35,6 +35,7 @@ demo/astro_stack/nasa_data/
 demo/video_anomaly/vtest.avi
 demo/sobel/input.png
 demo/mnist_normalize/mnist_data/
+demo/cornell_box/output.png
 
 # Session notes (not part of the release)
 Session_summary*.md
