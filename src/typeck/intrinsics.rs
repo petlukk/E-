@@ -22,6 +22,7 @@ impl TypeChecker {
             "load" => Some(self.check_load(args, locals, type_hint)),
             "store" => Some(self.check_store(args, locals)),
             "fma" => Some(self.check_fma(args, locals)),
+            "sqrt" | "rsqrt" => Some(self.check_sqrt(name, args, locals)),
             "reduce_add" | "reduce_max" | "reduce_min" => {
                 Some(self.check_reduction(name, args, locals))
             }
@@ -448,6 +449,29 @@ impl TypeChecker {
             }
             _ => Err(CompileError::type_error(
                 format!("maddubs_i32 expects (u8x16, i8x16), got ({a:?}, {b:?})"),
+                Position::default(),
+            )),
+        }
+    }
+
+    fn check_sqrt(
+        &self,
+        name: &str,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 1 {
+            return Err(CompileError::type_error(
+                format!("{name} expects 1 argument"),
+                Position::default(),
+            ));
+        }
+        let arg_type = self.check_expr(&args[0], locals)?;
+        match &arg_type {
+            Type::F32 | Type::F64 | Type::FloatLiteral => Ok(arg_type),
+            Type::Vector { elem, .. } if elem.is_float() => Ok(arg_type),
+            _ => Err(CompileError::type_error(
+                format!("{name} expects float or float vector argument, got {arg_type:?}"),
                 Position::default(),
             )),
         }
