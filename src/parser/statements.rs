@@ -104,10 +104,15 @@ impl Parser {
 
         let else_body = if self.check(TokenKind::Else) {
             self.advance();
-            self.expect_kind(TokenKind::LeftBrace, "expected '{' after else")?;
-            let body = self.parse_block()?;
-            self.expect_kind(TokenKind::RightBrace, "expected '}' after else body")?;
-            Some(body)
+            if self.check(TokenKind::If) {
+                let nested_if = self.parse_if()?;
+                Some(vec![nested_if])
+            } else {
+                self.expect_kind(TokenKind::LeftBrace, "expected '{' after else")?;
+                let body = self.parse_block()?;
+                self.expect_kind(TokenKind::RightBrace, "expected '}' after else body")?;
+                Some(body)
+            }
         } else {
             None
         };

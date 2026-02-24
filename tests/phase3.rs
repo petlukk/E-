@@ -282,4 +282,76 @@ mod tests {
             "0\n10\n5",
         );
     }
+
+    // === else if ===
+
+    #[test]
+    fn test_else_if_basic() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 2
+                if x == 1 {
+                    println(10)
+                } else if x == 2 {
+                    println(20)
+                } else {
+                    println(30)
+                }
+            }
+            "#,
+            "20",
+        );
+    }
+
+    #[test]
+    fn test_else_if_chain() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 4
+                if x == 1 {
+                    println(10)
+                } else if x == 2 {
+                    println(20)
+                } else if x == 3 {
+                    println(30)
+                } else if x == 4 {
+                    println(40)
+                } else {
+                    println(50)
+                }
+            }
+            "#,
+            "40",
+        );
+    }
+
+    #[test]
+    fn test_else_if_c_interop() {
+        assert_c_interop(
+            r#"
+export func classify(x: i32) -> i32 {
+    if x < 0 {
+        return -1
+    } else if x == 0 {
+        return 0
+    } else {
+        return 1
+    }
+}
+"#,
+            r#"
+#include <stdio.h>
+
+extern int classify(int);
+
+int main() {
+    printf("%d %d %d\n", classify(-5), classify(0), classify(7));
+    return 0;
+}
+"#,
+            "-1 0 1",
+        );
+    }
 }
