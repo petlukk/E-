@@ -795,4 +795,133 @@ int main() {
             "5",
         );
     }
+
+    // === Type conversions ===
+
+    #[test]
+    fn test_to_f32_from_i32() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 42
+                let y: f32 = to_f32(x)
+                println(y)
+            }
+            "#,
+            "42",
+        );
+    }
+
+    #[test]
+    fn test_to_f64_from_i32() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 100
+                let y: f64 = to_f64(x)
+                println(y)
+            }
+            "#,
+            "100",
+        );
+    }
+
+    #[test]
+    fn test_to_i32_from_f32() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f32 = 3.7
+                let y: i32 = to_i32(x)
+                println(y)
+            }
+            "#,
+            "3",
+        );
+    }
+
+    #[test]
+    fn test_to_i32_from_f64() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f64 = 9.9
+                let y: i32 = to_i32(x)
+                println(y)
+            }
+            "#,
+            "9",
+        );
+    }
+
+    #[test]
+    fn test_to_f32_from_i64() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i64 = 1000
+                let y: f32 = to_f32(x)
+                println(y)
+            }
+            "#,
+            "1000",
+        );
+    }
+
+    #[test]
+    fn test_to_i64_from_f64() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f64 = 123.456
+                let y: i64 = to_i64(x)
+                println(y)
+            }
+            "#,
+            "123",
+        );
+    }
+
+    #[test]
+    fn test_to_f32_in_expression() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 50
+                let width: i32 = 100
+                let u: f32 = to_f32(x) / to_f32(width)
+                println(u)
+            }
+            "#,
+            "0.5",
+        );
+    }
+
+    #[test]
+    fn test_to_f64_from_f32() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f32 = 2.5
+                let y: f64 = to_f64(x)
+                println(y)
+            }
+            "#,
+            "2.5",
+        );
+    }
+
+    #[test]
+    fn test_to_f32_from_f64() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f64 = 1.5
+                let y: f32 = to_f32(x)
+                println(y)
+            }
+            "#,
+            "1.5",
+        );
+    }
 }
