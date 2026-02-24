@@ -636,4 +636,76 @@ int main() {
             "170",
         );
     }
+
+    // === Unary negation ===
+
+    #[test]
+    fn test_negate_i32_variable() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 42
+                let y: i32 = -x
+                println(y)
+            }
+            "#,
+            "-42",
+        );
+    }
+
+    #[test]
+    fn test_negate_f32_variable() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f32 = 3.5
+                let y: f32 = -x
+                println(y)
+            }
+            "#,
+            "-3.5",
+        );
+    }
+
+    #[test]
+    fn test_negate_f64_variable() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f64 = 2.25
+                let y: f64 = -x
+                println(y)
+            }
+            "#,
+            "-2.25",
+        );
+    }
+
+    #[test]
+    fn test_negate_in_expression() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 10
+                let y: i32 = 5 + -x
+                println(y)
+            }
+            "#,
+            "-5",
+        );
+    }
+
+    #[test]
+    fn test_double_negate() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 7
+                let y: i32 = - -x
+                println(y)
+            }
+            "#,
+            "7",
+        );
+    }
 }
