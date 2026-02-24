@@ -163,16 +163,17 @@ See `examples/reduction_single.ea` and `examples/reduction_multi_acc.ea`.
 
 ## Compute Model
 
-Ea defines six kernel patterns that cover most compute workloads:
+Ea defines seven kernel patterns that cover most compute workloads:
 
 | Pattern | What it does | Example |
 |---------|-------------|---------|
 | Streaming | Element-wise transform | `fma.ea` |
 | Reduction | Array → scalar with multi-acc ILP | `reduction.ea` |
-| Branchless | Conditional logic via `select` | `threshold.ea` |
-| Multi-pass | Reduction then streaming | `normalize.ea` |
 | Stencil | Neighborhood access (convolution) | `conv2d.ea` |
-| Pipeline | Multiple kernels composed | `sobel.ea` |
+| Streaming Dataset | Multi-frame accumulation | `astro_stack.ea` |
+| Fused Pipeline | Multiple ops, zero intermediates | `anomaly_fused.ea` |
+| Quantized Inference | u8×i8 → i16/i32 via maddubs | `conv2d_3x3.ea` |
+| Structural Scan | Byte-domain classify via integer SIMD | `tokenizer.ea` |
 
 The full compute model — dependency structure, memory patterns, vector width
 selection, and design principles — is documented in [`COMPUTE.md`](COMPUTE.md).
@@ -194,7 +195,8 @@ Real workloads. Real data. Verified against established tools.
 | [Conv2d (dot/1d)](demo/conv2d/) | Integer SIMD | maddubs_i16, u8×i8 | dot: **6.9x**, conv1d: **3.3x** vs NumPy |
 | [Conv2d 3×3 NHWC](demo/conv2d_3x3/) | Quantized inference | maddubs_i16 dual-acc / maddubs_i32 safe variant | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64 |
 | [Pipeline fusion](demo/skimage_fusion/) | Image processing | Stencil fusion, algebraic optimization | 6.2x vs NumPy, **1.3x fusion at 4K**, 7x memory reduction |
-| [Tokenizer prepass](demo/tokenizer_prepass/) | Text/NLP | Streaming, fused pipeline, bitwise ops | unfused: **78.7x**, fused: **58.1x** vs NumPy (fusion: 0.74x — see README) |
+| [Tokenizer prepass](demo/tokenizer_prepass/) | Text/NLP | Structural scan, bitwise ops | unfused: **78.7x**, fused: **58.1x** vs NumPy (fusion: 0.74x — see README) |
+| [Particle update](demo/particles/) | Struct FFI | C-compatible structs over FFI | Correctness demo — proves struct layout matches C exactly |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
@@ -202,8 +204,7 @@ and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directo
 **Methodology:** all speedup numbers are warm-cache medians (50 runs after 5 warmup).
 Where cold-cache numbers differ materially they are noted. See [`AUDIT_v0.3.0.md`](AUDIT_v0.3.0.md)
 for the full integrity audit: assembly verification, cold-cache analysis, honest loss
-accounting, i16 overflow constraint, and cross-machine results. Run `python3 audit_losses.py`
-for the live v0.4.0 audit including the maddubs_i16 vs maddubs_i32 overflow comparison.
+accounting, i16 overflow constraint, and cross-machine results.
 
 ### Kernel fusion: the most important result
 
@@ -274,6 +275,8 @@ kernel code needs predictable performance without hidden checks.
 - **Widening/narrowing**: `widen_u8_f32x4`, `widen_i8_f32x4`, `narrow_f32x4_i8`
 - **Structs**: C-compatible layout, pointer-to-struct, array-of-structs
 - **Pointers**: `*T`, `*mut T`, pointer indexing (`arr[i]`)
+- **Literals**: decimal (`255`), hex (`0xFF`), binary (`0b11110000`)
+- **Control flow**: `if`/`else if`/`else`, `while`
 - **Types**: `i8`, `u8`, `i16`, `u16`, `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
 - **C ABI**: every `export func` is callable from any language
@@ -299,7 +302,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (141 passing)
+# Run tests (149 passing)
 cargo test --features=llvm
 ```
 
@@ -339,8 +342,8 @@ lib.fma_kernel(
 Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
-~5,200 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-141 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
+~5,400 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+149 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
 
 ## License
 
