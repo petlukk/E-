@@ -273,6 +273,87 @@ impl<'ctx> CodeGenerator<'ctx> {
         Ok(result)
     }
 
+    /// sqrt(x) for scalar f32/f64 and float vectors.
+    pub(super) fn compile_sqrt(
+        &mut self,
+        args: &[Expr],
+        function: FunctionValue<'ctx>,
+    ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        let val = self.compile_expr(&args[0], function)?;
+        match val {
+            BasicValueEnum::FloatValue(fv) => {
+                let float_ty = fv.get_type();
+                let intrinsic_name = if float_ty == self.context.f32_type() {
+                    "llvm.sqrt.f32"
+                } else {
+                    "llvm.sqrt.f64"
+                };
+                let fn_type = float_ty.fn_type(&[float_ty.into()], false);
+                let intrinsic = self
+                    .module
+                    .get_function(intrinsic_name)
+                    .unwrap_or_else(|| self.module.add_function(intrinsic_name, fn_type, None));
+                let result = self
+                    .builder
+                    .build_call(intrinsic, &[fv.into()], "sqrt")
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CompileError::codegen_error("sqrt did not return a value"))?;
+                Ok(result)
+            }
+            BasicValueEnum::VectorValue(vv) => {
+                let vec_ty = vv.get_type();
+                let intrinsic_name = self.llvm_vector_intrinsic_name("llvm.sqrt", vec_ty);
+                let fn_type = vec_ty.fn_type(&[vec_ty.into()], false);
+                let intrinsic = self
+                    .module
+                    .get_function(&intrinsic_name)
+                    .unwrap_or_else(|| self.module.add_function(&intrinsic_name, fn_type, None));
+                let result = self
+                    .builder
+                    .build_call(intrinsic, &[vv.into()], "vsqrt")
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?
+                    .try_as_basic_value()
+                    .left()
+                    .ok_or_else(|| CompileError::codegen_error("sqrt did not return a value"))?;
+                Ok(result)
+            }
+            _ => Err(CompileError::codegen_error("sqrt expects float or float vector")),
+        }
+    }
+
+    /// rsqrt(x) = 1.0 / sqrt(x). Accurate; LLVM may lower to vrsqrtps + refinement.
+    pub(super) fn compile_rsqrt(
+        &mut self,
+        args: &[Expr],
+        function: FunctionValue<'ctx>,
+    ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        let sqrt_val = self.compile_sqrt(args, function)?;
+        match sqrt_val {
+            BasicValueEnum::FloatValue(fv) => {
+                let one = fv.get_type().const_float(1.0);
+                let result = self
+                    .builder
+                    .build_float_div(one, fv, "rsqrt")
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                Ok(BasicValueEnum::FloatValue(result))
+            }
+            BasicValueEnum::VectorValue(vv) => {
+                let vec_ty = vv.get_type();
+                let elem_ty = vec_ty.get_element_type().into_float_type();
+                let one_scalar = elem_ty.const_float(1.0);
+                let one_vec = self.build_splat(BasicValueEnum::FloatValue(one_scalar), vec_ty.get_size())?;
+                let result = self
+                    .builder
+                    .build_float_div(one_vec, vv, "vrsqrt")
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                Ok(BasicValueEnum::VectorValue(result))
+            }
+            _ => Err(CompileError::codegen_error("rsqrt expects float or float vector")),
+        }
+    }
+
     /// maddubs_i32(u8x16, i8x16) -> i32x4
     /// Two-intrinsic chain: pmaddubsw → pmaddwd(ones) → i32x4.
     /// Safe against accumulator overflow; programmer explicitly chooses this wider type.
