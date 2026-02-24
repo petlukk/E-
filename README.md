@@ -273,6 +273,9 @@ kernel code needs predictable performance without hidden checks.
 - **Reductions**: `reduce_add`, `reduce_max`, `reduce_min`
 - **Integer SIMD**: `maddubs_i16(u8x16, i8x16) -> i16x8` (SSSE3 pmaddubsw — 16 pairs/cycle, fast/wrapping); `maddubs_i32(u8x16, i8x16) -> i32x4` (pmaddubsw+pmaddwd — safe i32 accumulation)
 - **Widening/narrowing**: `widen_u8_f32x4`, `widen_i8_f32x4`, `narrow_f32x4_i8`
+- **Math**: `sqrt(x)`, `rsqrt(x)` for scalar and vector float types
+- **Type conversions**: `to_f32(x)`, `to_f64(x)`, `to_i32(x)`, `to_i64(x)`
+- **Unary negation**: `-x` on numeric types and vectors
 - **Structs**: C-compatible layout, pointer-to-struct, array-of-structs
 - **Pointers**: `*T`, `*mut T`, pointer indexing (`arr[i]`)
 - **Literals**: decimal (`255`), hex (`0xFF`), binary (`0b11110000`)
@@ -302,7 +305,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (149 passing)
+# Run tests (171 passing)
 cargo test --features=llvm
 ```
 
@@ -342,8 +345,8 @@ lib.fma_kernel(
 Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
-~5,400 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-149 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
+~5,700 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+171 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
 
 ## License
 

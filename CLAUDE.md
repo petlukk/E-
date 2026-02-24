@@ -22,7 +22,7 @@ Write readable SIMD code → compile to `.o` or `.so` → call from C, Rust, Pyt
 
 ```bash
 cargo build --features=llvm                    # Build compiler
-cargo test --features=llvm                     # End-to-end tests (149 passing)
+cargo test --features=llvm                     # End-to-end tests (171 passing)
 cargo run --features=llvm -- kernel.ea         # → kernel.o
 cargo run --features=llvm -- kernel.ea --lib   # → kernel.so
 cargo run --features=llvm -- app.ea -o app     # → linked executable

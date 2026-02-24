@@ -924,4 +924,52 @@ int main() {
             "1.5",
         );
     }
+
+    // === Combined: the spec example ===
+
+    #[test]
+    fn test_spec_magnitude_example() {
+        // From EA_V2_SPECIFICATION.md Part 6:
+        //   export func magnitude(v: *Vec2) -> f32 {
+        //       return sqrt(v.x * v.x + v.y * v.y);
+        //   }
+        assert_c_interop(
+            r#"
+            struct Vec2 { x: f32, y: f32 }
+
+            export func magnitude(v: *Vec2) -> f32 {
+                return sqrt(v.x * v.x + v.y * v.y)
+            }
+            "#,
+            r#"
+                #include <stdio.h>
+                typedef struct { float x; float y; } Vec2;
+                extern float magnitude(const Vec2*);
+                int main() {
+                    Vec2 v = {3.0f, 4.0f};
+                    printf("%g\n", magnitude(&v));
+                    return 0;
+                }
+            "#,
+            "5",
+        );
+    }
+
+    #[test]
+    fn test_combined_sqrt_cast_negate() {
+        // Use all three features together
+        assert_output(
+            r#"
+            func main() {
+                let ix: i32 = 3
+                let iy: i32 = -4
+                let fx: f32 = to_f32(ix)
+                let fy: f32 = to_f32(iy)
+                let dist: f32 = sqrt(fx * fx + fy * fy)
+                println(dist)
+            }
+            "#,
+            "5",
+        );
+    }
 }
