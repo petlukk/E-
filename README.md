@@ -197,6 +197,7 @@ Real workloads. Real data. Verified against established tools.
 | [Pipeline fusion](demo/skimage_fusion/) | Image processing | Stencil fusion, algebraic optimization | 6.2x vs NumPy, **1.3x fusion at 4K**, 7x memory reduction |
 | [Tokenizer prepass](demo/tokenizer_prepass/) | Text/NLP | Structural scan, bitwise ops | unfused: **78.7x**, fused: **58.1x** vs NumPy (fusion: 0.74x — see README) |
 | [Particle update](demo/particles/) | Struct FFI | C-compatible structs over FFI | Correctness demo — proves struct layout matches C exactly |
+| [Cornell Box ray tracer](demo/cornell_box/) | Graphics | Struct return, recursion, scalar math | First non-SIMD demo: full ray tracer in ~200 lines of Eä |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
@@ -305,7 +306,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (171 passing)
+# Run tests (172 passing)
 cargo test --features=llvm
 ```
 
@@ -345,8 +346,8 @@ lib.fma_kernel(
 Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
-~5,700 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-171 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
+~5,800 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+172 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
 
 ## License
 
