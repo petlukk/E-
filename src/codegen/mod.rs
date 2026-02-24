@@ -43,6 +43,7 @@ pub struct CodeGenerator<'ctx> {
     pub(crate) builder: Builder<'ctx>,
     pub(crate) variables: HashMap<String, (PointerValue<'ctx>, Type)>,
     pub(crate) functions: HashMap<String, FunctionValue<'ctx>>,
+    pub(crate) func_signatures: HashMap<String, (Vec<Type>, Option<Type>)>,
     pub(crate) struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
     pub(crate) struct_fields: HashMap<String, Vec<(String, u32, Type)>>,
 }
@@ -71,6 +72,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             builder,
             variables: HashMap::new(),
             functions: HashMap::new(),
+            func_signatures: HashMap::new(),
             struct_types: HashMap::new(),
             struct_fields: HashMap::new(),
         }
@@ -268,6 +270,15 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         self.functions.insert(name.to_string(), function);
+
+        let sig_param_types: Vec<Type> = params
+            .iter()
+            .map(|p| self.resolve_annotation(&p.ty))
+            .collect();
+        let sig_ret = return_type.map(|ann| self.resolve_annotation(ann));
+        self.func_signatures
+            .insert(name.to_string(), (sig_param_types, sig_ret));
+
         Ok(())
     }
 

@@ -79,7 +79,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Ok(BasicValueEnum::IntValue(result))
             }
             Expr::Negate(inner) => {
-                let val = self.compile_expr(inner, function)?;
+                let val = self.compile_expr_typed(inner, type_hint, function)?;
                 match val {
                     BasicValueEnum::IntValue(iv) => {
                         let result = self
@@ -170,9 +170,20 @@ impl<'ctx> CodeGenerator<'ctx> {
                     CompileError::codegen_error(format!("undefined function '{name}'"))
                 })?;
 
+                let param_hints: Option<Vec<Type>> = self
+                    .func_signatures
+                    .get(name)
+                    .map(|(pts, _)| pts.clone());
                 let compiled_args: Vec<BasicMetadataValueEnum> = args
                     .iter()
-                    .map(|a| self.compile_expr(a, function).map(|v| v.into()))
+                    .enumerate()
+                    .map(|(i, a)| {
+                        let hint = param_hints
+                            .as_ref()
+                            .and_then(|pts| pts.get(i));
+                        self.compile_expr_typed(a, hint, function)
+                            .map(|v| v.into())
+                    })
                     .collect::<Result<_, _>>()?;
                 let result = self
                     .builder

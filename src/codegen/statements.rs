@@ -102,7 +102,14 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Ok(false)
             }
             Stmt::Return(Some(expr)) => {
-                let val = self.compile_expr(expr, function)?;
+                let ret_hint = function
+                    .get_name()
+                    .to_str()
+                    .ok()
+                    .and_then(|n| self.func_signatures.get(n))
+                    .and_then(|(_, ret)| ret.clone());
+                let val =
+                    self.compile_expr_typed(expr, ret_hint.as_ref(), function)?;
                 self.builder
                     .build_return(Some(&val))
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
