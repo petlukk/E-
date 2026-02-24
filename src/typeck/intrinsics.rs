@@ -23,6 +23,9 @@ impl TypeChecker {
             "store" => Some(self.check_store(args, locals)),
             "fma" => Some(self.check_fma(args, locals)),
             "sqrt" | "rsqrt" => Some(self.check_sqrt(name, args, locals)),
+            "to_f32" | "to_f64" | "to_i32" | "to_i64" => {
+                Some(self.check_conversion(name, args, locals))
+            }
             "reduce_add" | "reduce_max" | "reduce_min" => {
                 Some(self.check_reduction(name, args, locals))
             }
@@ -475,5 +478,34 @@ impl TypeChecker {
                 Position::default(),
             )),
         }
+    }
+
+    fn check_conversion(
+        &self,
+        name: &str,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 1 {
+            return Err(CompileError::type_error(
+                format!("{name} expects 1 argument"),
+                Position::default(),
+            ));
+        }
+        let arg_type = self.check_expr(&args[0], locals)?;
+        if !arg_type.is_numeric() {
+            return Err(CompileError::type_error(
+                format!("{name} expects numeric argument, got {arg_type:?}"),
+                Position::default(),
+            ));
+        }
+        let target = match name {
+            "to_f32" => Type::F32,
+            "to_f64" => Type::F64,
+            "to_i32" => Type::I32,
+            "to_i64" => Type::I64,
+            _ => unreachable!(),
+        };
+        Ok(target)
     }
 }
