@@ -550,4 +550,90 @@ int main() {
             "255 4080",
         );
     }
+
+    // === Hex and Binary Literals ===
+
+    #[test]
+    fn test_hex_literal() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 0xFF
+                println(x)
+            }
+            "#,
+            "255",
+        );
+    }
+
+    #[test]
+    fn test_binary_literal() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 0b11110000
+                println(x)
+            }
+            "#,
+            "240",
+        );
+    }
+
+    #[test]
+    fn test_hex_u8_splat() {
+        assert_c_interop(
+            r#"
+export func mask_and(data: *u8, out: *mut u8, len: i32) {
+    let mask: u8x16 = splat(0x0F)
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        let v: u8x16 = load(data, i)
+        store(out, i, v .& mask)
+        i = i + 16
+    }
+}
+"#,
+            r#"
+#include <stdio.h>
+#include <stdint.h>
+
+extern void mask_and(const uint8_t*, uint8_t*, int);
+
+int main() {
+    uint8_t data[16] = {0xFF, 0xAB, 0x12, 0x00, 0,0,0,0,0,0,0,0,0,0,0,0};
+    uint8_t out[16] = {0};
+    mask_and(data, out, 16);
+    printf("%d %d %d %d\n", out[0], out[1], out[2], out[3]);
+    return 0;
+}
+"#,
+            "15 11 2 0",
+        );
+    }
+
+    #[test]
+    fn test_negative_hex_literal() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = -0x01
+                println(x)
+            }
+            "#,
+            "-1",
+        );
+    }
+
+    #[test]
+    fn test_binary_bitmask() {
+        assert_output(
+            r#"
+            func main() {
+                let x: i32 = 0b10101010
+                println(x)
+            }
+            "#,
+            "170",
+        );
+    }
 }

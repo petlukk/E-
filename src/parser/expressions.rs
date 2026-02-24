@@ -159,6 +159,30 @@ impl Parser {
                 })?;
                 return Ok(Expr::Literal(Literal::Float(-value)));
             }
+            if self.peek_next_kind() == Some(&TokenKind::HexLiteral) {
+                self.advance(); // consume '-'
+                let token = self.advance().clone();
+                let hex_str = &token.lexeme[2..]; // strip "0x"
+                let value = i64::from_str_radix(hex_str, 16).map_err(|_| {
+                    CompileError::parse_error(
+                        format!("invalid hex literal: {}", token.lexeme),
+                        token.position.clone(),
+                    )
+                })?;
+                return Ok(Expr::Literal(Literal::Integer(-value)));
+            }
+            if self.peek_next_kind() == Some(&TokenKind::BinLiteral) {
+                self.advance(); // consume '-'
+                let token = self.advance().clone();
+                let bin_str = &token.lexeme[2..]; // strip "0b"
+                let value = i64::from_str_radix(bin_str, 2).map_err(|_| {
+                    CompileError::parse_error(
+                        format!("invalid binary literal: {}", token.lexeme),
+                        token.position.clone(),
+                    )
+                })?;
+                return Ok(Expr::Literal(Literal::Integer(-value)));
+            }
         }
 
         if self.check(TokenKind::IntLiteral) {
@@ -166,6 +190,30 @@ impl Parser {
             let value: i64 = token.lexeme.parse().map_err(|_| {
                 CompileError::parse_error(
                     format!("invalid integer literal: {}", token.lexeme),
+                    token.position.clone(),
+                )
+            })?;
+            return Ok(Expr::Literal(Literal::Integer(value)));
+        }
+
+        if self.check(TokenKind::HexLiteral) {
+            let token = self.advance().clone();
+            let hex_str = &token.lexeme[2..]; // strip "0x"
+            let value = i64::from_str_radix(hex_str, 16).map_err(|_| {
+                CompileError::parse_error(
+                    format!("invalid hex literal: {}", token.lexeme),
+                    token.position.clone(),
+                )
+            })?;
+            return Ok(Expr::Literal(Literal::Integer(value)));
+        }
+
+        if self.check(TokenKind::BinLiteral) {
+            let token = self.advance().clone();
+            let bin_str = &token.lexeme[2..]; // strip "0b"
+            let value = i64::from_str_radix(bin_str, 2).map_err(|_| {
+                CompileError::parse_error(
+                    format!("invalid binary literal: {}", token.lexeme),
                     token.position.clone(),
                 )
             })?;
