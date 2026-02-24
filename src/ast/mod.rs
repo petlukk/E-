@@ -92,6 +92,7 @@ pub enum Expr {
         args: Vec<Expr>,
     },
     Not(Box<Expr>),
+    Negate(Box<Expr>),
     Index {
         object: Box<Expr>,
         index: Box<Expr>,
@@ -128,6 +129,7 @@ impl fmt::Display for Expr {
                 write!(f, ")")
             }
             Expr::Not(inner) => write!(f, "!{inner}"),
+            Expr::Negate(inner) => write!(f, "-{inner}"),
             Expr::Index { object, index } => write!(f, "{object}[{index}]"),
             Expr::Vector { elements, ty } => {
                 write!(f, "[")?;

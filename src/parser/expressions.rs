@@ -131,6 +131,17 @@ impl Parser {
             let inner = self.unary()?;
             return Ok(Expr::Not(Box::new(inner)));
         }
+        if self.check(TokenKind::Minus) {
+            let is_literal = matches!(
+                self.peek_next_kind(),
+                Some(TokenKind::IntLiteral | TokenKind::FloatLiteral | TokenKind::HexLiteral | TokenKind::BinLiteral)
+            );
+            if !is_literal {
+                self.advance();
+                let inner = self.unary()?;
+                return Ok(Expr::Negate(Box::new(inner)));
+            }
+        }
         self.primary()
     }
 
