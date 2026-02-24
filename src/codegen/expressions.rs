@@ -363,7 +363,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
     }
 
-    fn arg_is_unsigned(&self, expr: &Expr) -> bool {
+    pub(super) fn arg_is_unsigned(&self, expr: &Expr) -> bool {
         if let Expr::Variable(name) = expr {
             if let Some((_, ty)) = self.variables.get(name) {
                 return ty.is_unsigned_integer();

@@ -37,6 +37,10 @@ impl<'ctx> CodeGenerator<'ctx> {
                 | "narrow_f32x4_i8"
                 | "maddubs_i16"
                 | "maddubs_i32"
+                | "to_f32"
+                | "to_f64"
+                | "to_i32"
+                | "to_i64"
         )
     }
 
@@ -75,6 +79,9 @@ impl<'ctx> CodeGenerator<'ctx> {
             "narrow_f32x4_i8" => self.compile_narrow_f32x4_i8(args, function),
             "maddubs_i16" => self.compile_maddubs_i16(args, function),
             "maddubs_i32" => self.compile_maddubs_i32(args, function),
+            "to_f32" | "to_f64" | "to_i32" | "to_i64" => {
+                self.compile_conversion(name, args, function)
+            }
             _ => Err(CompileError::codegen_error(format!(
                 "unknown SIMD intrinsic '{name}'"
             ))),
