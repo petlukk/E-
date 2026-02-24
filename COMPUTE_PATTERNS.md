@@ -730,6 +730,136 @@ Throughput: 38.5 GMACs/s
 
 ---
 
+## 7. Structural Scan Kernel
+
+**Pattern:** `out[i] = classify(in[i])` — byte-domain integer SIMD.
+
+Each input byte is classified using vector comparisons and bitwise ops.
+No float. No neighborhood. No accumulator. Pure integer lane-parallel work.
+
+This is the byte-domain analog of Pattern 1 (Streaming), but with different
+fusion characteristics. Float-domain streaming operates on 4-8 lanes of 32-bit
+data. Structural scanning operates on 16 lanes of 8-bit data — twice the
+elements per instruction.
+
+```
+  in[0]  in[1]  in[2]  ...  in[14] in[15]
+    │      │      │              │      │
+    ▼      ▼      ▼              ▼      ▼
+  ┌─────────────────────────────────────────┐
+  │         classify (u8x16)                │
+  │   cmp_ge + cmp_le + select + or         │
+  └─────────────────────────────────────────┘
+    │      │      │              │      │
+    ▼      ▼      ▼              ▼      ▼
+ out[0] out[1] out[2]  ...  out[14] out[15]
+```
+
+### Memory model
+
+- Reads: N bytes
+- Writes: N bytes
+- Extra memory: 0
+- Bandwidth: 2 * N bytes
+
+### Eä example
+
+```
+export func classify_alpha(input: *restrict u8, out: *mut u8, len: i32) {
+    let lower_a: u8x16 = splat(0x61)
+    let lower_z: u8x16 = splat(0x7A)
+    let upper_a: u8x16 = splat(0x41)
+    let upper_z: u8x16 = splat(0x5A)
+    let one: u8x16 = splat(1)
+    let zero: u8x16 = splat(0)
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        let v: u8x16 = load(input, i)
+        let is_lower: u8x16 = select(v .>= lower_a, select(v .<= lower_z, one, zero), zero)
+        let is_upper: u8x16 = select(v .>= upper_a, select(v .<= upper_z, one, zero), zero)
+        store(out, i, is_lower .| is_upper)
+        i = i + 16
+    }
+}
+```
+
+### When it wins
+
+- **Byte scanning at memory bandwidth.** 16 bytes per SIMD instruction means
+  the classification loop runs at memory bandwidth on most CPUs. A single
+  pcmpgtb + pand sequence classifies 16 characters per cycle.
+- **Range-based classification.** Alphabetic, numeric, whitespace, and delimiter
+  detection all reduce to a small number of compares and bitwise ops. No
+  lookup tables. No branches.
+- **Multiple classifications sharing one load.** A tokenizer prepass needs
+  is_alpha, is_digit, and is_space masks. All three derive from the same
+  loaded u8x16 — one load, three classification results.
+
+### When it doesn't win
+
+- **Lookup-table classification.** When the classification is irregular (e.g.,
+  Unicode category mapping, arbitrary character sets), a 256-byte lookup table
+  with pshufb is faster than a chain of range comparisons. Structural scan
+  assumes range-structured input.
+- **Small input (< 256 bytes).** FFI overhead from ctypes dominates. For short
+  strings, a Python `str.isalpha()` or a C `isalpha()` loop is fast enough.
+
+### When fusion hurts
+
+This is the critical finding from the tokenizer prepass demo.
+
+Tokenizer prepass (738 KB real text — Pride and Prejudice):
+```
+NumPy (6+ array ops)  :  18.51 ms
+Eä unfused (3 calls)  :  0.24 ms    78.7x faster
+Eä fused (1 call)     :  0.32 ms    58.1x faster
+Fusion: 0.74x — fused is SLOWER than unfused.
+```
+
+This is the opposite of Pattern 5 (Fused Pipeline), where fusion always helps
+for streaming float work. Why does fusion hurt here?
+
+**The unfused pipeline:**
+1. Classify bytes into masks (is_alpha, is_space, etc.) — one pass, write masks
+2. Detect boundaries (mask[i] != mask[i-1]) — one pass, read masks, write boundaries
+3. Count tokens — one pass, read boundaries
+
+Each stage reads and writes ~738 KB. Total memory traffic: ~4.4 MB.
+But 738 KB fits comfortably in L2/L3 cache. Cache reads are nearly free.
+
+**The fused pipeline:**
+1. One pass: classify + detect boundaries + count — no intermediate arrays
+
+But boundary detection needs classification of adjacent bytes. In the fused kernel,
+there is no mask array to index into. The kernel must re-classify the previous byte
+to compare with the current byte. This means every byte is classified twice.
+
+The unfused version writes 738 KB of masks to cache and reads them back cheaply.
+The fused version eliminates that cache traffic but pays with redundant compute.
+At 738 KB, the eliminated traffic costs ~0.05 ms (L2 latency). The redundant
+compute costs ~0.08 ms (extra comparison chain per byte).
+
+**Redundant compute > eliminated cache traffic. Fusion loses.**
+
+This is distinct from Pattern 5's fusion failure (naive stencil fusion). There,
+the failure was compute explosion from unshared neighborhood loads. Here, the
+failure is that byte-domain intermediates are so small they fit in cache, making
+the eliminated traffic nearly free.
+
+The rule: **fusion helps when eliminated traffic hits DRAM. Fusion hurts when
+eliminated traffic hits L2 and the fused kernel adds redundant compute.**
+
+### Real-world instances
+
+- Tokenizer preprocessing (byte classification, boundary detection)
+- JSON structural scanning (find quotes, brackets, colons, commas)
+- CSV delimiter detection (field boundaries, quote tracking)
+- Log parsing (timestamp boundaries, severity markers)
+- Compression preprocessing (byte frequency, run-length detection)
+- UTF-8 validation (byte range classification, continuation byte detection)
+
+---
+
 ## Summary
 
 | Class | Bottleneck | Eä advantage | When NumPy is enough |
@@ -740,6 +870,7 @@ Throughput: 38.5 GMACs/s
 | Streaming Dataset | Peak memory | O(1) extra memory | Small N, small frames |
 | Fused Pipeline | Memory passes | Zero intermediate arrays | Single-stage pipeline |
 | Quantized Inference | Integer throughput | maddubs_i16 (16 pairs/cycle) / maddubs_i32 (safe i32 acc) | Weights not pre-quantized |
+| Structural Scan | Memory bandwidth | 16 bytes/cycle, integer-only | Input < 256 bytes (FFI overhead) |
 
 ### The honest answer
 
