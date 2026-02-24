@@ -708,4 +708,91 @@ int main() {
             "7",
         );
     }
+
+    // === sqrt / rsqrt ===
+
+    #[test]
+    fn test_sqrt_f32_scalar() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f32 = 4.0
+                let y: f32 = sqrt(x)
+                println(y)
+            }
+            "#,
+            "2",
+        );
+    }
+
+    #[test]
+    fn test_sqrt_f64_scalar() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f64 = 9.0
+                let y: f64 = sqrt(x)
+                println(y)
+            }
+            "#,
+            "3",
+        );
+    }
+
+    #[test]
+    fn test_sqrt_f32x4_vector() {
+        assert_output(
+            r#"
+            func main() {
+                let v: f32x4 = splat(16.0)
+                let r: f32x4 = sqrt(v)
+                println(r[0])
+            }
+            "#,
+            "4",
+        );
+    }
+
+    #[test]
+    fn test_rsqrt_f32_scalar() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f32 = 4.0
+                let y: f32 = rsqrt(x)
+                println(y)
+            }
+            "#,
+            "0.5",
+        );
+    }
+
+    #[test]
+    fn test_rsqrt_f32x4_vector() {
+        assert_output(
+            r#"
+            func main() {
+                let v: f32x4 = splat(4.0)
+                let r: f32x4 = rsqrt(v)
+                println(r[0])
+            }
+            "#,
+            "0.5",
+        );
+    }
+
+    #[test]
+    fn test_sqrt_in_magnitude() {
+        assert_output(
+            r#"
+            func main() {
+                let x: f32 = 3.0
+                let y: f32 = 4.0
+                let mag: f32 = sqrt(x * x + y * y)
+                println(mag)
+            }
+            "#,
+            "5",
+        );
+    }
 }
