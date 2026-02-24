@@ -972,4 +972,28 @@ int main() {
             "5",
         );
     }
+
+    // === Cornell Box ===
+
+    #[test]
+    fn test_cornell_box_compiles_and_renders() {
+        assert_c_interop(
+            include_str!("../demo/cornell_box/cornell.ea"),
+            r#"
+            #include <stdio.h>
+            extern void render(float*, int, int);
+            int main() {
+                float buf[16 * 16 * 3];
+                render(buf, 16, 16);
+                int center = (8 * 16 + 8) * 3;
+                float r = buf[center];
+                float g = buf[center + 1];
+                float b = buf[center + 2];
+                printf("%d\n", (r > 0.01f || g > 0.01f || b > 0.01f) ? 1 : 0);
+                return 0;
+            }
+            "#,
+            "1",
+        );
+    }
 }
