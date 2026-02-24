@@ -5,6 +5,8 @@ mod simd;
 #[cfg(feature = "llvm")]
 mod simd_arithmetic;
 #[cfg(feature = "llvm")]
+mod simd_math;
+#[cfg(feature = "llvm")]
 mod simd_memory;
 #[cfg(feature = "llvm")]
 mod statements;
