@@ -75,6 +75,7 @@ Files get created as needed per phase. Not all exist from day one.
 5. **Explicit SIMD** — f32x4, `.+` `.* `, load/store/splat, element access
 6. **Deep SIMD** — fma, reduce_add/max/min, shuffle, select, f32x8
 7. **Structs + Shared Libs** — C-compatible structs, `--lib` → `.so`/`.dll`
+8. **Extended Types + Demos** — i8/u8/i16/u16/u32/u64, byte vectors, widening/narrowing, bitwise, sqrt/rsqrt, type conversions, Cornell Box ray tracer, particle life
 
 ## Testing
 

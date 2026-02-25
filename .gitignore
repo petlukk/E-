@@ -37,6 +37,13 @@ demo/sobel/input.png
 demo/mnist_normalize/mnist_data/
 demo/cornell_box/output.png
 
+# Python caches
+**/__pycache__/
+
+# Downloaded toolchains
+ispc-v*-linux/
+ispc-v*-linux.tar.gz
+
 # Session notes (not part of the release)
 Session_summary*.md
 before_phase*.md

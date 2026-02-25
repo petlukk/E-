@@ -1,6 +1,6 @@
 [package]
 name = "ea-compiler"
-version = "0.2.0"
+version = "0.6.0"
 edition = "2021"
 description = "Eä v2 — SIMD kernel compiler"
 authors = ["Peter Lukka <peter.lukka@gmail.com>"]

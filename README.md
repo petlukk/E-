@@ -307,7 +307,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (172 passing)
+# Run tests (177 passing)
 cargo test --features=llvm
 ```
 
