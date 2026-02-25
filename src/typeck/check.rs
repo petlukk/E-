@@ -162,6 +162,30 @@ impl TypeChecker {
                     }
                     self.check_body(while_body, locals, expected_return, func_name)?;
                 }
+                Stmt::ForEach {
+                    var,
+                    start,
+                    end,
+                    body: foreach_body,
+                } => {
+                    let start_type = self.check_expr(start, locals)?;
+                    if !start_type.is_integer() {
+                        return Err(CompileError::type_error(
+                            format!("foreach start must be integer, got {start_type:?}"),
+                            Position::default(),
+                        ));
+                    }
+                    let end_type = self.check_expr(end, locals)?;
+                    if !end_type.is_integer() {
+                        return Err(CompileError::type_error(
+                            format!("foreach end must be integer, got {end_type:?}"),
+                            Position::default(),
+                        ));
+                    }
+                    let mut inner_locals = locals.clone();
+                    inner_locals.insert(var.clone(), (Type::I32, false));
+                    self.check_body(foreach_body, &mut inner_locals, expected_return, func_name)?;
+                }
                 Stmt::Unroll { count, body } => {
                     if *count == 0 {
                         return Err(CompileError::type_error(

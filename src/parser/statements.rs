@@ -26,6 +26,10 @@ impl Parser {
             return self.parse_unroll();
         }
 
+        if self.check(TokenKind::ForEach) {
+            return self.parse_foreach();
+        }
+
         if self.check(TokenKind::While) {
             return self.parse_while();
         }
@@ -143,10 +147,10 @@ impl Parser {
 
         let inner = self.statement()?;
         match &inner {
-            Stmt::While { .. } => {}
+            Stmt::While { .. } | Stmt::ForEach { .. } => {}
             _ => {
                 return Err(crate::error::CompileError::parse_error(
-                    "unroll must be followed by a loop (while)",
+                    "unroll must be followed by a loop (while or foreach)",
                     self.current_position(),
                 ));
             }
@@ -154,6 +158,28 @@ impl Parser {
         Ok(Stmt::Unroll {
             count,
             body: Box::new(inner),
+        })
+    }
+
+    fn parse_foreach(&mut self) -> crate::error::Result<Stmt> {
+        self.advance(); // consume 'foreach'
+        self.expect_kind(TokenKind::LeftParen, "expected '(' after 'foreach'")?;
+        let var_token =
+            self.expect_kind(TokenKind::Identifier, "expected loop variable name")?;
+        let var = var_token.lexeme.clone();
+        self.expect_kind(TokenKind::In, "expected 'in' after loop variable")?;
+        let start = self.expression()?;
+        self.expect_kind(TokenKind::DotDot, "expected '..' in range")?;
+        let end = self.expression()?;
+        self.expect_kind(TokenKind::RightParen, "expected ')' after range")?;
+        self.expect_kind(TokenKind::LeftBrace, "expected '{' after foreach header")?;
+        let body = self.parse_block()?;
+        self.expect_kind(TokenKind::RightBrace, "expected '}' after foreach body")?;
+        Ok(Stmt::ForEach {
+            var,
+            start,
+            end,
+            body,
         })
     }
 

@@ -267,6 +267,12 @@ pub enum Stmt {
         count: u32,
         body: Box<Stmt>,
     },
+    ForEach {
+        var: String,
+        start: Expr,
+        end: Expr,
+        body: Vec<Stmt>,
+    },
     Struct {
         name: String,
         fields: Vec<StructField>,
@@ -327,6 +333,7 @@ impl fmt::Display for Stmt {
             }
             Stmt::While { .. } => write!(f, "while ... {{ ... }}"),
             Stmt::Unroll { count, .. } => write!(f, "unroll({count}) {{ ... }}"),
+            Stmt::ForEach { var, .. } => write!(f, "foreach ({var} in ...) {{ ... }}"),
             Stmt::Struct { name, fields } => {
                 write!(f, "struct {name} {{ ")?;
                 for (i, field) in fields.iter().enumerate() {

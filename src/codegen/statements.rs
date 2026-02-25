@@ -242,6 +242,89 @@ impl<'ctx> CodeGenerator<'ctx> {
                 self.builder.position_at_end(exit_bb);
                 Ok(false)
             }
+            Stmt::ForEach {
+                var,
+                start,
+                end,
+                body: foreach_body,
+            } => {
+                let cond_bb = self.context.append_basic_block(function, "foreach_cond");
+                let body_bb = self.context.append_basic_block(function, "foreach_body");
+                let exit_bb = self.context.append_basic_block(function, "foreach_exit");
+
+                let start_val = self.compile_expr(start, function)?.into_int_value();
+                let end_val = self.compile_expr(end, function)?.into_int_value();
+
+                let entry_bb = self.builder.get_insert_block().unwrap();
+                self.builder
+                    .build_unconditional_branch(cond_bb)
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+                // Condition block with phi node
+                self.builder.position_at_end(cond_bb);
+                let i32_type = self.context.i32_type();
+                let phi = self
+                    .builder
+                    .build_phi(i32_type, var)
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                phi.add_incoming(&[(&start_val, entry_bb)]);
+
+                let i_val = phi.as_basic_value().into_int_value();
+
+                // Alloca so body can access loop var by name
+                let alloca = self
+                    .builder
+                    .build_alloca(i32_type, var)
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                self.builder
+                    .build_store(alloca, i_val)
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                self.variables
+                    .insert(var.clone(), (alloca, crate::typeck::Type::I32));
+
+                let cond = self
+                    .builder
+                    .build_int_compare(
+                        inkwell::IntPredicate::SLT,
+                        i_val,
+                        end_val,
+                        "foreach_cmp",
+                    )
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                self.builder
+                    .build_conditional_branch(cond, body_bb, exit_bb)
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+                // Body
+                self.builder.position_at_end(body_bb);
+                let body_term = self.compile_block(foreach_body, function)?;
+                if !body_term {
+                    let i_current = self
+                        .builder
+                        .build_load(i32_type, alloca, "i_cur")
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?
+                        .into_int_value();
+                    let one = i32_type.const_int(1, false);
+                    let i_next = self
+                        .builder
+                        .build_int_add(i_current, one, "i_next")
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+                    self.builder
+                        .build_store(alloca, i_next)
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+                    let body_end_bb = self.builder.get_insert_block().unwrap();
+                    phi.add_incoming(&[(&i_next, body_end_bb)]);
+
+                    self.builder
+                        .build_unconditional_branch(cond_bb)
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                }
+
+                self.builder.position_at_end(exit_bb);
+                Ok(false)
+            }
             Stmt::Unroll { body, .. } => {
                 // Compile the inner loop normally — LLVM at O2/O3 handles unrolling.
                 // The unroll(N) annotation is a semantic hint; metadata attachment

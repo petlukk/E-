@@ -88,6 +88,10 @@ pub enum TokenKind {
     Restrict,
     #[token("unroll")]
     Unroll,
+    #[token("foreach")]
+    ForEach,
+    #[token("in")]
+    In,
 
     #[token("i8")]
     I8,
@@ -136,7 +140,7 @@ pub enum TokenKind {
     HexLiteral,
     #[regex("0b[01]+")]
     BinLiteral,
-    #[regex("[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+")]
+    #[regex("[0-9]+\\.[0-9]+|[0-9]*\\.[0-9]+")]
     FloatLiteral,
     #[regex("[0-9]+")]
     IntLiteral,
@@ -207,6 +211,8 @@ pub enum TokenKind {
     PipeDot,
     #[token(".^")]
     CaretDot,
+    #[token("..")]
+    DotDot,
     #[token(".")]
     Dot,
     #[token("&&")]
