@@ -22,6 +22,10 @@ impl Parser {
             return self.parse_if();
         }
 
+        if self.check(TokenKind::Unroll) {
+            return self.parse_unroll();
+        }
+
         if self.check(TokenKind::While) {
             return self.parse_while();
         }
@@ -121,6 +125,35 @@ impl Parser {
             condition,
             then_body,
             else_body,
+        })
+    }
+
+    fn parse_unroll(&mut self) -> crate::error::Result<Stmt> {
+        self.advance(); // consume 'unroll'
+        self.expect_kind(TokenKind::LeftParen, "expected '(' after 'unroll'")?;
+        let count_token =
+            self.expect_kind(TokenKind::IntLiteral, "expected integer in unroll(N)")?;
+        let count: u32 = count_token.lexeme.parse().map_err(|_| {
+            crate::error::CompileError::parse_error(
+                "unroll count must be a positive integer",
+                self.current_position(),
+            )
+        })?;
+        self.expect_kind(TokenKind::RightParen, "expected ')' after unroll count")?;
+
+        let inner = self.statement()?;
+        match &inner {
+            Stmt::While { .. } => {}
+            _ => {
+                return Err(crate::error::CompileError::parse_error(
+                    "unroll must be followed by a loop (while)",
+                    self.current_position(),
+                ));
+            }
+        }
+        Ok(Stmt::Unroll {
+            count,
+            body: Box::new(inner),
         })
     }
 

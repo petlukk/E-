@@ -86,6 +86,8 @@ pub enum TokenKind {
     Struct,
     #[token("restrict")]
     Restrict,
+    #[token("unroll")]
+    Unroll,
 
     #[token("i8")]
     I8,

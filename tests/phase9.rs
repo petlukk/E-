@@ -152,4 +152,56 @@ mod tests {
         assert!(asm.contains("add"), "assembly should contain 'add' symbol");
         assert!(asm.len() > 20, "assembly should not be empty");
     }
+
+    // === unroll(N) ===
+
+    #[test]
+    fn test_unroll_basic_while() {
+        let ea_source = r#"
+            export func sum_unrolled(data: *f32, n: i32) -> f32 {
+                let mut result: f32 = 0.0
+                let mut i: i32 = 0
+                unroll(4) while i < n {
+                    result = result + data[i]
+                    i = i + 1
+                }
+                return result
+            }
+        "#;
+        let c_source = r#"
+            #include <stdio.h>
+            extern float sum_unrolled(const float*, int);
+            int main() {
+                float data[] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+                printf("%.0f\n", sum_unrolled(data, 8));
+                return 0;
+            }
+        "#;
+        assert_c_interop(ea_source, c_source, "36");
+    }
+
+    #[test]
+    fn test_unroll_non_multiple_trip_count() {
+        let ea_source = r#"
+            export func sum_unrolled(data: *f32, n: i32) -> f32 {
+                let mut result: f32 = 0.0
+                let mut i: i32 = 0
+                unroll(4) while i < n {
+                    result = result + data[i]
+                    i = i + 1
+                }
+                return result
+            }
+        "#;
+        let c_source = r#"
+            #include <stdio.h>
+            extern float sum_unrolled(const float*, int);
+            int main() {
+                float data[] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+                printf("%.0f\n", sum_unrolled(data, 5));
+                return 0;
+            }
+        "#;
+        assert_c_interop(ea_source, c_source, "15");
+    }
 }

@@ -162,6 +162,15 @@ impl TypeChecker {
                     }
                     self.check_body(while_body, locals, expected_return, func_name)?;
                 }
+                Stmt::Unroll { count, body } => {
+                    if *count == 0 {
+                        return Err(CompileError::type_error(
+                            "unroll count must be greater than 0",
+                            Position::default(),
+                        ));
+                    }
+                    self.check_body(&[*body.clone()], locals, expected_return, func_name)?;
+                }
                 Stmt::Function { .. } => {
                     return Err(CompileError::type_error(
                         "nested functions are not supported",

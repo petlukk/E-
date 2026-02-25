@@ -242,6 +242,14 @@ impl<'ctx> CodeGenerator<'ctx> {
                 self.builder.position_at_end(exit_bb);
                 Ok(false)
             }
+            Stmt::Unroll { body, .. } => {
+                // Compile the inner loop normally — LLVM at O2/O3 handles unrolling.
+                // The unroll(N) annotation is a semantic hint; metadata attachment
+                // requires inkwell API support for instruction-level metadata which
+                // is not yet available in inkwell 0.5. For now, the loop compiles
+                // correctly and LLVM's heuristics apply.
+                self.compile_stmt(body, function)
+            }
             Stmt::Function { .. } => Err(CompileError::codegen_error(
                 "nested functions not supported",
             )),
