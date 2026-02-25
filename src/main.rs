@@ -32,6 +32,7 @@ fn main() {
     let mut output_exe: Option<String> = None;
     let mut lib_mode = false;
     let mut emit_llvm = false;
+    let mut emit_asm = false;
     let mut emit_ast = false;
     let mut emit_tokens = false;
     let mut opt_level: u8 = 3;
@@ -51,6 +52,7 @@ fn main() {
             }
             "--lib" => lib_mode = true,
             "--emit-llvm" => emit_llvm = true,
+            "--emit-asm" => emit_asm = true,
             "--emit-ast" => emit_ast = true,
             "--emit-tokens" => emit_tokens = true,
             s if s.starts_with("--opt-level=") => {
@@ -143,6 +145,20 @@ fn main() {
             return;
         }
 
+        if emit_asm {
+            let asm_path = PathBuf::from(format!("{stem}.s"));
+            match ea_compiler::compile_with_options(&source, &asm_path, OutputMode::Asm, &opts) {
+                Ok(()) => {
+                    eprintln!("wrote {}", asm_path.display());
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    process::exit(1);
+                }
+            }
+            return;
+        }
+
         let (output_path, mode) = if lib_mode {
             let ext = if cfg!(target_os = "windows") {
                 "dll"
@@ -192,6 +208,7 @@ fn print_usage() {
   --avx512           Enable AVX-512 (f32x16) — requires AVX-512 capable CPU"
     );
     eprintln!("  --emit-llvm        Print LLVM IR");
+    eprintln!("  --emit-asm         Emit assembly (.s file)");
     eprintln!("  --emit-ast         Print parsed AST");
     eprintln!("  --emit-tokens      Print lexer tokens");
     eprintln!("  --help, -h         Show this message");

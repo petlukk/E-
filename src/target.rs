@@ -74,6 +74,23 @@ pub fn write_object_file(
 }
 
 #[cfg(feature = "llvm")]
+pub fn write_asm_file(
+    module: &Module,
+    path: &std::path::Path,
+    opts: &CompileOptions,
+) -> crate::error::Result<()> {
+    let machine = create_target_machine(opts)?;
+
+    if opts.opt_level > 0 {
+        optimize_module(module, &machine, opts.opt_level)?;
+    }
+
+    machine
+        .write_to_file(module, FileType::Assembly, path)
+        .map_err(|e| CompileError::codegen_error(format!("failed to write assembly: {e}")))
+}
+
+#[cfg(feature = "llvm")]
 fn optimize_module(module: &Module, machine: &TargetMachine, opt_level: u8) -> crate::error::Result<()> {
     let passes = format!("default<O{}>", opt_level.min(3));
     let opts = PassBuilderOptions::create();

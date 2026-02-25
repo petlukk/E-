@@ -32,6 +32,7 @@ pub enum OutputMode {
     Executable(String),
     SharedLib(String),
     LlvmIr,
+    Asm,
 }
 
 #[cfg(feature = "llvm")]
@@ -179,6 +180,9 @@ pub fn compile_with_options(
             std::fs::write(output_path, ir).map_err(|e| {
                 error::CompileError::codegen_error(format!("failed to write IR: {e}"))
             })?;
+        }
+        OutputMode::Asm => {
+            target::write_asm_file(gen.module(), output_path, opts)?;
         }
     }
 

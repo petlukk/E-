@@ -126,4 +126,30 @@ mod tests {
         let out = Command::new(&bin).output().unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "15");
     }
+
+    // === emit-asm ===
+
+    #[test]
+    fn test_emit_asm_produces_file() {
+        use tempfile::TempDir;
+        let dir = TempDir::new().unwrap();
+        let asm_path = dir.path().join("kernel.s");
+
+        let source = r#"
+            export func add(a: i32, b: i32) -> i32 {
+                return a + b
+            }
+        "#;
+        ea_compiler::compile_with_options(
+            source,
+            &asm_path,
+            ea_compiler::OutputMode::Asm,
+            &ea_compiler::CompileOptions::default(),
+        )
+        .expect("asm emission failed");
+
+        let asm = std::fs::read_to_string(&asm_path).unwrap();
+        assert!(asm.contains("add"), "assembly should contain 'add' symbol");
+        assert!(asm.len() > 20, "assembly should not be empty");
+    }
 }
