@@ -1,0 +1,49 @@
+export func particle_life_step(
+    px: *mut f32, py: *mut f32,
+    vx: *mut f32, vy: *mut f32,
+    types: *i32,
+    matrix: *f32,
+    n: i32, num_types: i32,
+    r_max: f32, dt: f32, friction: f32, size: f32
+) {
+    let mut i: i32 = 0
+    while i < n {
+        let xi: f32 = px[i]
+        let yi: f32 = py[i]
+        let ti: i32 = types[i]
+        let mut fx: f32 = 0.0
+        let mut fy: f32 = 0.0
+
+        let r_max2: f32 = r_max * r_max
+        let mut j: i32 = 0
+        while j < n {
+            let dx: f32 = px[j] - xi
+            let dy: f32 = py[j] - yi
+            let dist2: f32 = dx * dx + dy * dy
+            if dist2 > 0.0 {
+                if dist2 < r_max2 {
+                    let dist: f32 = sqrt(dist2)
+                    let strength: f32 = matrix[ti * num_types + types[j]]
+                    let force: f32 = strength * (1.0 - dist / r_max)
+                    fx = fx + force * dx / dist
+                    fy = fy + force * dy / dist
+                }
+            }
+            j = j + 1
+        }
+
+        vx[i] = (vx[i] + fx * dt) * friction
+        vy[i] = (vy[i] + fy * dt) * friction
+        px[i] = px[i] + vx[i] * dt
+        py[i] = py[i] + vy[i] * dt
+
+        let cur_px: f32 = px[i]
+        let cur_py: f32 = py[i]
+        if cur_px < 0.0 { px[i] = cur_px + size }
+        if cur_px >= size { px[i] = cur_px - size }
+        if cur_py < 0.0 { py[i] = cur_py + size }
+        if cur_py >= size { py[i] = cur_py - size }
+
+        i = i + 1
+    }
+}
