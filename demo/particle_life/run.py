@@ -6,7 +6,7 @@ N colored particles interact via asymmetric attraction/repulsion forces.
 A random interaction matrix defines how each type affects every other type.
 Emergent structures form from simple math running live from a single Eä kernel.
 
-Controls:
+Controls (keyboard or click panel buttons):
     R       — rerandomize interaction matrix
     F       — toggle fused / unfused mode
     +/-     — increase / decrease particle count
@@ -128,6 +128,15 @@ def ptr(arr):
     return arr.ctypes.data_as(ctypes.POINTER(ctypes.c_int32))
 
 
+PANEL_H = 50
+PANEL_BG = (30, 30, 30)
+BTN_BG = (60, 60, 60)
+BTN_HOVER = (80, 80, 80)
+BTN_ACTIVE = (50, 120, 200)
+BTN_TEXT = (220, 220, 220)
+STATUS_TEXT = (180, 180, 180)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Particle Life — Eä demo")
     parser.add_argument("--particles", "-n", type=int, default=2000)
@@ -153,12 +162,44 @@ def main():
                            types, matrix, fx, fy)
         return
 
-    pygame.init()
-    screen = pygame.display.set_mode((int(SIZE), int(SIZE)))
-    clock = pygame.time.Clock()
+    def make_button(x, y, w, h, label):
+        return {"rect": pygame.Rect(x, y, w, h), "label": label}
 
+    def draw_button(btn, hover=False, active=False):
+        bg = BTN_ACTIVE if active else (BTN_HOVER if hover else BTN_BG)
+        pygame.draw.rect(screen, bg, btn["rect"], border_radius=4)
+        pygame.draw.rect(screen, (100, 100, 100), btn["rect"], 1,
+                         border_radius=4)
+        text_surf = font.render(btn["label"], True, BTN_TEXT)
+        text_rect = text_surf.get_rect(center=btn["rect"].center)
+        screen.blit(text_surf, text_rect)
+
+    pygame.init()
+    win_w = int(SIZE)
+    win_h = int(SIZE) + PANEL_H
+    screen = pygame.display.set_mode((win_w, win_h), pygame.DOUBLEBUF)
+    pygame.display.set_caption("Particle Life — Eä SIMD Demo")
+    clock = pygame.time.Clock()
+    font = pygame.font.SysFont("monospace", 14)
+
+    panel_y = int(SIZE)
+    pad = 8
+    btn_h = PANEL_H - 2 * pad
+    btn_w = 90
+    btn_mode = make_button(pad, panel_y + pad, btn_w, btn_h, "FUSED")
+    btn_rand = make_button(pad + btn_w + pad, panel_y + pad, btn_w, btn_h,
+                           "R Rerand")
+    btn_more = make_button(pad + 2 * (btn_w + pad), panel_y + pad, 60, btn_h,
+                           "+ More")
+    btn_less = make_button(pad + 2 * (btn_w + pad) + 60 + pad, panel_y + pad,
+                           60, btn_h, "- Less")
+    buttons = [btn_mode, btn_rand, btn_more, btn_less]
+
+    step_ms = 0.0
     running = True
     while running:
+        mouse_pos = pygame.mouse.get_pos()
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -174,6 +215,18 @@ def main():
                     n = min(n + 500, 10000)
                     px, py, vx, vy, types, matrix, fx, fy = make_state(n, rng)
                 elif event.key == pygame.K_MINUS:
+                    n = max(n - 500, 100)
+                    px, py, vx, vy, types, matrix, fx, fy = make_state(n, rng)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if btn_mode["rect"].collidepoint(event.pos):
+                    use_fused = not use_fused
+                elif btn_rand["rect"].collidepoint(event.pos):
+                    matrix = rng.uniform(-1, 1,
+                                         NUM_TYPES * NUM_TYPES).astype(np.float32)
+                elif btn_more["rect"].collidepoint(event.pos):
+                    n = min(n + 500, 10000)
+                    px, py, vx, vy, types, matrix, fx, fy = make_state(n, rng)
+                elif btn_less["rect"].collidepoint(event.pos):
                     n = max(n - 500, 100)
                     px, py, vx, vy, types, matrix, fx, fy = make_state(n, rng)
 
@@ -207,17 +260,30 @@ def main():
         step_ms = (time.perf_counter() - t0) * 1000
 
         screen.fill((0, 0, 0))
+        sz = int(SIZE)
         for k in range(n):
             color = COLORS[int(types[k]) % len(COLORS)]
-            x = int(px[k]) % int(SIZE)
-            y = int(py[k]) % int(SIZE)
-            screen.set_at((x, y), color)
+            x = int(px[k]) % sz
+            y = int(py[k]) % sz
+            pygame.draw.circle(screen, color, (x, y), 2)
 
-        mode = "FUSED" if use_fused else "UNFUSED"
+        # --- bottom panel ---
+        pygame.draw.rect(screen, PANEL_BG, (0, panel_y, win_w, PANEL_H))
+
+        btn_mode["label"] = "FUSED" if use_fused else "UNFUSED"
+        for btn in buttons:
+            hover = btn["rect"].collidepoint(mouse_pos)
+            active = (btn is btn_mode)
+            draw_button(btn, hover=hover, active=active)
+
+        mode = "Fused" if use_fused else "Unfused"
         fps = clock.get_fps()
-        pygame.display.set_caption(
-            f"Particle Life [{mode}] N={n} | {step_ms:.1f}ms | {fps:.0f} FPS"
-        )
+        status = f"{mode} | N={n} | {step_ms:.1f}ms | {fps:.0f} FPS"
+        status_surf = font.render(status, True, STATUS_TEXT)
+        screen.blit(status_surf, (win_w - status_surf.get_width() - pad,
+                                  panel_y + PANEL_H // 2
+                                  - status_surf.get_height() // 2))
+
         pygame.display.flip()
         clock.tick(60)
 
