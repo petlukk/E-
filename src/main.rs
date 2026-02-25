@@ -33,6 +33,7 @@ fn main() {
     let mut lib_mode = false;
     let mut emit_llvm = false;
     let mut emit_asm = false;
+    let mut emit_header = false;
     let mut emit_ast = false;
     let mut emit_tokens = false;
     let mut opt_level: u8 = 3;
@@ -53,6 +54,7 @@ fn main() {
             "--lib" => lib_mode = true,
             "--emit-llvm" => emit_llvm = true,
             "--emit-asm" => emit_asm = true,
+            "--header" => emit_header = true,
             "--emit-ast" => emit_ast = true,
             "--emit-tokens" => emit_tokens = true,
             s if s.starts_with("--opt-level=") => {
@@ -159,6 +161,16 @@ fn main() {
             return;
         }
 
+        if emit_header {
+            let tokens = ea_compiler::tokenize(&source).unwrap();
+            let stmts = ea_compiler::parse(tokens).unwrap();
+            ea_compiler::check_types(&stmts).unwrap();
+            let header = ea_compiler::header::generate(&stmts, stem);
+            let header_path = PathBuf::from(format!("{stem}.h"));
+            std::fs::write(&header_path, header).unwrap();
+            eprintln!("wrote {}", header_path.display());
+        }
+
         let (output_path, mode) = if lib_mode {
             let ext = if cfg!(target_os = "windows") {
                 "dll"
@@ -209,6 +221,7 @@ fn print_usage() {
     );
     eprintln!("  --emit-llvm        Print LLVM IR");
     eprintln!("  --emit-asm         Emit assembly (.s file)");
+    eprintln!("  --header           Generate C header file (.h)");
     eprintln!("  --emit-ast         Print parsed AST");
     eprintln!("  --emit-tokens      Print lexer tokens");
     eprintln!("  --help, -h         Show this message");

@@ -232,4 +232,64 @@ mod tests {
         "#;
         assert_c_interop(ea_source, c_source, "10");
     }
+
+    // === header generation ===
+
+    #[test]
+    fn test_header_generation_basic() {
+        let source = r#"
+            export func add(a: i32, b: i32) -> i32 {
+                return a + b
+            }
+        "#;
+        let tokens = ea_compiler::tokenize(source).unwrap();
+        let stmts = ea_compiler::parse(tokens).unwrap();
+        ea_compiler::check_types(&stmts).unwrap();
+
+        let header = ea_compiler::header::generate(&stmts, "test");
+        assert!(header.contains("int32_t add(int32_t a, int32_t b)"));
+        assert!(header.contains("#ifndef TEST_H"));
+        assert!(header.contains("#include <stdint.h>"));
+    }
+
+    #[test]
+    fn test_header_generation_pointers() {
+        let source = r#"
+            export func process(data: *f32, out: *mut f32, n: i32) {
+                let mut i: i32 = 0
+                while i < n {
+                    out[i] = data[i]
+                    i = i + 1
+                }
+            }
+        "#;
+        let tokens = ea_compiler::tokenize(source).unwrap();
+        let stmts = ea_compiler::parse(tokens).unwrap();
+        ea_compiler::check_types(&stmts).unwrap();
+
+        let header = ea_compiler::header::generate(&stmts, "test");
+        assert!(header.contains("const float*"));
+        assert!(header.contains("float*"));
+    }
+
+    #[test]
+    fn test_header_generation_struct() {
+        let source = r#"
+            struct Vec2 {
+                x: f32,
+                y: f32,
+            }
+            export func get_x(v: *Vec2) -> f32 {
+                return v.x
+            }
+        "#;
+        let tokens = ea_compiler::tokenize(source).unwrap();
+        let stmts = ea_compiler::parse(tokens).unwrap();
+        ea_compiler::check_types(&stmts).unwrap();
+
+        let header = ea_compiler::header::generate(&stmts, "test");
+        assert!(header.contains("struct Vec2"));
+        assert!(header.contains("float x"));
+        assert!(header.contains("float y"));
+    }
 }
