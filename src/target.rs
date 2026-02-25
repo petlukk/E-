@@ -65,7 +65,7 @@ pub fn write_object_file(
     let machine = create_target_machine(opts)?;
 
     if opts.opt_level > 0 {
-        optimize_module(module, &machine)?;
+        optimize_module(module, &machine, opts.opt_level)?;
     }
 
     machine
@@ -74,11 +74,11 @@ pub fn write_object_file(
 }
 
 #[cfg(feature = "llvm")]
-fn optimize_module(module: &Module, machine: &TargetMachine) -> crate::error::Result<()> {
-    let passes = "default<O2>";
+fn optimize_module(module: &Module, machine: &TargetMachine, opt_level: u8) -> crate::error::Result<()> {
+    let passes = format!("default<O{}>", opt_level.min(3));
     let opts = PassBuilderOptions::create();
     module
-        .run_passes(passes, machine, opts)
+        .run_passes(&passes, machine, opts)
         .map_err(|e| CompileError::codegen_error(format!("pass pipeline failed: {e}")))?;
     Ok(())
 }
