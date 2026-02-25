@@ -284,12 +284,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
                 let cond = self
                     .builder
-                    .build_int_compare(
-                        inkwell::IntPredicate::SLT,
-                        i_val,
-                        end_val,
-                        "foreach_cmp",
-                    )
+                    .build_int_compare(inkwell::IntPredicate::SLT, i_val, end_val, "foreach_cmp")
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 self.builder
                     .build_conditional_branch(cond, body_bb, exit_bb)

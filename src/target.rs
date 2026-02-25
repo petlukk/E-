@@ -91,7 +91,11 @@ pub fn write_asm_file(
 }
 
 #[cfg(feature = "llvm")]
-fn optimize_module(module: &Module, machine: &TargetMachine, opt_level: u8) -> crate::error::Result<()> {
+fn optimize_module(
+    module: &Module,
+    machine: &TargetMachine,
+    opt_level: u8,
+) -> crate::error::Result<()> {
     let passes = format!("default<O{}>", opt_level.min(3));
     let opts = PassBuilderOptions::create();
     module

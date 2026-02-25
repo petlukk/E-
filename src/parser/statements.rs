@@ -164,8 +164,7 @@ impl Parser {
     fn parse_foreach(&mut self) -> crate::error::Result<Stmt> {
         self.advance(); // consume 'foreach'
         self.expect_kind(TokenKind::LeftParen, "expected '(' after 'foreach'")?;
-        let var_token =
-            self.expect_kind(TokenKind::Identifier, "expected loop variable name")?;
+        let var_token = self.expect_kind(TokenKind::Identifier, "expected loop variable name")?;
         let var = var_token.lexeme.clone();
         self.expect_kind(TokenKind::In, "expected 'in' after loop variable")?;
         let start = self.expression()?;

@@ -184,9 +184,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
         let i32_type = self.context.i32_type();
-        let ptr_type = self
-            .context
-            .ptr_type(inkwell::AddressSpace::default());
+        let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
         let prefetch_type = self.context.void_type().fn_type(
             &[
                 ptr_type.into(),

@@ -307,7 +307,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (177 passing)
+# Run tests (193 passing)
 cargo test --features=llvm
 ```
 
@@ -348,7 +348,7 @@ Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
 ~5,800 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-177 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
+193 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, and compiler flags.
 
 ## License
 

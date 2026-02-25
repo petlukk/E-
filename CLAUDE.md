@@ -22,10 +22,12 @@ Write readable SIMD code → compile to `.o` or `.so` → call from C, Rust, Pyt
 
 ```bash
 cargo build --features=llvm                    # Build compiler
-cargo test --features=llvm                     # End-to-end tests (177 passing)
+cargo test --features=llvm                     # End-to-end tests (193 passing)
 cargo run --features=llvm -- kernel.ea         # → kernel.o
 cargo run --features=llvm -- kernel.ea --lib   # → kernel.so
 cargo run --features=llvm -- app.ea -o app     # → linked executable
+cargo run --features=llvm -- kernel.ea --emit-asm # → kernel.s
+cargo run --features=llvm -- kernel.ea --header   # → kernel.h (alongside .o)
 cargo fmt && cargo clippy --all-targets --all-features -- -D warnings
 ```
 
@@ -76,6 +78,8 @@ Files get created as needed per phase. Not all exist from day one.
 6. **Deep SIMD** — fma, reduce_add/max/min, shuffle, select, f32x8
 7. **Structs + Shared Libs** — C-compatible structs, `--lib` → `.so`/`.dll`
 8. **Extended Types + Demos** — i8/u8/i16/u16/u32/u64, byte vectors, widening/narrowing, bitwise, sqrt/rsqrt, type conversions, Cornell Box ray tracer, particle life
+9. **Compiler Maturity** — fix `--opt-level` pass pipeline, `--emit-asm`, `unroll(N)`, `prefetch(ptr, offset)`, `--header` C header generation
+10. **foreach** — `foreach (i in start..end) { ... }` auto-vectorized loops with phi-node codegen, `unroll` + `foreach` composition
 
 ## Testing
 

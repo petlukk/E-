@@ -60,9 +60,7 @@ fn type_to_c(ty: &TypeAnnotation) -> String {
             "bool" => "_Bool".to_string(),
             other => format!("struct {other}"),
         },
-        TypeAnnotation::Pointer {
-            mutable, inner, ..
-        } => {
+        TypeAnnotation::Pointer { mutable, inner, .. } => {
             let inner_c = type_to_c(inner);
             if *mutable {
                 format!("{inner_c}*")
