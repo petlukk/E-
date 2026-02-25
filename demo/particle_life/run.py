@@ -31,7 +31,7 @@ EA_ROOT = DEMO_DIR / ".." / ".."
 NUM_TYPES = 6
 R_MAX = 80.0
 FRICTION = 0.5
-DT = 0.02
+DT = 0.5
 SIZE = 800.0
 
 COLORS = [

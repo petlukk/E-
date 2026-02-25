@@ -1083,8 +1083,8 @@ export func particle_life_step(
 
         vx[i] = (vx[i] + fx * dt) * friction
         vy[i] = (vy[i] + fy * dt) * friction
-        px[i] = px[i] + vx[i] * dt
-        py[i] = py[i] + vy[i] * dt
+        px[i] = px[i] + vx[i]
+        py[i] = py[i] + vy[i]
 
         let cur_px: f32 = px[i]
         let cur_py: f32 = py[i]
@@ -1206,8 +1206,8 @@ export func update_positions(
 ) {
     let mut i: i32 = 0
     while i < n {
-        px[i] = px[i] + vx[i] * dt
-        py[i] = py[i] + vy[i] * dt
+        px[i] = px[i] + vx[i]
+        py[i] = py[i] + vy[i]
 
         let cur_px: f32 = px[i]
         let cur_py: f32 = py[i]

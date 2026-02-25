@@ -56,8 +56,8 @@ export func update_positions(
 ) {
     let mut i: i32 = 0
     while i < n {
-        px[i] = px[i] + vx[i] * dt
-        py[i] = py[i] + vy[i] * dt
+        px[i] = px[i] + vx[i]
+        py[i] = py[i] + vy[i]
         let cur_px: f32 = px[i]
         let cur_py: f32 = py[i]
         if cur_px < 0.0 { px[i] = cur_px + size }
