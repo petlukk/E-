@@ -134,7 +134,9 @@ pub fn compile_with_options(
                     .arg(output_path)
                     .output()
                     .map_err(|e| {
-                        error::CompileError::codegen_error(format!("failed to invoke lld-link: {e}"))
+                        error::CompileError::codegen_error(format!(
+                            "failed to invoke lld-link: {e}"
+                        ))
                     })?;
 
                 let _ = std::fs::remove_file(output_path);
@@ -143,9 +145,10 @@ pub fn compile_with_options(
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     let detail = if !stderr.is_empty() { stderr } else { stdout };
-                    return Err(error::CompileError::codegen_error(
-                        format!("lld-link failed:\n{}", detail.trim())
-                    ));
+                    return Err(error::CompileError::codegen_error(format!(
+                        "lld-link failed:\n{}",
+                        detail.trim()
+                    )));
                 }
             }
 
@@ -165,7 +168,9 @@ pub fn compile_with_options(
                 let _ = std::fs::remove_file(output_path);
 
                 if !status.success() {
-                    return Err(error::CompileError::codegen_error("shared library linking failed"));
+                    return Err(error::CompileError::codegen_error(
+                        "shared library linking failed",
+                    ));
                 }
             }
         }

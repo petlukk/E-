@@ -106,11 +106,15 @@ impl TypeChecker {
                         match &result {
                             Type::Vector { elem, .. } if elem.is_integer() => Ok(result),
                             Type::Vector { elem, .. } => Err(CompileError::type_error(
-                                format!("bitwise vector ops require integer element type, got {elem:?}"),
+                                format!(
+                                    "bitwise vector ops require integer element type, got {elem:?}"
+                                ),
                                 Position::default(),
                             )),
                             _ => Err(CompileError::type_error(
-                                format!("bitwise vector ops require vector operands, got {result:?}"),
+                                format!(
+                                    "bitwise vector ops require vector operands, got {result:?}"
+                                ),
                                 Position::default(),
                             )),
                         }

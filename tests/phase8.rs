@@ -973,6 +973,50 @@ int main() {
         );
     }
 
+    // === u32 / u64 types ===
+
+    #[test]
+    fn test_u32_basic() {
+        assert_c_interop(
+            r#"
+            export func add_u32(a: u32, b: u32) -> u32 {
+                return a + b
+            }
+            "#,
+            r#"
+            #include <stdio.h>
+            #include <stdint.h>
+            extern uint32_t add_u32(uint32_t, uint32_t);
+            int main() {
+                printf("%u\n", add_u32(3, 4));
+                return 0;
+            }
+            "#,
+            "7",
+        );
+    }
+
+    #[test]
+    fn test_u64_basic() {
+        assert_c_interop(
+            r#"
+            export func add_u64(a: u64, b: u64) -> u64 {
+                return a + b
+            }
+            "#,
+            r#"
+            #include <stdio.h>
+            #include <stdint.h>
+            extern uint64_t add_u64(uint64_t, uint64_t);
+            int main() {
+                printf("%lu\n", add_u64(100000, 200000));
+                return 0;
+            }
+            "#,
+            "300000",
+        );
+    }
+
     // === Cornell Box ===
 
     #[test]

@@ -35,7 +35,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                         let val = self.context.i16_type().const_int(*n as u64, true);
                         Ok(BasicValueEnum::IntValue(val))
                     }
-                    Type::I64 => {
+                    Type::I64 | Type::U64 => {
                         let val = self.context.i64_type().const_int(*n as u64, true);
                         Ok(BasicValueEnum::IntValue(val))
                     }
@@ -111,9 +111,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                             Ok(BasicValueEnum::VectorValue(result))
                         }
                     }
-                    _ => Err(CompileError::codegen_error(
-                        "unary '-' on unsupported type",
-                    )),
+                    _ => Err(CompileError::codegen_error("unary '-' on unsupported type")),
                 }
             }
             Expr::Variable(name) => {
@@ -170,19 +168,14 @@ impl<'ctx> CodeGenerator<'ctx> {
                     CompileError::codegen_error(format!("undefined function '{name}'"))
                 })?;
 
-                let param_hints: Option<Vec<Type>> = self
-                    .func_signatures
-                    .get(name)
-                    .map(|(pts, _)| pts.clone());
+                let param_hints: Option<Vec<Type>> =
+                    self.func_signatures.get(name).map(|(pts, _)| pts.clone());
                 let compiled_args: Vec<BasicMetadataValueEnum> = args
                     .iter()
                     .enumerate()
                     .map(|(i, a)| {
-                        let hint = param_hints
-                            .as_ref()
-                            .and_then(|pts| pts.get(i));
-                        self.compile_expr_typed(a, hint, function)
-                            .map(|v| v.into())
+                        let hint = param_hints.as_ref().and_then(|pts| pts.get(i));
+                        self.compile_expr_typed(a, hint, function).map(|v| v.into())
                     })
                     .collect::<Result<_, _>>()?;
                 let result = self
@@ -411,9 +404,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                     (extended, "%d\n")
                 } else if bit_width == 64 {
-                    (iv, "%ld\n")
+                    (iv, if unsigned { "%lu\n" } else { "%ld\n" })
                 } else {
-                    (iv, "%d\n")
+                    (iv, if unsigned { "%u\n" } else { "%d\n" })
                 };
                 let fmt = self
                     .builder

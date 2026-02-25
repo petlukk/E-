@@ -187,8 +187,10 @@ fn print_usage() {
     eprintln!("  -o <name>          Compile and link to executable");
     eprintln!("  --lib              Produce shared library (.so/.dll)");
     eprintln!("  --opt-level=N      Optimization level 0-3 (default: 3)");
-    eprintln!("  --target=CPU       Target CPU (default: native)
-  --avx512           Enable AVX-512 (f32x16) — requires AVX-512 capable CPU");
+    eprintln!(
+        "  --target=CPU       Target CPU (default: native)
+  --avx512           Enable AVX-512 (f32x16) — requires AVX-512 capable CPU"
+    );
     eprintln!("  --emit-llvm        Print LLVM IR");
     eprintln!("  --emit-ast         Print parsed AST");
     eprintln!("  --emit-tokens      Print lexer tokens");

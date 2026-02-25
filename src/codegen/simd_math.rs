@@ -52,7 +52,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .ok_or_else(|| CompileError::codegen_error("sqrt did not return a value"))?;
                 Ok(result)
             }
-            _ => Err(CompileError::codegen_error("sqrt expects float or float vector")),
+            _ => Err(CompileError::codegen_error(
+                "sqrt expects float or float vector",
+            )),
         }
     }
 
@@ -76,14 +78,17 @@ impl<'ctx> CodeGenerator<'ctx> {
                 let vec_ty = vv.get_type();
                 let elem_ty = vec_ty.get_element_type().into_float_type();
                 let one_scalar = elem_ty.const_float(1.0);
-                let one_vec = self.build_splat(BasicValueEnum::FloatValue(one_scalar), vec_ty.get_size())?;
+                let one_vec =
+                    self.build_splat(BasicValueEnum::FloatValue(one_scalar), vec_ty.get_size())?;
                 let result = self
                     .builder
                     .build_float_div(one_vec, vv, "vrsqrt")
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(BasicValueEnum::VectorValue(result))
             }
-            _ => Err(CompileError::codegen_error("rsqrt expects float or float vector")),
+            _ => Err(CompileError::codegen_error(
+                "rsqrt expects float or float vector",
+            )),
         }
     }
 
@@ -103,7 +108,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                 match val {
                     BasicValueEnum::IntValue(iv) => {
                         let result = if is_unsigned_src {
-                            self.builder.build_unsigned_int_to_float(iv, target, "uitofp")
+                            self.builder
+                                .build_unsigned_int_to_float(iv, target, "uitofp")
                         } else {
                             self.builder.build_signed_int_to_float(iv, target, "sitofp")
                         }
@@ -112,7 +118,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                     BasicValueEnum::FloatValue(fv) => {
                         if fv.get_type() == self.context.f64_type() {
-                            let result = self.builder
+                            let result = self
+                                .builder
                                 .build_float_trunc(fv, target, "fptrunc")
                                 .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                             Ok(BasicValueEnum::FloatValue(result))
@@ -120,7 +127,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                             Ok(val)
                         }
                     }
-                    _ => Err(CompileError::codegen_error("to_f32: unsupported source type")),
+                    _ => Err(CompileError::codegen_error(
+                        "to_f32: unsupported source type",
+                    )),
                 }
             }
             "to_f64" => {
@@ -128,7 +137,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                 match val {
                     BasicValueEnum::IntValue(iv) => {
                         let result = if is_unsigned_src {
-                            self.builder.build_unsigned_int_to_float(iv, target, "uitofp")
+                            self.builder
+                                .build_unsigned_int_to_float(iv, target, "uitofp")
                         } else {
                             self.builder.build_signed_int_to_float(iv, target, "sitofp")
                         }
@@ -137,7 +147,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                     BasicValueEnum::FloatValue(fv) => {
                         if fv.get_type() == self.context.f32_type() {
-                            let result = self.builder
+                            let result = self
+                                .builder
                                 .build_float_ext(fv, target, "fpext")
                                 .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                             Ok(BasicValueEnum::FloatValue(result))
@@ -145,14 +156,17 @@ impl<'ctx> CodeGenerator<'ctx> {
                             Ok(val)
                         }
                     }
-                    _ => Err(CompileError::codegen_error("to_f64: unsupported source type")),
+                    _ => Err(CompileError::codegen_error(
+                        "to_f64: unsupported source type",
+                    )),
                 }
             }
             "to_i32" => {
                 let target = self.context.i32_type();
                 match val {
                     BasicValueEnum::FloatValue(fv) => {
-                        let result = self.builder
+                        let result = self
+                            .builder
                             .build_float_to_signed_int(fv, target, "fptosi")
                             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                         Ok(BasicValueEnum::IntValue(result))
@@ -160,7 +174,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                     BasicValueEnum::IntValue(iv) => {
                         let src_width = iv.get_type().get_bit_width();
                         if src_width > 32 {
-                            let result = self.builder
+                            let result = self
+                                .builder
                                 .build_int_truncate(iv, target, "trunc")
                                 .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                             Ok(BasicValueEnum::IntValue(result))
@@ -176,14 +191,17 @@ impl<'ctx> CodeGenerator<'ctx> {
                             Ok(val)
                         }
                     }
-                    _ => Err(CompileError::codegen_error("to_i32: unsupported source type")),
+                    _ => Err(CompileError::codegen_error(
+                        "to_i32: unsupported source type",
+                    )),
                 }
             }
             "to_i64" => {
                 let target = self.context.i64_type();
                 match val {
                     BasicValueEnum::FloatValue(fv) => {
-                        let result = self.builder
+                        let result = self
+                            .builder
                             .build_float_to_signed_int(fv, target, "fptosi")
                             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                         Ok(BasicValueEnum::IntValue(result))
@@ -202,7 +220,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                             Ok(val)
                         }
                     }
-                    _ => Err(CompileError::codegen_error("to_i64: unsupported source type")),
+                    _ => Err(CompileError::codegen_error(
+                        "to_i64: unsupported source type",
+                    )),
                 }
             }
             _ => unreachable!(),

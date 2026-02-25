@@ -165,11 +165,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                 .iter()
                 .map(|e| match e {
                     Expr::Literal(crate::ast::Literal::Integer(n)) => {
-                        self.context.i32_type().const_int(*n as u64, false)
+                        Ok(self.context.i32_type().const_int(*n as u64, false))
                     }
-                    _ => self.context.i32_type().const_int(0, false),
+                    _ => Err(CompileError::codegen_error(
+                        "shuffle mask must contain only integer literals",
+                    )),
                 })
-                .collect::<Vec<_>>(),
+                .collect::<crate::error::Result<Vec<_>>>()?,
             _ => {
                 return Err(CompileError::codegen_error(
                     "shuffle requires array literal",

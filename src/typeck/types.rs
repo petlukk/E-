@@ -9,7 +9,9 @@ pub enum Type {
     I16,
     U16,
     I32,
+    U32,
     I64,
+    U64,
     F32,
     F64,
     Bool,
@@ -33,12 +35,20 @@ impl Type {
     pub fn is_integer(&self) -> bool {
         matches!(
             self,
-            Type::I8 | Type::U8 | Type::I16 | Type::U16 | Type::I32 | Type::I64 | Type::IntLiteral
+            Type::I8
+                | Type::U8
+                | Type::I16
+                | Type::U16
+                | Type::I32
+                | Type::U32
+                | Type::I64
+                | Type::U64
+                | Type::IntLiteral
         )
     }
 
     pub fn is_unsigned_integer(&self) -> bool {
-        matches!(self, Type::U8 | Type::U16)
+        matches!(self, Type::U8 | Type::U16 | Type::U32 | Type::U64)
     }
 
     pub fn is_float(&self) -> bool {
@@ -164,7 +174,7 @@ pub fn unify_numeric(left: &Type, right: &Type) -> crate::error::Result<Type> {
 
 /// Returns true if the type is an unsigned integer.
 pub fn is_unsigned(ty: &Type) -> bool {
-    matches!(ty, Type::U8 | Type::U16)
+    matches!(ty, Type::U8 | Type::U16 | Type::U32 | Type::U64)
 }
 
 pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
@@ -175,7 +185,9 @@ pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
             "i16" => Ok(Type::I16),
             "u16" => Ok(Type::U16),
             "i32" => Ok(Type::I32),
+            "u32" => Ok(Type::U32),
             "i64" => Ok(Type::I64),
+            "u64" => Ok(Type::U64),
             "f32" => Ok(Type::F32),
             "f64" => Ok(Type::F64),
             "bool" => Ok(Type::Bool),

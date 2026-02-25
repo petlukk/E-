@@ -134,7 +134,12 @@ impl Parser {
         if self.check(TokenKind::Minus) {
             let is_literal = matches!(
                 self.peek_next_kind(),
-                Some(TokenKind::IntLiteral | TokenKind::FloatLiteral | TokenKind::HexLiteral | TokenKind::BinLiteral)
+                Some(
+                    TokenKind::IntLiteral
+                        | TokenKind::FloatLiteral
+                        | TokenKind::HexLiteral
+                        | TokenKind::BinLiteral
+                )
             );
             if !is_literal {
                 self.advance();

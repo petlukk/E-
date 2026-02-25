@@ -48,10 +48,17 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         if !has_terminator {
-            if return_type.is_some() || name == "main" {
+            if name == "main" {
                 let zero = self.context.i32_type().const_int(0, false);
                 self.builder
                     .build_return(Some(&zero))
+                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+            } else if let Some(ret_ann) = return_type {
+                let ret_ty = self.resolve_annotation(ret_ann);
+                let llvm_ty = self.llvm_type(&ret_ty);
+                let zero_val = llvm_ty.const_zero();
+                self.builder
+                    .build_return(Some(&zero_val))
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
             } else {
                 self.builder
@@ -60,11 +67,10 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         }
 
-        if function.verify(true) {
-            // verified
-        } else {
-            // Verification failed, proceed to return error or let it crash
-            // It prints to stderr handling errors
+        if !function.verify(true) {
+            return Err(CompileError::codegen_error(format!(
+                "LLVM verification failed for function '{name}'"
+            )));
         }
         Ok(())
     }
@@ -108,8 +114,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .ok()
                     .and_then(|n| self.func_signatures.get(n))
                     .and_then(|(_, ret)| ret.clone());
-                let val =
-                    self.compile_expr_typed(expr, ret_hint.as_ref(), function)?;
+                let val = self.compile_expr_typed(expr, ret_hint.as_ref(), function)?;
                 self.builder
                     .build_return(Some(&val))
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;

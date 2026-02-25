@@ -23,13 +23,13 @@ use inkwell::context::Context;
 #[cfg(feature = "llvm")]
 use inkwell::module::{Linkage, Module};
 #[cfg(feature = "llvm")]
-use inkwell::DLLStorageClass;
-#[cfg(feature = "llvm")]
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum};
 #[cfg(feature = "llvm")]
 use inkwell::values::{FunctionValue, PointerValue};
 #[cfg(feature = "llvm")]
 use inkwell::AddressSpace;
+#[cfg(feature = "llvm")]
+use inkwell::DLLStorageClass;
 
 #[cfg(feature = "llvm")]
 use crate::ast::{Stmt, TypeAnnotation};
@@ -151,8 +151,10 @@ impl<'ctx> CodeGenerator<'ctx> {
         match ty {
             Type::I8 | Type::U8 => BasicTypeEnum::IntType(self.context.i8_type()),
             Type::I16 | Type::U16 => BasicTypeEnum::IntType(self.context.i16_type()),
-            Type::I32 | Type::IntLiteral => BasicTypeEnum::IntType(self.context.i32_type()),
-            Type::I64 => BasicTypeEnum::IntType(self.context.i64_type()),
+            Type::I32 | Type::U32 | Type::IntLiteral => {
+                BasicTypeEnum::IntType(self.context.i32_type())
+            }
+            Type::I64 | Type::U64 => BasicTypeEnum::IntType(self.context.i64_type()),
             Type::F32 => BasicTypeEnum::FloatType(self.context.f32_type()),
             Type::F64 | Type::FloatLiteral => BasicTypeEnum::FloatType(self.context.f64_type()),
             Type::Bool => BasicTypeEnum::IntType(self.context.bool_type()),
@@ -172,7 +174,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 if let Some(st) = self.struct_types.get(name) {
                     BasicTypeEnum::StructType(*st)
                 } else {
-                    BasicTypeEnum::IntType(self.context.i32_type())
+                    panic!("BUG: struct type '{name}' not registered — should have been caught by typechecker")
                 }
             }
             _ => BasicTypeEnum::IntType(self.context.i32_type()),
@@ -188,7 +190,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                 "i16" => Type::I16,
                 "u16" => Type::U16,
                 "i32" => Type::I32,
+                "u32" => Type::U32,
                 "i64" => Type::I64,
+                "u64" => Type::U64,
                 "f32" => Type::F32,
                 "f64" => Type::F64,
                 "bool" => Type::Bool,
@@ -258,7 +262,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         // the DLL export table — dllexport is required for that.  On Linux/ELF
         // ExternalLinkage is sufficient; this attribute is a harmless no-op there.
         if export {
-            function.as_global_value().set_dll_storage_class(DLLStorageClass::Export);
+            function
+                .as_global_value()
+                .set_dll_storage_class(DLLStorageClass::Export);
         }
 
         for (i, param) in params.iter().enumerate() {
