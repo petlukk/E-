@@ -44,6 +44,9 @@ demo/cornell_box/output.png
 ispc-v*-linux/
 ispc-v*-linux.tar.gz
 
+# Git worktrees
+.worktrees/
+
 # Session notes (not part of the release)
 Session_summary*.md
 before_phase*.md
