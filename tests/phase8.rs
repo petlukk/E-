@@ -1139,4 +1139,154 @@ int main() {
         );
         assert_eq!(result.stdout.trim(), "1");
     }
+
+    // === Particle Life unfused kernels ===
+
+    #[test]
+    fn test_particle_life_unfused_step() {
+        let result = compile_and_link_with_c(
+            r#"
+export func compute_forces(
+    px: *f32, py: *f32,
+    types: *i32,
+    matrix: *f32,
+    fx: *mut f32, fy: *mut f32,
+    n: i32, num_types: i32,
+    r_max: f32
+) {
+    let r_max2: f32 = r_max * r_max
+    let mut i: i32 = 0
+    while i < n {
+        let xi: f32 = px[i]
+        let yi: f32 = py[i]
+        let ti: i32 = types[i]
+        let mut sum_fx: f32 = 0.0
+        let mut sum_fy: f32 = 0.0
+
+        let mut j: i32 = 0
+        while j < n {
+            let dx: f32 = px[j] - xi
+            let dy: f32 = py[j] - yi
+            let dist2: f32 = dx * dx + dy * dy
+            if dist2 > 0.0 {
+                if dist2 < r_max2 {
+                    let dist: f32 = sqrt(dist2)
+                    let strength: f32 = matrix[ti * num_types + types[j]]
+                    let force: f32 = strength * (1.0 - dist / r_max)
+                    sum_fx = sum_fx + force * dx / dist
+                    sum_fy = sum_fy + force * dy / dist
+                }
+            }
+            j = j + 1
+        }
+
+        fx[i] = sum_fx
+        fy[i] = sum_fy
+        i = i + 1
+    }
+}
+
+export func update_velocities(
+    vx: *mut f32, vy: *mut f32,
+    fx: *f32, fy: *f32,
+    n: i32, dt: f32, friction: f32
+) {
+    let mut i: i32 = 0
+    while i < n {
+        vx[i] = (vx[i] + fx[i] * dt) * friction
+        vy[i] = (vy[i] + fy[i] * dt) * friction
+        i = i + 1
+    }
+}
+
+export func update_positions(
+    px: *mut f32, py: *mut f32,
+    vx: *f32, vy: *f32,
+    n: i32, dt: f32, size: f32
+) {
+    let mut i: i32 = 0
+    while i < n {
+        px[i] = px[i] + vx[i] * dt
+        py[i] = py[i] + vy[i] * dt
+
+        let cur_px: f32 = px[i]
+        let cur_py: f32 = py[i]
+        if cur_px < 0.0 { px[i] = cur_px + size }
+        if cur_px >= size { px[i] = cur_px - size }
+        if cur_py < 0.0 { py[i] = cur_py + size }
+        if cur_py >= size { py[i] = cur_py - size }
+
+        i = i + 1
+    }
+}
+"#,
+            r#"
+#include <stdio.h>
+#include <math.h>
+
+extern void compute_forces(
+    float* px, float* py,
+    int* types,
+    float* matrix,
+    float* fx, float* fy,
+    int n, int num_types,
+    float r_max
+);
+
+extern void update_velocities(
+    float* vx, float* vy,
+    float* fx, float* fy,
+    int n, float dt, float friction
+);
+
+extern void update_positions(
+    float* px, float* py,
+    float* vx, float* vy,
+    int n, float dt, float size
+);
+
+int main() {
+    float px[2] = {0.0f, 50.0f};
+    float py[2] = {0.0f, 0.0f};
+    float vx[2] = {0.0f, 0.0f};
+    float vy[2] = {0.0f, 0.0f};
+    int types[2] = {0, 0};
+    float matrix[1] = {1.0f};
+    float fx[2] = {0.0f, 0.0f};
+    float fy[2] = {0.0f, 0.0f};
+
+    compute_forces(px, py, types, matrix, fx, fy,
+                   2, 1, 100.0f);
+    update_velocities(vx, vy, fx, fy,
+                      2, 1.0f, 0.5f);
+    update_positions(px, py, vx, vy,
+                     2, 1.0f, 1000.0f);
+
+    /* Both particles see original positions (unfused):
+       Particle 0: dx=50, dist=50, strength=1.0, force=0.5, fx=0.5
+       Particle 1: dx=-50, dist=50, strength=1.0, force=0.5, fx=-0.5
+       After update_velocities: vx[0]=0.25, vx[1]=-0.25
+       After update_positions: px[0]=0.25, px[1]=49.75 */
+    int ok = 1;
+    if (fabsf(px[0] - 0.25f) > 0.001f) ok = 0;
+    if (fabsf(px[1] - 49.75f) > 0.001f) ok = 0;
+    if (fabsf(vx[0] - 0.25f) > 0.001f) ok = 0;
+    if (fabsf(vx[1] - (-0.25f)) > 0.001f) ok = 0;
+    if (fabsf(vy[0]) > 0.001f) ok = 0;
+    if (fabsf(vy[1]) > 0.001f) ok = 0;
+    if (fabsf(py[0]) > 0.001f) ok = 0;
+    if (fabsf(py[1]) > 0.001f) ok = 0;
+
+    if (ok) {
+        printf("PASS\n");
+    } else {
+        printf("FAIL px[0]=%f px[1]=%f vx[0]=%f vx[1]=%f\n",
+               px[0], px[1], vx[0], vx[1]);
+    }
+    return 0;
+}
+"#,
+        );
+        assert_eq!(result.stdout.trim(), "PASS");
+    }
 }
