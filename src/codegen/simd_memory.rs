@@ -153,6 +153,75 @@ impl<'ctx> CodeGenerator<'ctx> {
         Ok(res)
     }
 
+    pub(super) fn compile_prefetch(
+        &mut self,
+        args: &[Expr],
+        function: FunctionValue<'ctx>,
+    ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        if args.len() != 2 {
+            return Err(CompileError::codegen_error(
+                "prefetch requires 2 arguments: (ptr, offset)",
+            ));
+        }
+        let ptr_val = self.compile_expr(&args[0], function)?.into_pointer_value();
+        let offset_val = self.compile_expr(&args[1], function)?.into_int_value();
+
+        // Infer element type from the pointer variable
+        let elem_llvm = if let Expr::Variable(name) = &args[0] {
+            if let Some((_, Type::Pointer { inner, .. })) = self.variables.get(name) {
+                self.llvm_type(inner)
+            } else {
+                self.context.i8_type().into()
+            }
+        } else {
+            self.context.i8_type().into()
+        };
+
+        let gep = unsafe {
+            self.builder
+                .build_gep(elem_llvm, ptr_val, &[offset_val], "prefetch_ptr")
+        }
+        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+        let i32_type = self.context.i32_type();
+        let ptr_type = self
+            .context
+            .ptr_type(inkwell::AddressSpace::default());
+        let prefetch_type = self.context.void_type().fn_type(
+            &[
+                ptr_type.into(),
+                i32_type.into(),
+                i32_type.into(),
+                i32_type.into(),
+            ],
+            false,
+        );
+        let prefetch_fn = self
+            .module
+            .get_function("llvm.prefetch.p0")
+            .unwrap_or_else(|| {
+                self.module
+                    .add_function("llvm.prefetch.p0", prefetch_type, None)
+            });
+
+        self.builder
+            .build_call(
+                prefetch_fn,
+                &[
+                    gep.into(),
+                    i32_type.const_int(0, false).into(), // rw = read
+                    i32_type.const_int(3, false).into(), // locality = high
+                    i32_type.const_int(1, false).into(), // cache type = data
+                ],
+                "",
+            )
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+        Ok(BasicValueEnum::IntValue(
+            self.context.i32_type().const_int(0, false),
+        ))
+    }
+
     pub(super) fn compile_shuffle(
         &mut self,
         args: &[Expr],

@@ -41,6 +41,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 | "to_f64"
                 | "to_i32"
                 | "to_i64"
+                | "prefetch"
         )
     }
 
@@ -82,6 +83,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             "to_f32" | "to_f64" | "to_i32" | "to_i64" => {
                 self.compile_conversion(name, args, function)
             }
+            "prefetch" => self.compile_prefetch(args, function),
             _ => Err(CompileError::codegen_error(format!(
                 "unknown SIMD intrinsic '{name}'"
             ))),

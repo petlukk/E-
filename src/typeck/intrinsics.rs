@@ -37,6 +37,7 @@ impl TypeChecker {
             "narrow_f32x4_i8" => Some(self.check_narrow_f32x4_i8(args, locals)),
             "maddubs_i16" => Some(self.check_maddubs_i16(args, locals)),
             "maddubs_i32" => Some(self.check_maddubs_i32(args, locals)),
+            "prefetch" => Some(self.check_prefetch(args, locals)),
             _ => None,
         }
     }
@@ -166,6 +167,34 @@ impl TypeChecker {
                 Position::default(),
             )),
         }
+    }
+
+    fn check_prefetch(
+        &self,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 2 {
+            return Err(CompileError::type_error(
+                "prefetch expects 2 arguments: (ptr, offset)",
+                Position::default(),
+            ));
+        }
+        let ptr_type = self.check_expr(&args[0], locals)?;
+        if !matches!(ptr_type, Type::Pointer { .. }) {
+            return Err(CompileError::type_error(
+                format!("prefetch first argument must be a pointer, got {ptr_type:?}"),
+                Position::default(),
+            ));
+        }
+        let offset_type = self.check_expr(&args[1], locals)?;
+        if !offset_type.is_integer() {
+            return Err(CompileError::type_error(
+                format!("prefetch offset must be integer, got {offset_type:?}"),
+                Position::default(),
+            ));
+        }
+        Ok(Type::Void)
     }
 
     fn check_conversion(

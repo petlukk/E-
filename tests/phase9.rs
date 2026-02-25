@@ -204,4 +204,32 @@ mod tests {
         "#;
         assert_c_interop(ea_source, c_source, "15");
     }
+
+    // === prefetch ===
+
+    #[test]
+    fn test_prefetch_basic() {
+        let ea_source = r#"
+            export func sum_prefetched(data: *f32, n: i32) -> f32 {
+                let mut result: f32 = 0.0
+                let mut i: i32 = 0
+                while i < n {
+                    prefetch(data, i + 16)
+                    result = result + data[i]
+                    i = i + 1
+                }
+                return result
+            }
+        "#;
+        let c_source = r#"
+            #include <stdio.h>
+            extern float sum_prefetched(const float*, int);
+            int main() {
+                float data[] = {1.0f, 2.0f, 3.0f, 4.0f};
+                printf("%.0f\n", sum_prefetched(data, 4));
+                return 0;
+            }
+        "#;
+        assert_c_interop(ea_source, c_source, "10");
+    }
 }
