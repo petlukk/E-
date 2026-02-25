@@ -1040,4 +1040,103 @@ int main() {
             "1",
         );
     }
+
+    // === Particle Life fused kernel ===
+
+    #[test]
+    fn test_particle_life_fused_step() {
+        let result = compile_and_link_with_c(
+            r#"
+export func particle_life_step(
+    px: *mut f32, py: *mut f32,
+    vx: *mut f32, vy: *mut f32,
+    types: *i32,
+    matrix: *f32,
+    n: i32, num_types: i32,
+    r_max: f32, dt: f32, friction: f32, size: f32
+) {
+    let mut i: i32 = 0
+    while i < n {
+        let xi: f32 = px[i]
+        let yi: f32 = py[i]
+        let ti: i32 = types[i]
+        let mut fx: f32 = 0.0
+        let mut fy: f32 = 0.0
+
+        let r_max2: f32 = r_max * r_max
+        let mut j: i32 = 0
+        while j < n {
+            let dx: f32 = px[j] - xi
+            let dy: f32 = py[j] - yi
+            let dist2: f32 = dx * dx + dy * dy
+            if dist2 > 0.0 {
+                if dist2 < r_max2 {
+                    let dist: f32 = sqrt(dist2)
+                    let strength: f32 = matrix[ti * num_types + types[j]]
+                    let force: f32 = strength * (1.0 - dist / r_max)
+                    fx = fx + force * dx / dist
+                    fy = fy + force * dy / dist
+                }
+            }
+            j = j + 1
+        }
+
+        vx[i] = (vx[i] + fx * dt) * friction
+        vy[i] = (vy[i] + fy * dt) * friction
+        px[i] = px[i] + vx[i] * dt
+        py[i] = py[i] + vy[i] * dt
+
+        let cur_px: f32 = px[i]
+        let cur_py: f32 = py[i]
+        if cur_px < 0.0 { px[i] = cur_px + size }
+        if cur_px >= size { px[i] = cur_px - size }
+        if cur_py < 0.0 { py[i] = cur_py + size }
+        if cur_py >= size { py[i] = cur_py - size }
+
+        i = i + 1
+    }
+}
+"#,
+            r#"
+#include <stdio.h>
+#include <math.h>
+
+extern void particle_life_step(
+    float* px, float* py,
+    float* vx, float* vy,
+    int* types,
+    float* matrix,
+    int n, int num_types,
+    float r_max, float dt, float friction, float size
+);
+
+int main() {
+    float px[2] = {0.0f, 50.0f};
+    float py[2] = {0.0f, 0.0f};
+    float vx[2] = {0.0f, 0.0f};
+    float vy[2] = {0.0f, 0.0f};
+    int types[2] = {0, 0};
+    float matrix[1] = {1.0f};
+
+    particle_life_step(px, py, vx, vy, types, matrix,
+                       2, 1, 100.0f, 1.0f, 0.5f, 1000.0f);
+
+    /* Particle 0 expected:
+       dx=50, dy=0, dist2=2500, r_max2=10000 -> in range
+       dist=50, strength=1.0, force=1.0*(1-50/100)=0.5
+       fx=0.5*50/50=0.5, fy=0
+       vx=(0+0.5*1.0)*0.5=0.25, vy=(0+0)*0.5=0
+       px=0+0.25*1.0=0.25, py=0+0*1.0=0 */
+    int ok = 1;
+    if (fabsf(px[0] - 0.25f) > 0.001f) ok = 0;
+    if (fabsf(py[0] - 0.0f) > 0.001f) ok = 0;
+    if (fabsf(vx[0] - 0.25f) > 0.001f) ok = 0;
+    if (fabsf(vy[0] - 0.0f) > 0.001f) ok = 0;
+    printf("%d\n", ok);
+    return 0;
+}
+"#,
+        );
+        assert_eq!(result.stdout.trim(), "1");
+    }
 }
