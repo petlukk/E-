@@ -198,6 +198,7 @@ Real workloads. Real data. Verified against established tools.
 | [Tokenizer prepass](demo/tokenizer_prepass/) | Text/NLP | Structural scan, bitwise ops | unfused: **78.7x**, fused: **58.1x** vs NumPy (fusion: 0.74x — see README) |
 | [Particle update](demo/particles/) | Struct FFI | C-compatible structs over FFI | Correctness demo — proves struct layout matches C exactly |
 | [Cornell Box ray tracer](demo/cornell_box/) | Graphics | Struct return, recursion, scalar math | First non-SIMD demo: full ray tracer in ~200 lines of Eä |
+| [Particle life](demo/particle_life/) | Simulation | N-body scalar, fused vs unfused | Matches hand-written C at -O2. Interactive pygame UI |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
@@ -347,7 +348,7 @@ Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
 ~5,800 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-172 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
+177 tests covering C interop, SIMD operations, structs, integer types, and shared library output.
 
 ## License
 
