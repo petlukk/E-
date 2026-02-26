@@ -36,150 +36,69 @@ extern void fma_kernel(const float*, const float*, const float*, float*, int);
 fma_kernel(a, b, c, result, n);  // that's it
 ```
 
-## Benchmark
+## v0.6.0 — foreach, unroll, compiler tools
 
-Measured on AMD Ryzen 7 1700 (Zen 1, AVX2/FMA), GCC 11.4, LLVM 18, Linux (WSL2).
-1M elements, 100-200 runs, averaged. Full methodology and scripts in `benchmarks/`.
-
-**Ea uses strict IEEE floating point -- no fast-math flags.** The C reference was
-compiled with `gcc -O3 -march=native -ffast-math`. Ea matching this baseline
-without fast-math is the stronger claim.
-
-### FMA Kernel (result[i] = a[i] \* b[i] + c[i])
-
-| Implementation   | Avg (us) | vs Fastest C |
-| ---------------- | -------- | ------------ |
-| GCC f32x8 (AVX2) | 887      | 1.03x        |
-| **Ea f32x4**     | **885**  | **1.03x**    |
-| Clang-14 f32x8   | 859      | 1.00x        |
-| ISPC             | 828      | 0.96x        |
-| Rust std::simd   | 1001     | 1.17x        |
-
-### Sum Reduction
-
-| Implementation   | Avg (us) | vs Fastest C |
-| ---------------- | -------- | ------------ |
-| C f32x8 (AVX2)   | 110      | 1.00x        |
-| **Ea f32x8**     | **105**  | **0.96x**    |
-| Clang-14 f32x8   | 130      | 1.18x        |
-| ISPC             | 105      | 0.95x        |
-| Rust f32x8       | 111      | 1.01x        |
-
-### Max Reduction (multi-accumulator)
-
-| Implementation  | Avg (us) | vs Fastest C |
-| --------------- | -------- | ------------ |
-| C f32x4 (SSE)   | 100      | 1.00x        |
-| **Ea f32x4**    | **78**   | **0.83x**    |
-| Clang-14 f32x4  | 89       | 0.95x        |
-| ISPC            | 71       | 0.76x        |
-| Rust f32x4      | 180      | 1.93x        |
-
-### Min Reduction (multi-accumulator)
-
-| Implementation  | Avg (us) | vs Fastest C |
-| --------------- | -------- | ------------ |
-| C f32x4 (SSE)   | 80       | 1.00x        |
-| **Ea f32x4**    | **78**   | **0.97x**    |
-| Clang-14 f32x4  | 88       | 1.10x        |
-| ISPC            | 73       | 0.91x        |
-| Rust f32x4      | 220      | 2.77x        |
-
-Ea's reduction kernels use explicit multi-accumulator patterns to break dependency
-chains -- see `examples/reduction_multi_acc.ea`. This is faster than relying on
-compiler auto-unrolling and stable across LLVM versions.
-
-Competitors are optional -- benchmarks run with whatever toolchains are installed.
-GCC is required; Clang, ISPC, and Rust nightly are detected and included automatically.
-
----
-
-## Additional Benchmark Results (Intel i7-1260P, WSL2)
-
-Measured on Intel i7-1260P (Alder Lake, AVX2/FMA), LLVM 18, Linux (WSL2).
-1M elements, 100–200 runs, **minimum** time reported.
-
-### Key Finding: `restrict` produces identical machine code
-
-The `noalias` attribute is correctly emitted in LLVM IR, but it has no measurable impact on these benchmarks because:
-
-- The generated assembly is byte-identical with and without `restrict` (confirmed via `objdump -d` + MD5 comparison)
-- Ea's explicit SIMD intrinsics (`load` / `store` / `fma`) already use distinct base pointers, so LLVM's alias analysis does not require `noalias` hints
-- Ea's explicit SIMD means the loop vectorizer and SLP passes have little to contribute beyond what is already expressed
-- Reduction kernels have a single pointer parameter, making `noalias` vacuous
-
-The implementation is correct and complete — it is simply not performance-relevant for these specific kernels. The feature is positioned for value when the optimizer pipeline grows (auto-tiling, software pipelining, prefetching) or when users write more complex aliasing patterns.
-
-### FMA Kernel (1M f32, 100 runs, min time)
-
-| Implementation       | Min (us) |
-| -------------------- | -------- |
-| GCC f32x8 (AVX2)     | ~395     |
-| Clang-14 f32x8       | ~396     |
-| **Ea f32x4**         | **~326** |
-| Clang-14 f32x4       | ~376     |
-| Rust std::simd f32x4 | ~365     |
-| ISPC                 | ~656     |
-
-### Sum Reduction (1M f32, 200 runs, min time)
-
-| Implementation | Min (us) |
-| -------------- | -------- |
-| ISPC           | ~62      |
-| **Ea f32x8**   | **~65**  |
-| Rust f32x8     | ~66      |
-| C f32x8 (AVX2) | ~68      |
-
-### Notes
-
-- ISPC compilation flag fixed (`--PIC` → `--pic`) in `bench_common.py`
-- Benchmarks confirm that explicit SIMD already provides sufficient aliasing information to LLVM
-- `restrict` becomes valuable when introducing auto-optimization features or more complex aliasing scenarios
-
-## Performance Principle
-
-LLVM optimizes instructions. Ea lets you optimize dependency structure.
-
-A single-accumulator reduction creates a serial chain -- each iteration waits for
-the previous one. On a superscalar CPU, this wastes execution units:
+**`foreach`** — auto-vectorized element-wise loops with phi-node codegen:
 
 ```
-// Single accumulator: serial dependency, ~0.25 IPC on Zen 1
-acc = max(acc, load(data, i))   // must wait for previous acc
+export func scale(data: *f32, out: *mut f32, n: i32, factor: f32) {
+    foreach (i in 0..n) {
+        out[i] = data[i] * factor
+    }
+}
 ```
 
-Express the parallelism explicitly with multiple accumulators:
+`foreach` generates a scalar loop with phi nodes. LLVM may auto-vectorize at `-O2+`.
+For guaranteed SIMD width, use explicit `load`/`store` with `f32x4`/`f32x8`.
+
+**`unroll(N)`** — hint to unroll the following loop:
 
 ```
-// Two accumulators: independent chains, ~1.0 IPC on Zen 1
-acc0 = max(acc0, load(data, i))      // independent
-acc1 = max(acc1, load(data, i + 4))  // independent
+unroll(4) foreach (i in 0..n) { out[i] = data[i] * factor }
+unroll(4) while i < n { ... }
 ```
 
-Result: 2x throughput from a source-level change, stable across LLVM versions,
-no compiler flags or optimizer tuning required.
+Relies on LLVM unrolling heuristics. Not a hard guarantee.
 
-See `examples/reduction_single.ea` and `examples/reduction_multi_acc.ea`.
+**`prefetch(ptr, offset)`** — software prefetch hint for large-array streaming:
+
+```
+prefetch(data, i + 16)
+```
+
+**`--header`** — generate a C header alongside the object file:
+
+```bash
+ea kernel.ea --header    # produces kernel.o + kernel.h
+```
+
+```c
+// kernel.h (generated)
+#ifndef KERNEL_H
+#define KERNEL_H
+#include <stdint.h>
+void scale(const float* data, float* out, int32_t n, float factor);
+#endif
+```
+
+**`--emit-asm`** — emit assembly for inspection:
+
+```bash
+ea kernel.ea --emit-asm  # produces kernel.s
+```
+
+## Benchmarks
+
+Eä matches or beats hand-written C intrinsics on FMA and reduction kernels,
+using strict IEEE floating point (no fast-math). See [`BENCHMARKS.md`](BENCHMARKS.md)
+for full tables (AMD Ryzen 7, Intel i7), restrict analysis, and ILP methodology.
 
 ## Compute Model
 
-Ea defines seven kernel patterns that cover most compute workloads:
-
-| Pattern | What it does | Example |
-|---------|-------------|---------|
-| Streaming | Element-wise transform | `fma.ea` |
-| Reduction | Array → scalar with multi-acc ILP | `reduction.ea` |
-| Stencil | Neighborhood access (convolution) | `conv2d.ea` |
-| Streaming Dataset | Multi-frame accumulation | `astro_stack.ea` |
-| Fused Pipeline | Multiple ops, zero intermediates | `anomaly_fused.ea` |
-| Quantized Inference | u8×i8 → i16/i32 via maddubs | `conv2d_3x3.ea` |
-| Structural Scan | Byte-domain classify via integer SIMD | `tokenizer.ea` |
-
-The full compute model — dependency structure, memory patterns, vector width
-selection, and design principles — is documented in [`COMPUTE.md`](COMPUTE.md).
-
-For a deeper analysis of when each pattern wins and when it doesn't, with
-measured results and memory models, see [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md).
+Seven kernel patterns — streaming, reduction, stencil, streaming dataset, fused
+pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) for
+the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
+of when each pattern wins and when it doesn't.
 
 ## Demos
 
@@ -283,8 +202,12 @@ kernel code needs predictable performance without hidden checks.
 - **Literals**: decimal (`255`), hex (`0xFF`), binary (`0b11110000`)
 - **Control flow**: `if`/`else if`/`else`, `while`
 - **Types**: `i8`, `u8`, `i16`, `u16`, `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`
+- **foreach**: `foreach (i in 0..n) { ... }` — auto-vectorized element-wise loops
+- **unroll(N)**: loop unrolling hint for `while` and `foreach`
+- **prefetch**: `prefetch(ptr, offset)` — software prefetch for large-array streaming
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
 - **C ABI**: every `export func` is callable from any language
+- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output)
 - **AVX-512**: `f32x16` via `--avx512` flag
 
 Currently tested on x86-64 with AVX2. Other architectures depend on LLVM backend support.
@@ -307,7 +230,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (193 passing)
+# Run tests (226 passing)
 cargo test --features=llvm
 ```
 
@@ -348,7 +271,7 @@ Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
 ~5,800 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-193 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, and compiler flags.
+226 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, and compiler flags.
 
 ## License
 

@@ -1,11 +1,11 @@
 # Eä Compute Patterns
 
-Five compute classes. Each has a memory model, a dependency structure,
+Seven compute classes. Each has a memory model, a dependency structure,
 and a measurable boundary where it wins or loses.
 
 This is not marketing. This is measurement.
 
-## The five classes
+## The seven classes
 
 ```
                     ┌─────────────────────────────────────────┐
@@ -67,6 +67,27 @@ export func threshold_f32x8(data: *restrict f32, out: *mut f32, len: i32, thresh
     }
 }
 ```
+
+### foreach alternative
+
+For element-wise work that doesn't need explicit SIMD width control, `foreach`
+provides a simpler syntax:
+
+```
+export func threshold_foreach(data: *f32, out: *mut f32, len: i32, thresh: f32) {
+    foreach (i in 0..len) {
+        if data[i] > thresh {
+            out[i] = 1.0
+        } else {
+            out[i] = 0.0
+        }
+    }
+}
+```
+
+`foreach` generates a scalar loop with phi nodes. LLVM may auto-vectorize at
+`-O2+`, but the SIMD width is not guaranteed. For controlled vectorization,
+use the explicit `f32x8` version above.
 
 ### When it wins
 
@@ -151,6 +172,27 @@ export func sum_f32x8(data: *restrict f32, len: i32) -> f32 {
     return total
 }
 ```
+
+### unroll(N) hint
+
+For simpler reductions where manual multi-accumulator code is verbose, `unroll(N)`
+hints LLVM to unroll the loop body:
+
+```
+export func sum_unrolled(data: *f32, n: i32) -> f32 {
+    let mut total: f32 = 0.0
+    let mut i: i32 = 0
+    unroll(4) while i < n {
+        total = total + data[i]
+        i = i + 1
+    }
+    return total
+}
+```
+
+This relies on LLVM unrolling heuristics — it is not a hard guarantee.
+For performance-critical reductions, the explicit multi-accumulator pattern
+above is more reliable and stable across LLVM versions.
 
 ### When it wins
 
@@ -355,6 +397,16 @@ export func scale_f32x8(data: *restrict f32, out: *mut f32, len: i32, factor: f3
 The caller (Python, C, Rust) owns the loop over frames.
 The kernel processes one frame. This is the separation.
 
+For simple per-frame accumulation, `foreach` can replace the explicit SIMD loop:
+
+```
+export func accumulate_foreach(acc: *mut f32, frame: *f32, len: i32) {
+    foreach (i in 0..len) {
+        acc[i] = acc[i] + frame[i]
+    }
+}
+```
+
 ### When it wins
 
 - **Always, when N is large.** The memory advantage is O(N). For 100 frames of
@@ -467,6 +519,23 @@ export func anomaly_count_fused(a: *restrict f32, b: *restrict f32, len: i32, th
     // ... scalar tail omitted
 }
 ```
+
+### Prefetch for large arrays
+
+When fused pipelines process arrays larger than L3 cache, software prefetch
+can hide memory latency by requesting data ahead of the current position:
+
+```
+prefetch(a, i + 64)
+prefetch(b, i + 64)
+let va0: f32x8 = load(a, i)
+let vb0: f32x8 = load(b, i)
+// ... fused compute ...
+```
+
+`prefetch(ptr, offset)` emits a non-temporal prefetch hint. The offset is in
+elements, not bytes. Useful when the loop body is compute-heavy enough that
+the CPU would otherwise stall on cache misses.
 
 ### When it wins
 
