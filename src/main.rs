@@ -1,4 +1,9 @@
+use ea_compiler::error::{format_with_source, CompileError};
 use std::process;
+
+fn print_error(e: &CompileError, filename: &str, source: &str) {
+    eprintln!("{}", format_with_source(e, filename, source));
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -94,7 +99,7 @@ fn main() {
                 }
             }
             Err(e) => {
-                eprintln!("{e}");
+                print_error(&e, input_file, &source);
                 process::exit(1);
             }
         }
@@ -109,7 +114,7 @@ fn main() {
                 }
             }
             Err(e) => {
-                eprintln!("{e}");
+                print_error(&e, input_file, &source);
                 process::exit(1);
             }
         }
@@ -140,7 +145,7 @@ fn main() {
                     print!("{ir}");
                 }
                 Err(e) => {
-                    eprintln!("{e}");
+                    print_error(&e, input_file, &source);
                     process::exit(1);
                 }
             }
@@ -154,7 +159,7 @@ fn main() {
                     eprintln!("wrote {}", asm_path.display());
                 }
                 Err(e) => {
-                    eprintln!("{e}");
+                    print_error(&e, input_file, &source);
                     process::exit(1);
                 }
             }
@@ -165,19 +170,19 @@ fn main() {
             let tokens = match ea_compiler::tokenize(&source) {
                 Ok(t) => t,
                 Err(e) => {
-                    eprintln!("{e}");
+                    print_error(&e, input_file, &source);
                     process::exit(1);
                 }
             };
             let stmts = match ea_compiler::parse(tokens) {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("{e}");
+                    print_error(&e, input_file, &source);
                     process::exit(1);
                 }
             };
             if let Err(e) = ea_compiler::check_types(&stmts) {
-                eprintln!("{e}");
+                print_error(&e, input_file, &source);
                 process::exit(1);
             }
             let header = ea_compiler::header::generate(&stmts, stem);
@@ -213,7 +218,7 @@ fn main() {
         match ea_compiler::compile_with_options(&source, &output_path, mode, &opts) {
             Ok(()) => {}
             Err(e) => {
-                eprintln!("{e}");
+                print_error(&e, input_file, &source);
                 process::exit(1);
             }
         }
