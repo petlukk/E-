@@ -29,6 +29,8 @@ tmp/
 
 # Non-essential documentation
 docs/plans/
+plans/
+EA_V2_SPECIFICATION.md
 
 # Demo auto-downloaded data (created on first run)
 demo/astro_stack/nasa_data/
