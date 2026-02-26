@@ -402,3 +402,16 @@ impl fmt::Display for Stmt {
         }
     }
 }
+
+/// Returns the names of all exported functions in the given statements.
+pub fn exported_function_names(stmts: &[Stmt]) -> Vec<&str> {
+    stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Function {
+                name, export: true, ..
+            } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect()
+}
