@@ -24,7 +24,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
         match expr {
-            Expr::Literal(Literal::Integer(n)) => {
+            Expr::Literal(Literal::Integer(n), _) => {
                 let ty = type_hint.unwrap_or(&Type::I32);
                 match ty {
                     Type::I8 | Type::U8 => {
@@ -45,7 +45,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                 }
             }
-            Expr::Literal(Literal::Float(n)) => {
+            Expr::Literal(Literal::Float(n), _) => {
                 let ty = type_hint.unwrap_or(&Type::F64);
                 match ty {
                     Type::F32 => {
@@ -58,18 +58,18 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                 }
             }
-            Expr::Literal(Literal::StringLit(s)) => {
+            Expr::Literal(Literal::StringLit(s), _) => {
                 let global = self
                     .builder
                     .build_global_string_ptr(s, "str")
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(BasicValueEnum::PointerValue(global.as_pointer_value()))
             }
-            Expr::Literal(Literal::Bool(b)) => {
+            Expr::Literal(Literal::Bool(b), _) => {
                 let val = self.context.bool_type().const_int(*b as u64, false);
                 Ok(BasicValueEnum::IntValue(val))
             }
-            Expr::Not(inner) => {
+            Expr::Not(inner, _) => {
                 let val = self.compile_expr(inner, function)?;
                 let int_val = val.into_int_value();
                 let result = self
@@ -78,7 +78,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(BasicValueEnum::IntValue(result))
             }
-            Expr::Negate(inner) => {
+            Expr::Negate(inner, _) => {
                 let val = self.compile_expr_typed(inner, type_hint, function)?;
                 match val {
                     BasicValueEnum::IntValue(iv) => {
@@ -114,7 +114,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     _ => Err(CompileError::codegen_error("unary '-' on unsupported type")),
                 }
             }
-            Expr::Variable(name) => {
+            Expr::Variable(name, _) => {
                 let (ptr, ty) = self.variables.get(name).ok_or_else(|| {
                     CompileError::codegen_error(format!("undefined variable '{name}'"))
                 })?;
@@ -125,7 +125,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(val)
             }
-            Expr::Index { object, index } => {
+            Expr::Index { object, index, .. } => {
                 let obj_val = self.compile_expr(object, function)?;
                 let idx = self.compile_expr(index, function)?.into_int_value();
                 if let BasicValueEnum::VectorValue(vec) = obj_val {
@@ -136,7 +136,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     Ok(val)
                 } else {
                     let ptr = obj_val.into_pointer_value();
-                    let inner_type = if let Expr::Variable(name) = object.as_ref() {
+                    let inner_type = if let Expr::Variable(name, _) = object.as_ref() {
                         if let Some((_, Type::Pointer { inner, .. })) = self.variables.get(name) {
                             self.llvm_type(inner)
                         } else {
@@ -155,8 +155,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                     Ok(val)
                 }
             }
-            Expr::Binary(lhs, op, rhs) => self.compile_binary(lhs, op, rhs, type_hint, function),
-            Expr::Call { name, args } => {
+            Expr::Binary(lhs, op, rhs, _) => self.compile_binary(lhs, op, rhs, type_hint, function),
+            Expr::Call { name, args, .. } => {
                 if name == "println" {
                     return self.compile_println(&args[0], function);
                 }
@@ -189,14 +189,14 @@ impl<'ctx> CodeGenerator<'ctx> {
                     )),
                 }
             }
-            Expr::Vector { elements, ty } => self.compile_vector_literal(elements, ty, function),
-            Expr::ArrayLiteral(_) => Err(CompileError::codegen_error(
+            Expr::Vector { elements, ty, .. } => self.compile_vector_literal(elements, ty, function),
+            Expr::ArrayLiteral(..) => Err(CompileError::codegen_error(
                 "array literals can only be used as shuffle indices",
             )),
-            Expr::FieldAccess { object, field } => {
+            Expr::FieldAccess { object, field, .. } => {
                 self.compile_field_access(object, field, function)
             }
-            Expr::StructLiteral { name, fields } => {
+            Expr::StructLiteral { name, fields, .. } => {
                 self.compile_struct_literal(name, fields, function)
             }
         }
@@ -278,12 +278,12 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     fn infer_binary_hint(&self, lhs: &Expr, rhs: &Expr, outer_hint: Option<&Type>) -> Option<Type> {
-        if let Expr::Variable(name) = lhs {
+        if let Expr::Variable(name, _) = lhs {
             if let Some((_, ty)) = self.variables.get(name) {
                 return Some(ty.clone());
             }
         }
-        if let Expr::Variable(name) = rhs {
+        if let Expr::Variable(name, _) = rhs {
             if let Some((_, ty)) = self.variables.get(name) {
                 return Some(ty.clone());
             }
@@ -438,7 +438,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     pub(super) fn arg_is_unsigned(&self, expr: &Expr) -> bool {
-        if let Expr::Variable(name) = expr {
+        if let Expr::Variable(name, _) = expr {
             if let Some((_, ty)) = self.variables.get(name) {
                 return ty.is_unsigned_integer();
             }

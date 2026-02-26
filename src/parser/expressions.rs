@@ -1,6 +1,6 @@
 use crate::ast::{BinaryOp, Expr, Literal};
 use crate::error::CompileError;
-use crate::lexer::TokenKind;
+use crate::lexer::{Span, TokenKind};
 
 use super::Parser;
 
@@ -12,9 +12,16 @@ impl Parser {
     fn logical_or(&mut self) -> crate::error::Result<Expr> {
         let mut left = self.logical_and()?;
         while self.check(TokenKind::PipePipe) {
+            let start = left.span().start.clone();
             self.advance();
             let right = self.logical_and()?;
-            left = Expr::Binary(Box::new(left), BinaryOp::Or, Box::new(right));
+            let end = right.span().end.clone();
+            left = Expr::Binary(
+                Box::new(left),
+                BinaryOp::Or,
+                Box::new(right),
+                Span::new(start, end),
+            );
         }
         Ok(left)
     }
@@ -22,9 +29,16 @@ impl Parser {
     fn logical_and(&mut self) -> crate::error::Result<Expr> {
         let mut left = self.comparison()?;
         while self.check(TokenKind::AmpAmp) {
+            let start = left.span().start.clone();
             self.advance();
             let right = self.comparison()?;
-            left = Expr::Binary(Box::new(left), BinaryOp::And, Box::new(right));
+            let end = right.span().end.clone();
+            left = Expr::Binary(
+                Box::new(left),
+                BinaryOp::And,
+                Box::new(right),
+                Span::new(start, end),
+            );
         }
         Ok(left)
     }
@@ -59,9 +73,16 @@ impl Parser {
             None
         };
         if let Some(op) = op {
+            let start = left.span().start.clone();
             self.advance();
             let right = self.additive()?;
-            Ok(Expr::Binary(Box::new(left), op, Box::new(right)))
+            let end = right.span().end.clone();
+            Ok(Expr::Binary(
+                Box::new(left),
+                op,
+                Box::new(right),
+                Span::new(start, end),
+            ))
         } else {
             Ok(left)
         }
@@ -92,9 +113,16 @@ impl Parser {
             } else {
                 BinaryOp::XorDot
             };
+            let start = left.span().start.clone();
             self.advance();
             let right = self.multiplicative()?;
-            left = Expr::Binary(Box::new(left), op, Box::new(right));
+            let end = right.span().end.clone();
+            left = Expr::Binary(
+                Box::new(left),
+                op,
+                Box::new(right),
+                Span::new(start, end),
+            );
         }
         Ok(left)
     }
@@ -118,18 +146,27 @@ impl Parser {
             } else {
                 BinaryOp::DivDot
             };
+            let start = left.span().start.clone();
             self.advance();
             let right = self.unary()?;
-            left = Expr::Binary(Box::new(left), op, Box::new(right));
+            let end = right.span().end.clone();
+            left = Expr::Binary(
+                Box::new(left),
+                op,
+                Box::new(right),
+                Span::new(start, end),
+            );
         }
         Ok(left)
     }
 
     fn unary(&mut self) -> crate::error::Result<Expr> {
         if self.check(TokenKind::Bang) {
+            let start = self.current_position();
             self.advance();
             let inner = self.unary()?;
-            return Ok(Expr::Not(Box::new(inner)));
+            let end = inner.span().end.clone();
+            return Ok(Expr::Not(Box::new(inner), Span::new(start, end)));
         }
         if self.check(TokenKind::Minus) {
             let is_literal = matches!(
@@ -142,9 +179,11 @@ impl Parser {
                 )
             );
             if !is_literal {
+                let start = self.current_position();
                 self.advance();
                 let inner = self.unary()?;
-                return Ok(Expr::Negate(Box::new(inner)));
+                let end = inner.span().end.clone();
+                return Ok(Expr::Negate(Box::new(inner), Span::new(start, end)));
             }
         }
         self.primary()
@@ -154,30 +193,42 @@ impl Parser {
         // Unary minus for numeric literals
         if self.check(TokenKind::Minus) {
             if self.peek_next_kind() == Some(&TokenKind::IntLiteral) {
+                let start = self.current_position();
                 self.advance(); // consume '-'
                 let token = self.advance().clone();
+                let end = token.position.clone();
                 let value: i64 = token.lexeme.parse::<i64>().map_err(|_| {
                     CompileError::parse_error(
                         format!("invalid integer literal: {}", token.lexeme),
                         token.position.clone(),
                     )
                 })?;
-                return Ok(Expr::Literal(Literal::Integer(-value)));
+                return Ok(Expr::Literal(
+                    Literal::Integer(-value),
+                    Span::new(start, end),
+                ));
             }
             if self.peek_next_kind() == Some(&TokenKind::FloatLiteral) {
+                let start = self.current_position();
                 self.advance(); // consume '-'
                 let token = self.advance().clone();
+                let end = token.position.clone();
                 let value: f64 = token.lexeme.parse().map_err(|_| {
                     CompileError::parse_error(
                         format!("invalid float literal: {}", token.lexeme),
                         token.position.clone(),
                     )
                 })?;
-                return Ok(Expr::Literal(Literal::Float(-value)));
+                return Ok(Expr::Literal(
+                    Literal::Float(-value),
+                    Span::new(start, end),
+                ));
             }
             if self.peek_next_kind() == Some(&TokenKind::HexLiteral) {
+                let start = self.current_position();
                 self.advance(); // consume '-'
                 let token = self.advance().clone();
+                let end = token.position.clone();
                 let hex_str = &token.lexeme[2..]; // strip "0x"
                 let value = i64::from_str_radix(hex_str, 16).map_err(|_| {
                     CompileError::parse_error(
@@ -185,11 +236,16 @@ impl Parser {
                         token.position.clone(),
                     )
                 })?;
-                return Ok(Expr::Literal(Literal::Integer(-value)));
+                return Ok(Expr::Literal(
+                    Literal::Integer(-value),
+                    Span::new(start, end),
+                ));
             }
             if self.peek_next_kind() == Some(&TokenKind::BinLiteral) {
+                let start = self.current_position();
                 self.advance(); // consume '-'
                 let token = self.advance().clone();
+                let end = token.position.clone();
                 let bin_str = &token.lexeme[2..]; // strip "0b"
                 let value = i64::from_str_radix(bin_str, 2).map_err(|_| {
                     CompileError::parse_error(
@@ -197,23 +253,28 @@ impl Parser {
                         token.position.clone(),
                     )
                 })?;
-                return Ok(Expr::Literal(Literal::Integer(-value)));
+                return Ok(Expr::Literal(
+                    Literal::Integer(-value),
+                    Span::new(start, end),
+                ));
             }
         }
 
         if self.check(TokenKind::IntLiteral) {
             let token = self.advance().clone();
+            let span = Span::new(token.position.clone(), token.position.clone());
             let value: i64 = token.lexeme.parse().map_err(|_| {
                 CompileError::parse_error(
                     format!("invalid integer literal: {}", token.lexeme),
                     token.position.clone(),
                 )
             })?;
-            return Ok(Expr::Literal(Literal::Integer(value)));
+            return Ok(Expr::Literal(Literal::Integer(value), span));
         }
 
         if self.check(TokenKind::HexLiteral) {
             let token = self.advance().clone();
+            let span = Span::new(token.position.clone(), token.position.clone());
             let hex_str = &token.lexeme[2..]; // strip "0x"
             let value = i64::from_str_radix(hex_str, 16).map_err(|_| {
                 CompileError::parse_error(
@@ -221,11 +282,12 @@ impl Parser {
                     token.position.clone(),
                 )
             })?;
-            return Ok(Expr::Literal(Literal::Integer(value)));
+            return Ok(Expr::Literal(Literal::Integer(value), span));
         }
 
         if self.check(TokenKind::BinLiteral) {
             let token = self.advance().clone();
+            let span = Span::new(token.position.clone(), token.position.clone());
             let bin_str = &token.lexeme[2..]; // strip "0b"
             let value = i64::from_str_radix(bin_str, 2).map_err(|_| {
                 CompileError::parse_error(
@@ -233,55 +295,70 @@ impl Parser {
                     token.position.clone(),
                 )
             })?;
-            return Ok(Expr::Literal(Literal::Integer(value)));
+            return Ok(Expr::Literal(Literal::Integer(value), span));
         }
 
         if self.check(TokenKind::FloatLiteral) {
             let token = self.advance().clone();
+            let span = Span::new(token.position.clone(), token.position.clone());
             let value: f64 = token.lexeme.parse().map_err(|_| {
                 CompileError::parse_error(
                     format!("invalid float literal: {}", token.lexeme),
                     token.position.clone(),
                 )
             })?;
-            return Ok(Expr::Literal(Literal::Float(value)));
+            return Ok(Expr::Literal(Literal::Float(value), span));
         }
 
         if self.check(TokenKind::StringLiteral) {
             let token = self.advance().clone();
+            let span = Span::new(token.position.clone(), token.position.clone());
             let content = token.lexeme[1..token.lexeme.len() - 1].to_string();
-            return Ok(Expr::Literal(Literal::StringLit(content)));
+            return Ok(Expr::Literal(Literal::StringLit(content), span));
         }
 
         if self.check(TokenKind::True) {
+            let pos = self.current_position();
             self.advance();
-            return Ok(Expr::Literal(Literal::Bool(true)));
+            let span = Span::new(pos.clone(), pos);
+            return Ok(Expr::Literal(Literal::Bool(true), span));
         }
 
         if self.check(TokenKind::False) {
+            let pos = self.current_position();
             self.advance();
-            return Ok(Expr::Literal(Literal::Bool(false)));
+            let span = Span::new(pos.clone(), pos);
+            return Ok(Expr::Literal(Literal::Bool(false), span));
         }
 
         if self.check(TokenKind::Splat) {
+            let start = self.current_position();
             self.advance();
             self.expect_kind(TokenKind::LeftParen, "expected '(' after 'splat'")?;
             let args = self.parse_args()?;
             self.expect_kind(TokenKind::RightParen, "expected ')' after arguments")?;
+            let end = self.previous_position();
             return Ok(Expr::Call {
                 name: "splat".to_string(),
                 args,
+                span: Span::new(start, end),
             });
         }
 
         if self.check(TokenKind::Identifier) {
             let token = self.advance().clone();
+            let start = token.position.clone();
             let name = token.lexeme.clone();
             if self.check(TokenKind::LeftParen) {
                 self.advance();
                 let args = self.parse_args()?;
                 self.expect_kind(TokenKind::RightParen, "expected ')' after arguments")?;
-                return Ok(Expr::Call { name, args });
+                let end = self.previous_position();
+                return Ok(Expr::Call {
+                    name,
+                    args,
+                    span: Span::new(start, end),
+                });
             }
             // Struct literal: Name { field: val, ... } — name starts with uppercase.
             // Disambiguate from control-flow body: struct literals always have
@@ -306,27 +383,38 @@ impl Parser {
                     }
                 }
                 self.expect_kind(TokenKind::RightBrace, "expected '}' after struct literal")?;
-                return Ok(Expr::StructLiteral { name, fields });
+                let end = self.previous_position();
+                return Ok(Expr::StructLiteral {
+                    name,
+                    fields,
+                    span: Span::new(start, end),
+                });
             }
-            let mut expr = Expr::Variable(name);
+            let mut expr = Expr::Variable(name, Span::new(start.clone(), start));
             // Postfix indexing and field access: name[expr] or name.field
             loop {
                 if self.check(TokenKind::LeftBracket) {
+                    let idx_start = expr.span().start.clone();
                     self.advance(); // consume [
                     let index = self.expression()?;
                     self.expect_kind(TokenKind::RightBracket, "expected ']' after index")?;
+                    let end = self.previous_position();
                     expr = Expr::Index {
                         object: Box::new(expr),
                         index: Box::new(index),
+                        span: Span::new(idx_start, end),
                     };
                 } else if self.check(TokenKind::Dot) {
+                    let fa_start = expr.span().start.clone();
                     self.advance(); // consume .
                     let field_token =
                         self.expect_kind(TokenKind::Identifier, "expected field name after '.'")?;
                     let field = field_token.lexeme.clone();
+                    let end = self.previous_position();
                     expr = Expr::FieldAccess {
                         object: Box::new(expr),
                         field,
+                        span: Span::new(fa_start, end),
                     };
                 } else {
                     break;
@@ -336,6 +424,7 @@ impl Parser {
         }
 
         if self.check(TokenKind::LeftBracket) {
+            let start = self.current_position();
             self.advance(); // consume [
             let mut elements = Vec::new();
             if !self.check(TokenKind::RightBracket) {
@@ -355,106 +444,127 @@ impl Parser {
             // Check for vector type suffix
             if self.check(TokenKind::I8x16) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("i8".to_string())),
                         width: 16,
                     },
+                    span: Span::new(start, end),
                 });
             }
             if self.check(TokenKind::I8x32) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("i8".to_string())),
                         width: 32,
                     },
+                    span: Span::new(start, end),
                 });
             }
             if self.check(TokenKind::U8x16) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("u8".to_string())),
                         width: 16,
                     },
+                    span: Span::new(start, end),
                 });
             }
             if self.check(TokenKind::I16x8) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("i16".to_string())),
                         width: 8,
                     },
+                    span: Span::new(start, end),
                 });
             }
             if self.check(TokenKind::I16x16) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("i16".to_string())),
                         width: 16,
                     },
+                    span: Span::new(start, end),
                 });
             }
             if self.check(TokenKind::F32x4) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
                         width: 4,
                     },
+                    span: Span::new(start, end),
                 });
             }
             if self.check(TokenKind::I32x4) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("i32".to_string())),
                         width: 4,
                     },
+                    span: Span::new(start, end),
                 });
             }
             if self.check(TokenKind::F32x8) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
                         width: 8,
                     },
+                    span: Span::new(start, end),
                 });
             }
             if self.check(TokenKind::I32x8) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("i32".to_string())),
                         width: 8,
                     },
+                    span: Span::new(start, end),
                 });
             }
             if self.check(TokenKind::F32x16) {
                 self.advance();
+                let end = self.previous_position();
                 return Ok(Expr::Vector {
                     elements,
                     ty: crate::ast::TypeAnnotation::Vector {
                         elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
                         width: 16,
                     },
+                    span: Span::new(start, end),
                 });
             }
             // No type suffix — it's an array literal (used for shuffle masks etc.)
-            return Ok(Expr::ArrayLiteral(elements));
+            let end = self.previous_position();
+            return Ok(Expr::ArrayLiteral(elements, Span::new(start, end)));
         }
 
         if self.check(TokenKind::LeftParen) {

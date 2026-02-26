@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::Stmt;
 use crate::error::CompileError;
-use crate::lexer::Position;
+use crate::lexer::Span;
 
 use super::types::{self, Type};
 use super::TypeChecker;
@@ -22,6 +22,7 @@ impl TypeChecker {
                     ty,
                     value,
                     mutable,
+                    ..
                 } => {
                     let declared = types::resolve_type(ty)?;
                     let init_type = self.check_expr_with_hint(value, locals, Some(&declared))?;
@@ -30,22 +31,22 @@ impl TypeChecker {
                             format!(
                                 "cannot initialize '{name}' of type {declared:?} with {init_type:?}"
                             ),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                     locals.insert(name.clone(), (declared, *mutable));
                 }
-                Stmt::Assign { target, value } => {
+                Stmt::Assign { target, value, .. } => {
                     let (var_type, mutable) = locals.get(target).cloned().ok_or_else(|| {
                         CompileError::type_error(
                             format!("undefined variable '{target}'"),
-                            Position::default(),
+                            Span::default(),
                         )
                     })?;
                     if !mutable {
                         return Err(CompileError::type_error(
                             format!("cannot assign to immutable variable '{target}'"),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                     let val_type = self.check_expr(value, locals)?;
@@ -54,7 +55,7 @@ impl TypeChecker {
                             format!(
                                 "cannot assign {val_type:?} to '{target}' of type {var_type:?}"
                             ),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                 }
@@ -62,11 +63,12 @@ impl TypeChecker {
                     object,
                     index,
                     value,
+                    ..
                 } => {
                     let (var_type, _) = locals.get(object).cloned().ok_or_else(|| {
                         CompileError::type_error(
                             format!("undefined variable '{object}'"),
-                            Position::default(),
+                            Span::default(),
                         )
                     })?;
                     match &var_type {
@@ -74,14 +76,14 @@ impl TypeChecker {
                             if !mutable {
                                 return Err(CompileError::type_error(
                                     format!("cannot write through immutable pointer '{object}'"),
-                                    Position::default(),
+                                    Span::default(),
                                 ));
                             }
                             let idx_type = self.check_expr(index, locals)?;
                             if !idx_type.is_integer() {
                                 return Err(CompileError::type_error(
                                     format!("index must be integer, got {idx_type:?}"),
-                                    Position::default(),
+                                    Span::default(),
                                 ));
                             }
                             let val_type = self.check_expr(value, locals)?;
@@ -90,26 +92,26 @@ impl TypeChecker {
                                     format!(
                                         "cannot assign {val_type:?} to element of {var_type:?}"
                                     ),
-                                    Position::default(),
+                                    Span::default(),
                                 ));
                             }
                         }
                         _ => {
                             return Err(CompileError::type_error(
                                 format!("cannot index-assign to non-pointer '{object}'"),
-                                Position::default(),
+                                Span::default(),
                             ));
                         }
                     }
                 }
-                Stmt::Return(Some(expr)) => {
+                Stmt::Return(Some(expr), _) => {
                     let actual = self.check_expr(expr, locals)?;
                     if *expected_return == Type::Void {
                         return Err(CompileError::type_error(
                             format!(
                                 "function '{func_name}' has no return type but returns a value"
                             ),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                     if !types::types_compatible(&actual, expected_return) {
@@ -117,31 +119,32 @@ impl TypeChecker {
                             format!(
                                 "function '{func_name}' returns {actual:?} but expected {expected_return:?}"
                             ),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                 }
-                Stmt::Return(None) => {
+                Stmt::Return(None, _) => {
                     if *expected_return != Type::Void {
                         return Err(CompileError::type_error(
                             format!("function '{func_name}' must return {expected_return:?}"),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                 }
-                Stmt::ExprStmt(expr) => {
+                Stmt::ExprStmt(expr, _) => {
                     self.check_expr(expr, locals)?;
                 }
                 Stmt::If {
                     condition,
                     then_body,
                     else_body,
+                    ..
                 } => {
                     let cond_type = self.check_expr(condition, locals)?;
                     if !cond_type.is_bool() {
                         return Err(CompileError::type_error(
                             format!("if condition must be bool, got {cond_type:?}"),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                     self.check_body(then_body, locals, expected_return, func_name)?;
@@ -152,12 +155,13 @@ impl TypeChecker {
                 Stmt::While {
                     condition,
                     body: while_body,
+                    ..
                 } => {
                     let cond_type = self.check_expr(condition, locals)?;
                     if !cond_type.is_bool() {
                         return Err(CompileError::type_error(
                             format!("while condition must be bool, got {cond_type:?}"),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                     self.check_body(while_body, locals, expected_return, func_name)?;
@@ -167,30 +171,31 @@ impl TypeChecker {
                     start,
                     end,
                     body: foreach_body,
+                    ..
                 } => {
                     let start_type = self.check_expr(start, locals)?;
                     if !start_type.is_integer() {
                         return Err(CompileError::type_error(
                             format!("foreach start must be integer, got {start_type:?}"),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                     let end_type = self.check_expr(end, locals)?;
                     if !end_type.is_integer() {
                         return Err(CompileError::type_error(
                             format!("foreach end must be integer, got {end_type:?}"),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                     let mut inner_locals = locals.clone();
                     inner_locals.insert(var.clone(), (Type::I32, false));
                     self.check_body(foreach_body, &mut inner_locals, expected_return, func_name)?;
                 }
-                Stmt::Unroll { count, body } => {
+                Stmt::Unroll { count, body, .. } => {
                     if *count == 0 {
                         return Err(CompileError::type_error(
                             "unroll count must be greater than 0",
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                     self.check_body(&[*body.clone()], locals, expected_return, func_name)?;
@@ -198,7 +203,7 @@ impl TypeChecker {
                 Stmt::Function { .. } => {
                     return Err(CompileError::type_error(
                         "nested functions are not supported",
-                        Position::default(),
+                        Span::default(),
                     ));
                 }
                 Stmt::Struct { .. } => {
@@ -208,6 +213,7 @@ impl TypeChecker {
                     object,
                     field,
                     value,
+                    ..
                 } => {
                     let obj_type = self.check_expr(object, locals)?;
                     let struct_name = match &obj_type {
@@ -221,7 +227,7 @@ impl TypeChecker {
                             _ => {
                                 return Err(CompileError::type_error(
                                     format!("field assign on non-struct pointer type {obj_type:?}"),
-                                    Position::default(),
+                                    Span::default(),
                                 ))
                             }
                         },
@@ -232,20 +238,20 @@ impl TypeChecker {
                         } if matches!(inner.as_ref(), Type::Struct(_)) => {
                             return Err(CompileError::type_error(
                                 "cannot assign field through immutable pointer",
-                                Position::default(),
+                                Span::default(),
                             ))
                         }
                         _ => {
                             return Err(CompileError::type_error(
                                 format!("field assign on non-struct type {obj_type:?}"),
-                                Position::default(),
+                                Span::default(),
                             ))
                         }
                     };
                     let fields = self.structs.get(&struct_name).ok_or_else(|| {
                         CompileError::type_error(
                             format!("unknown struct '{struct_name}'"),
-                            Position::default(),
+                            Span::default(),
                         )
                     })?;
                     let field_type = fields
@@ -255,7 +261,7 @@ impl TypeChecker {
                         .ok_or_else(|| {
                             CompileError::type_error(
                                 format!("struct '{struct_name}' has no field '{field}'"),
-                                Position::default(),
+                                Span::default(),
                             )
                         })?;
                     let val_type = self.check_expr(value, locals)?;
@@ -264,7 +270,7 @@ impl TypeChecker {
                             format!(
                                 "cannot assign {val_type:?} to field '{field}' of type {field_type:?}"
                             ),
-                            Position::default(),
+                            Span::default(),
                         ));
                     }
                 }

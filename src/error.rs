@@ -1,4 +1,4 @@
-use crate::lexer::Position;
+use crate::lexer::{Position, Span};
 use std::fmt;
 
 pub type Result<T> = std::result::Result<T, CompileError>;
@@ -15,7 +15,7 @@ pub enum CompileError {
     },
     TypeError {
         message: String,
-        position: Position,
+        span: Span,
     },
     CodeGenError {
         message: String,
@@ -38,10 +38,10 @@ impl CompileError {
         }
     }
 
-    pub fn type_error(message: impl Into<String>, position: Position) -> Self {
+    pub fn type_error(message: impl Into<String>, span: Span) -> Self {
         Self::TypeError {
             message: message.into(),
-            position,
+            span,
         }
     }
 
@@ -70,11 +70,11 @@ impl fmt::Display for CompileError {
                     position.line, position.column, message
                 )
             }
-            CompileError::TypeError { message, position } => {
+            CompileError::TypeError { message, span } => {
                 write!(
                     f,
                     "error[type] {}:{}: {}",
-                    position.line, position.column, message
+                    span.start.line, span.start.column, message
                 )
             }
             CompileError::CodeGenError { message, position } => {

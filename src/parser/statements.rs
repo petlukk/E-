@@ -1,17 +1,19 @@
 use crate::ast::{Expr, Stmt};
-use crate::lexer::TokenKind;
+use crate::lexer::{Span, TokenKind};
 
 use super::Parser;
 
 impl Parser {
     pub(super) fn statement(&mut self) -> crate::error::Result<Stmt> {
         if self.check(TokenKind::Return) {
+            let start = self.current_position();
             self.advance();
             if self.check(TokenKind::RightBrace) {
-                return Ok(Stmt::Return(None));
+                return Ok(Stmt::Return(None, Span::new(start.clone(), start)));
             }
             let expr = self.expression()?;
-            return Ok(Stmt::Return(Some(expr)));
+            let end = expr.span().end.clone();
+            return Ok(Stmt::Return(Some(expr), Span::new(start, end)));
         }
 
         if self.check(TokenKind::Let) {
@@ -36,35 +38,42 @@ impl Parser {
 
         // Assignment: name = value
         if self.check(TokenKind::Identifier) && self.peek_next_kind() == Some(&TokenKind::Equals) {
+            let start = self.current_position();
             let name = self.advance().lexeme.clone();
             self.advance(); // consume '='
             let value = self.expression()?;
+            let end = value.span().end.clone();
             return Ok(Stmt::Assign {
                 target: name,
                 value,
+                span: Span::new(start, end),
             });
         }
 
         // Parse expression (could be index expr, field access, function call, etc.)
         let expr = self.expression()?;
+        let expr_start = expr.span().start.clone();
 
         // Check for assignment: expr = value
         if self.check(TokenKind::Equals) {
             self.advance(); // consume '='
             let value = self.expression()?;
-            if let Expr::FieldAccess { object, field } = expr {
+            let end = value.span().end.clone();
+            if let Expr::FieldAccess { object, field, .. } = expr {
                 return Ok(Stmt::FieldAssign {
                     object: *object,
                     field,
                     value,
+                    span: Span::new(expr_start, end),
                 });
             }
-            if let Expr::Index { object, index } = expr {
-                if let Expr::Variable(name) = *object {
+            if let Expr::Index { object, index, .. } = expr {
+                if let Expr::Variable(name, _) = *object {
                     return Ok(Stmt::IndexAssign {
                         object: name,
                         index: *index,
                         value,
+                        span: Span::new(expr_start, end),
                     });
                 }
             }
@@ -74,10 +83,12 @@ impl Parser {
             ));
         }
 
-        Ok(Stmt::ExprStmt(expr))
+        let end = expr.span().end.clone();
+        Ok(Stmt::ExprStmt(expr, Span::new(expr_start, end)))
     }
 
     fn parse_let(&mut self) -> crate::error::Result<Stmt> {
+        let start = self.current_position();
         self.advance(); // consume 'let'
         let mutable = if self.check(TokenKind::Mut) {
             self.advance();
@@ -95,15 +106,18 @@ impl Parser {
         let ty = self.parse_type()?;
         self.expect_kind(TokenKind::Equals, "expected '=' after type annotation")?;
         let value = self.expression()?;
+        let end = value.span().end.clone();
         Ok(Stmt::Let {
             name,
             ty,
             value,
             mutable,
+            span: Span::new(start, end),
         })
     }
 
     fn parse_if(&mut self) -> crate::error::Result<Stmt> {
+        let start = self.current_position();
         self.advance(); // consume 'if'
         let condition = self.expression()?;
         self.expect_kind(TokenKind::LeftBrace, "expected '{' after if condition")?;
@@ -124,15 +138,18 @@ impl Parser {
         } else {
             None
         };
+        let end = self.previous_position();
 
         Ok(Stmt::If {
             condition,
             then_body,
             else_body,
+            span: Span::new(start, end),
         })
     }
 
     fn parse_unroll(&mut self) -> crate::error::Result<Stmt> {
+        let start = self.current_position();
         self.advance(); // consume 'unroll'
         self.expect_kind(TokenKind::LeftParen, "expected '(' after 'unroll'")?;
         let count_token =
@@ -155,39 +172,50 @@ impl Parser {
                 ));
             }
         }
+        let end = inner.span().end.clone();
         Ok(Stmt::Unroll {
             count,
             body: Box::new(inner),
+            span: Span::new(start, end),
         })
     }
 
     fn parse_foreach(&mut self) -> crate::error::Result<Stmt> {
+        let start = self.current_position();
         self.advance(); // consume 'foreach'
         self.expect_kind(TokenKind::LeftParen, "expected '(' after 'foreach'")?;
         let var_token = self.expect_kind(TokenKind::Identifier, "expected loop variable name")?;
         let var = var_token.lexeme.clone();
         self.expect_kind(TokenKind::In, "expected 'in' after loop variable")?;
-        let start = self.expression()?;
+        let start_expr = self.expression()?;
         self.expect_kind(TokenKind::DotDot, "expected '..' in range")?;
-        let end = self.expression()?;
+        let end_expr = self.expression()?;
         self.expect_kind(TokenKind::RightParen, "expected ')' after range")?;
         self.expect_kind(TokenKind::LeftBrace, "expected '{' after foreach header")?;
         let body = self.parse_block()?;
         self.expect_kind(TokenKind::RightBrace, "expected '}' after foreach body")?;
+        let end = self.previous_position();
         Ok(Stmt::ForEach {
             var,
-            start,
-            end,
+            start: start_expr,
+            end: end_expr,
             body,
+            span: Span::new(start, end),
         })
     }
 
     fn parse_while(&mut self) -> crate::error::Result<Stmt> {
+        let start = self.current_position();
         self.advance(); // consume 'while'
         let condition = self.expression()?;
         self.expect_kind(TokenKind::LeftBrace, "expected '{' after while condition")?;
         let body = self.parse_block()?;
         self.expect_kind(TokenKind::RightBrace, "expected '}' after while body")?;
-        Ok(Stmt::While { condition, body })
+        let end = self.previous_position();
+        Ok(Stmt::While {
+            condition,
+            body,
+            span: Span::new(start, end),
+        })
     }
 }

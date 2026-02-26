@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::Expr;
 use crate::error::CompileError;
-use crate::lexer::Position;
+use crate::lexer::Span;
 
 use super::types::{self, Type};
 use super::TypeChecker;
@@ -17,7 +17,7 @@ impl TypeChecker {
         if args.len() != 2 {
             return Err(CompileError::type_error(
                 "load expects 2 arguments (ptr, index)",
-                Position::default(),
+                Span::default(),
             ));
         }
         let ptr_type = self.check_expr(&args[0], locals)?;
@@ -26,7 +26,7 @@ impl TypeChecker {
         if !idx_type.is_integer() {
             return Err(CompileError::type_error(
                 "load index must be integer",
-                Position::default(),
+                Span::default(),
             ));
         }
 
@@ -42,13 +42,13 @@ impl TypeChecker {
                 } else {
                     Err(CompileError::type_error(
                         "load expects pointer to numeric type",
-                        Position::default(),
+                        Span::default(),
                     ))
                 }
             }
             _ => Err(CompileError::type_error(
                 "load expects pointer",
-                Position::default(),
+                Span::default(),
             )),
         }
     }
@@ -61,7 +61,7 @@ impl TypeChecker {
         if args.len() != 3 {
             return Err(CompileError::type_error(
                 "store expects 3 arguments",
-                Position::default(),
+                Span::default(),
             ));
         }
         let ptr_type = self.check_expr(&args[0], locals)?;
@@ -71,7 +71,7 @@ impl TypeChecker {
         if !idx_type.is_integer() {
             return Err(CompileError::type_error(
                 "store index must be integer",
-                Position::default(),
+                Span::default(),
             ));
         }
         match (ptr_type, val_type) {
@@ -86,18 +86,18 @@ impl TypeChecker {
                 if !types::types_compatible(&elem, &inner) {
                     return Err(CompileError::type_error(
                         format!("store mismatch: ptr to {inner:?}, val {elem:?}"),
-                        Position::default(),
+                        Span::default(),
                     ));
                 }
                 Ok(Type::Void)
             }
             (Type::Pointer { mutable: false, .. }, _) => Err(CompileError::type_error(
                 "store requires mutable pointer",
-                Position::default(),
+                Span::default(),
             )),
             (_, _) => Err(CompileError::type_error(
                 "store expects (mut ptr, index, vector)",
-                Position::default(),
+                Span::default(),
             )),
         }
     }
@@ -111,7 +111,7 @@ impl TypeChecker {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 format!("{name} expects 1 argument"),
-                Position::default(),
+                Span::default(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
@@ -119,7 +119,7 @@ impl TypeChecker {
             Type::Vector { elem, .. } => Ok(*elem.clone()),
             _ => Err(CompileError::type_error(
                 format!("{name} expects vector argument, got {arg_type:?}"),
-                Position::default(),
+                Span::default(),
             )),
         }
     }
@@ -132,7 +132,7 @@ impl TypeChecker {
         if args.len() != 2 {
             return Err(CompileError::type_error(
                 "shuffle expects 2 arguments (vector, indices)",
-                Position::default(),
+                Span::default(),
             ));
         }
         let vec_type = self.check_expr(&args[0], locals)?;
@@ -141,36 +141,38 @@ impl TypeChecker {
             _ => {
                 return Err(CompileError::type_error(
                     format!("shuffle first argument must be vector, got {vec_type:?}"),
-                    Position::default(),
+                    Span::default(),
                 ))
             }
         };
 
         match &args[1] {
-            Expr::ArrayLiteral(indices) => {
+            Expr::ArrayLiteral(indices, _) => {
                 if indices.len() != width {
                     return Err(CompileError::type_error(
                         format!(
                             "shuffle indices length {} != vector width {width}",
                             indices.len()
                         ),
-                        Position::default(),
+                        Span::default(),
                     ));
                 }
                 for (i, idx) in indices.iter().enumerate() {
                     match idx {
-                        Expr::Literal(crate::ast::Literal::Integer(n)) => {
+                        Expr::Literal(crate::ast::Literal::Integer(n), _) => {
                             if *n < 0 || *n >= width as i64 {
                                 return Err(CompileError::type_error(
-                                    format!("shuffle index {i} out of range: {n} (width {width})"),
-                                    Position::default(),
+                                    format!(
+                                        "shuffle index {i} out of range: {n} (width {width})"
+                                    ),
+                                    Span::default(),
                                 ));
                             }
                         }
                         _ => {
                             return Err(CompileError::type_error(
                                 format!("shuffle index {i} must be integer literal"),
-                                Position::default(),
+                                Span::default(),
                             ))
                         }
                     }
@@ -179,7 +181,7 @@ impl TypeChecker {
             _ => {
                 return Err(CompileError::type_error(
                     "shuffle second argument must be [index, ...] array literal",
-                    Position::default(),
+                    Span::default(),
                 ))
             }
         }
@@ -194,13 +196,13 @@ impl TypeChecker {
         if args.len() != 3 {
             return Err(CompileError::type_error(
                 "select expects 3 arguments (mask, a, b)",
-                Position::default(),
+                Span::default(),
             ));
         }
         let mask_type = self.check_expr(&args[0], locals)?;
         let a_type = self.check_expr(&args[1], locals)?;
         let b_type = self.check_expr(&args[2], locals)?;
-        types::unify_vector(&a_type, &b_type)?;
+        types::unify_vector(&a_type, &b_type, Span::default())?;
 
         match (&mask_type, &a_type) {
             (
@@ -214,7 +216,7 @@ impl TypeChecker {
                 format!(
                     "select mask must be bool vector matching operand width, got {mask_type:?}"
                 ),
-                Position::default(),
+                Span::default(),
             )),
         }
     }
@@ -228,7 +230,7 @@ impl TypeChecker {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 format!("{name} expects 1 argument (i8x16 vector)"),
-                Position::default(),
+                Span::default(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
@@ -241,7 +243,7 @@ impl TypeChecker {
             }
             _ => Err(CompileError::type_error(
                 format!("{name} expects i8x16 or u8x16, got {arg_type:?}"),
-                Position::default(),
+                Span::default(),
             )),
         }
     }
@@ -254,7 +256,7 @@ impl TypeChecker {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 "narrow_f32x4_i8 expects 1 argument (f32x4 vector)",
-                Position::default(),
+                Span::default(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
@@ -267,7 +269,7 @@ impl TypeChecker {
             }
             _ => Err(CompileError::type_error(
                 format!("narrow_f32x4_i8 expects f32x4, got {arg_type:?}"),
-                Position::default(),
+                Span::default(),
             )),
         }
     }
@@ -280,7 +282,7 @@ impl TypeChecker {
         if args.len() != 2 {
             return Err(CompileError::type_error(
                 "maddubs_i16 expects 2 arguments: (u8x16, i8x16)",
-                Position::default(),
+                Span::default(),
             ));
         }
         let a = self.check_expr(&args[0], locals)?;
@@ -303,7 +305,7 @@ impl TypeChecker {
             }
             _ => Err(CompileError::type_error(
                 format!("maddubs_i16 expects (u8x16, i8x16), got ({a:?}, {b:?})"),
-                Position::default(),
+                Span::default(),
             )),
         }
     }
@@ -316,7 +318,7 @@ impl TypeChecker {
         if args.len() != 2 {
             return Err(CompileError::type_error(
                 "maddubs_i32 expects 2 arguments: (u8x16, i8x16)",
-                Position::default(),
+                Span::default(),
             ));
         }
         let a = self.check_expr(&args[0], locals)?;
@@ -339,7 +341,7 @@ impl TypeChecker {
             }
             _ => Err(CompileError::type_error(
                 format!("maddubs_i32 expects (u8x16, i8x16), got ({a:?}, {b:?})"),
-                Position::default(),
+                Span::default(),
             )),
         }
     }

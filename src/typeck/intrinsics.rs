@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::Expr;
 use crate::error::CompileError;
-use crate::lexer::Position;
+use crate::lexer::Span;
 
 use super::types::{self, Type};
 use super::TypeChecker;
@@ -50,14 +50,14 @@ impl TypeChecker {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 "println expects exactly 1 argument",
-                Position::default(),
+                Span::default(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
         if !arg_type.is_numeric() && arg_type != Type::String && !arg_type.is_vector() {
             return Err(CompileError::type_error(
                 format!("println expects numeric, string, or vector result, got {arg_type:?}"),
-                Position::default(),
+                Span::default(),
             ));
         }
         Ok(Type::Void)
@@ -72,7 +72,7 @@ impl TypeChecker {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 "splat expects 1 argument",
-                Position::default(),
+                Span::default(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
@@ -107,7 +107,7 @@ impl TypeChecker {
             }),
             _ => Err(CompileError::type_error(
                 format!("splat expects numeric, got {arg_type:?}"),
-                Position::default(),
+                Span::default(),
             )),
         }
     }
@@ -120,7 +120,7 @@ impl TypeChecker {
         if args.len() != 3 {
             return Err(CompileError::type_error(
                 "fma expects 3 arguments",
-                Position::default(),
+                Span::default(),
             ));
         }
         let t1 = self.check_expr(&args[0], locals)?;
@@ -129,16 +129,16 @@ impl TypeChecker {
         if !t1.is_vector() || !t2.is_vector() || !t3.is_vector() {
             return Err(CompileError::type_error(
                 format!("fma expects vector arguments, got {t1:?}, {t2:?}, {t3:?}"),
-                Position::default(),
+                Span::default(),
             ));
         }
-        types::unify_vector(&t1, &t2)?;
-        types::unify_vector(&t1, &t3)?;
+        types::unify_vector(&t1, &t2, Span::default())?;
+        types::unify_vector(&t1, &t3, Span::default())?;
         match &t1 {
             Type::Vector { elem, .. } if !elem.is_float() => {
                 return Err(CompileError::type_error(
                     "fma requires float vector arguments",
-                    Position::default(),
+                    Span::default(),
                 ));
             }
             _ => {}
@@ -155,7 +155,7 @@ impl TypeChecker {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 format!("{name} expects 1 argument"),
-                Position::default(),
+                Span::default(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
@@ -164,7 +164,7 @@ impl TypeChecker {
             Type::Vector { elem, .. } if elem.is_float() => Ok(arg_type),
             _ => Err(CompileError::type_error(
                 format!("{name} expects float or float vector argument, got {arg_type:?}"),
-                Position::default(),
+                Span::default(),
             )),
         }
     }
@@ -177,21 +177,21 @@ impl TypeChecker {
         if args.len() != 2 {
             return Err(CompileError::type_error(
                 "prefetch expects 2 arguments: (ptr, offset)",
-                Position::default(),
+                Span::default(),
             ));
         }
         let ptr_type = self.check_expr(&args[0], locals)?;
         if !matches!(ptr_type, Type::Pointer { .. }) {
             return Err(CompileError::type_error(
                 format!("prefetch first argument must be a pointer, got {ptr_type:?}"),
-                Position::default(),
+                Span::default(),
             ));
         }
         let offset_type = self.check_expr(&args[1], locals)?;
         if !offset_type.is_integer() {
             return Err(CompileError::type_error(
                 format!("prefetch offset must be integer, got {offset_type:?}"),
-                Position::default(),
+                Span::default(),
             ));
         }
         Ok(Type::Void)
@@ -206,14 +206,14 @@ impl TypeChecker {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 format!("{name} expects 1 argument"),
-                Position::default(),
+                Span::default(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
         if !arg_type.is_numeric() {
             return Err(CompileError::type_error(
                 format!("{name} expects numeric argument, got {arg_type:?}"),
-                Position::default(),
+                Span::default(),
             ));
         }
         let target = match name {

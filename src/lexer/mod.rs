@@ -33,6 +33,27 @@ impl Default for Position {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Span {
+    pub start: Position,
+    pub end: Position,
+}
+
+impl Span {
+    pub fn new(start: Position, end: Position) -> Self {
+        Self { start, end }
+    }
+}
+
+impl Default for Span {
+    fn default() -> Self {
+        Self {
+            start: Position::default(),
+            end: Position::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
     pub lexeme: String,

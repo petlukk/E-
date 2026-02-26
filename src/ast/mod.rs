@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::lexer::Span;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum BinaryOp {
     Add,
@@ -84,41 +86,64 @@ impl fmt::Display for Literal {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
-    Literal(Literal),
-    Variable(String),
-    Binary(Box<Expr>, BinaryOp, Box<Expr>),
+    Literal(Literal, Span),
+    Variable(String, Span),
+    Binary(Box<Expr>, BinaryOp, Box<Expr>, Span),
     Call {
         name: String,
         args: Vec<Expr>,
+        span: Span,
     },
-    Not(Box<Expr>),
-    Negate(Box<Expr>),
+    Not(Box<Expr>, Span),
+    Negate(Box<Expr>, Span),
     Index {
         object: Box<Expr>,
         index: Box<Expr>,
+        span: Span,
     },
     Vector {
         elements: Vec<Expr>,
         ty: TypeAnnotation,
+        span: Span,
     },
-    ArrayLiteral(Vec<Expr>),
+    ArrayLiteral(Vec<Expr>, Span),
     FieldAccess {
         object: Box<Expr>,
         field: String,
+        span: Span,
     },
     StructLiteral {
         name: String,
         fields: Vec<(String, Expr)>,
+        span: Span,
     },
+}
+
+impl Expr {
+    pub fn span(&self) -> &Span {
+        match self {
+            Expr::Literal(_, span) => span,
+            Expr::Variable(_, span) => span,
+            Expr::Binary(_, _, _, span) => span,
+            Expr::Call { span, .. } => span,
+            Expr::Not(_, span) => span,
+            Expr::Negate(_, span) => span,
+            Expr::Index { span, .. } => span,
+            Expr::Vector { span, .. } => span,
+            Expr::ArrayLiteral(_, span) => span,
+            Expr::FieldAccess { span, .. } => span,
+            Expr::StructLiteral { span, .. } => span,
+        }
+    }
 }
 
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Expr::Literal(lit) => write!(f, "{lit}"),
-            Expr::Variable(name) => write!(f, "{name}"),
-            Expr::Binary(lhs, op, rhs) => write!(f, "({lhs} {op} {rhs})"),
-            Expr::Call { name, args } => {
+            Expr::Literal(lit, _) => write!(f, "{lit}"),
+            Expr::Variable(name, _) => write!(f, "{name}"),
+            Expr::Binary(lhs, op, rhs, _) => write!(f, "({lhs} {op} {rhs})"),
+            Expr::Call { name, args, .. } => {
                 write!(f, "{name}(")?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -128,10 +153,10 @@ impl fmt::Display for Expr {
                 }
                 write!(f, ")")
             }
-            Expr::Not(inner) => write!(f, "!{inner}"),
-            Expr::Negate(inner) => write!(f, "-{inner}"),
-            Expr::Index { object, index } => write!(f, "{object}[{index}]"),
-            Expr::Vector { elements, ty } => {
+            Expr::Not(inner, _) => write!(f, "!{inner}"),
+            Expr::Negate(inner, _) => write!(f, "-{inner}"),
+            Expr::Index { object, index, .. } => write!(f, "{object}[{index}]"),
+            Expr::Vector { elements, ty, .. } => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
                     if i > 0 {
@@ -141,7 +166,7 @@ impl fmt::Display for Expr {
                 }
                 write!(f, "]{ty}")
             }
-            Expr::ArrayLiteral(elements) => {
+            Expr::ArrayLiteral(elements, _) => {
                 write!(f, "[")?;
                 for (i, elem) in elements.iter().enumerate() {
                     if i > 0 {
@@ -151,8 +176,8 @@ impl fmt::Display for Expr {
                 }
                 write!(f, "]")
             }
-            Expr::FieldAccess { object, field } => write!(f, "{object}.{field}"),
-            Expr::StructLiteral { name, fields } => {
+            Expr::FieldAccess { object, field, .. } => write!(f, "{object}.{field}"),
+            Expr::StructLiteral { name, fields, .. } => {
                 write!(f, "{name} {{ ")?;
                 for (i, (fname, fval)) in fields.iter().enumerate() {
                     if i > 0 {
@@ -236,52 +261,81 @@ pub enum Stmt {
         return_type: Option<TypeAnnotation>,
         body: Vec<Stmt>,
         export: bool,
+        span: Span,
     },
     Let {
         name: String,
         ty: TypeAnnotation,
         value: Expr,
         mutable: bool,
+        span: Span,
     },
     Assign {
         target: String,
         value: Expr,
+        span: Span,
     },
     IndexAssign {
         object: String,
         index: Expr,
         value: Expr,
+        span: Span,
     },
-    Return(Option<Expr>),
-    ExprStmt(Expr),
+    Return(Option<Expr>, Span),
+    ExprStmt(Expr, Span),
     If {
         condition: Expr,
         then_body: Vec<Stmt>,
         else_body: Option<Vec<Stmt>>,
+        span: Span,
     },
     While {
         condition: Expr,
         body: Vec<Stmt>,
+        span: Span,
     },
     Unroll {
         count: u32,
         body: Box<Stmt>,
+        span: Span,
     },
     ForEach {
         var: String,
         start: Expr,
         end: Expr,
         body: Vec<Stmt>,
+        span: Span,
     },
     Struct {
         name: String,
         fields: Vec<StructField>,
+        span: Span,
     },
     FieldAssign {
         object: Expr,
         field: String,
         value: Expr,
+        span: Span,
     },
+}
+
+impl Stmt {
+    pub fn span(&self) -> &Span {
+        match self {
+            Stmt::Function { span, .. } => span,
+            Stmt::Let { span, .. } => span,
+            Stmt::Assign { span, .. } => span,
+            Stmt::IndexAssign { span, .. } => span,
+            Stmt::Return(_, span) => span,
+            Stmt::ExprStmt(_, span) => span,
+            Stmt::If { span, .. } => span,
+            Stmt::While { span, .. } => span,
+            Stmt::Unroll { span, .. } => span,
+            Stmt::ForEach { span, .. } => span,
+            Stmt::Struct { span, .. } => span,
+            Stmt::FieldAssign { span, .. } => span,
+        }
+    }
 }
 
 impl fmt::Display for Stmt {
@@ -321,9 +375,9 @@ impl fmt::Display for Stmt {
             }
             Stmt::Assign { target, .. } => write!(f, "{target} = ..."),
             Stmt::IndexAssign { object, index, .. } => write!(f, "{object}[{index}] = ..."),
-            Stmt::Return(Some(expr)) => write!(f, "return {expr}"),
-            Stmt::Return(None) => write!(f, "return"),
-            Stmt::ExprStmt(expr) => write!(f, "{expr}"),
+            Stmt::Return(Some(expr), _) => write!(f, "return {expr}"),
+            Stmt::Return(None, _) => write!(f, "return"),
+            Stmt::ExprStmt(expr, _) => write!(f, "{expr}"),
             Stmt::If { else_body, .. } => {
                 if else_body.is_some() {
                     write!(f, "if ... {{ ... }} else {{ ... }}")
@@ -334,7 +388,7 @@ impl fmt::Display for Stmt {
             Stmt::While { .. } => write!(f, "while ... {{ ... }}"),
             Stmt::Unroll { count, .. } => write!(f, "unroll({count}) {{ ... }}"),
             Stmt::ForEach { var, .. } => write!(f, "foreach ({var} in ...) {{ ... }}"),
-            Stmt::Struct { name, fields } => {
+            Stmt::Struct { name, fields, .. } => {
                 write!(f, "struct {name} {{ ")?;
                 for (i, field) in fields.iter().enumerate() {
                     if i > 0 {

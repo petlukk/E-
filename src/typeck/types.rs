@@ -1,6 +1,6 @@
 use crate::ast::TypeAnnotation;
 use crate::error::CompileError;
-use crate::lexer::Position;
+use crate::lexer::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
@@ -113,7 +113,7 @@ pub fn types_compatible(actual: &Type, expected: &Type) -> bool {
     }
 }
 
-pub fn unify_vector(left: &Type, right: &Type) -> crate::error::Result<Type> {
+pub fn unify_vector(left: &Type, right: &Type, span: Span) -> crate::error::Result<Type> {
     match (left, right) {
         (
             Type::Vector {
@@ -128,35 +128,35 @@ pub fn unify_vector(left: &Type, right: &Type) -> crate::error::Result<Type> {
             if l_width != r_width {
                 return Err(CompileError::type_error(
                     format!("vector width mismatch: {l_width} vs {r_width}"),
-                    Position::default(),
+                    span,
                 ));
             }
             if !types_compatible(l_elem, r_elem) {
                 return Err(CompileError::type_error(
                     format!("vector element type mismatch: {l_elem:?} vs {r_elem:?}"),
-                    Position::default(),
+                    span,
                 ));
             }
             Ok(left.clone())
         }
         _ => Err(CompileError::type_error(
             format!("binary vector operations require vector operands, got {left:?} and {right:?}"),
-            Position::default(),
+            span,
         )),
     }
 }
 
-pub fn unify_numeric(left: &Type, right: &Type) -> crate::error::Result<Type> {
+pub fn unify_numeric(left: &Type, right: &Type, span: Span) -> crate::error::Result<Type> {
     if !left.is_numeric() || !right.is_numeric() {
         return Err(CompileError::type_error(
             format!("binary operations require numeric operands, got {left:?} and {right:?}"),
-            Position::default(),
+            span,
         ));
     }
     if left.is_integer() != right.is_integer() {
         return Err(CompileError::type_error(
             format!("cannot mix integer and float in binary operation: {left:?} and {right:?}"),
-            Position::default(),
+            span,
         ));
     }
     match (left, right) {
@@ -167,7 +167,7 @@ pub fn unify_numeric(left: &Type, right: &Type) -> crate::error::Result<Type> {
         (a, b) if a == b => Ok(a.clone()),
         _ => Err(CompileError::type_error(
             format!("mismatched types in binary operation: {left:?} and {right:?}"),
-            Position::default(),
+            span,
         )),
     }
 }

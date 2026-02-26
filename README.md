@@ -2,8 +2,8 @@
 
 **SIMD kernel language for C and Python.**
 
-Write readable SIMD code. Compile to `.o` or `.so`. Call from C, Rust, Python via C ABI.
-No runtime. No garbage collector. Explicit memory control.
+Write SIMD kernels in clean, minimal syntax. Compile to `.o` or `.so`. Call from C, Rust, Python via C ABI.
+No runtime. No garbage collector. No hidden performance cliffs.
 
 > **[Ea Showcase](https://github.com/petlukk/Ea_showcase)** — visual demo application showing Ea kernels running live.
 
@@ -184,8 +184,8 @@ restrict analysis, and ILP methodology.
 ## Relation to existing approaches
 
 **C with intrinsics** —
-Works, but `_mm256_fmadd_ps(_mm256_loadu_ps(&a[i]), ...)` is unreadable and error-prone.
-Ea compiles `fma(load(a, i), load(b, i), load(c, i))` to the same instructions.
+Works, but `_mm256_fmadd_ps(_mm256_loadu_ps(&a[i]), ...)` is noisy and error-prone.
+Ea compiles `fma(load(a, i), load(b, i), load(c, i))` to the same instructions — no casts, no prefixes, no headers.
 
 **Rust with `std::simd`** —
 `std::simd` is nightly-only and Rust's type system adds friction for kernel code.

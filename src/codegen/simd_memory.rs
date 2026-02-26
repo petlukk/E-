@@ -17,7 +17,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 _ => {}
             }
         }
-        if let Expr::Variable(name) = ptr_arg {
+        if let Expr::Variable(name, _) = ptr_arg {
             if let Some((_, Type::Pointer { inner, .. })) = self.variables.get(name) {
                 let elem_llvm = self.llvm_type(inner);
                 match elem_llvm {
@@ -169,7 +169,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         let offset_val = self.compile_expr(&args[1], function)?.into_int_value();
 
         // Infer element type from the pointer variable
-        let elem_llvm = if let Expr::Variable(name) = &args[0] {
+        let elem_llvm = if let Expr::Variable(name, _) = &args[0] {
             if let Some((_, Type::Pointer { inner, .. })) = self.variables.get(name) {
                 self.llvm_type(inner)
             } else {
@@ -230,10 +230,10 @@ impl<'ctx> CodeGenerator<'ctx> {
         let vec = self.compile_expr(&args[0], function)?.into_vector_value();
 
         let indices = match &args[1] {
-            Expr::ArrayLiteral(elems) => elems
+            Expr::ArrayLiteral(elems, _) => elems
                 .iter()
                 .map(|e| match e {
-                    Expr::Literal(crate::ast::Literal::Integer(n)) => {
+                    Expr::Literal(crate::ast::Literal::Integer(n), _) => {
                         Ok(self.context.i32_type().const_int(*n as u64, false))
                     }
                     _ => Err(CompileError::codegen_error(

@@ -83,7 +83,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         match stmt {
             Stmt::Let {
                 name, ty, value, ..
-            } => {
+            } => { // span ignored via ..
                 let declared = Self::resolve_annotation(ty);
                 let llvm_ty = self.llvm_type(&declared);
                 let alloca = self
@@ -97,7 +97,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 self.variables.insert(name.clone(), (alloca, declared));
                 Ok(false)
             }
-            Stmt::Assign { target, value } => {
+            Stmt::Assign { target, value, .. } => {
                 let (ptr, var_type) = self.variables.get(target).cloned().ok_or_else(|| {
                     CompileError::codegen_error(format!("undefined variable '{target}'"))
                 })?;
@@ -107,7 +107,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(false)
             }
-            Stmt::Return(Some(expr)) => {
+            Stmt::Return(Some(expr), _) => {
                 let ret_hint = function
                     .get_name()
                     .to_str()
@@ -120,13 +120,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(true)
             }
-            Stmt::Return(None) => {
+            Stmt::Return(None, _) => {
                 self.builder
                     .build_return(None)
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok(true)
             }
-            Stmt::ExprStmt(expr) => {
+            Stmt::ExprStmt(expr, _) => {
                 self.compile_expr(expr, function)?;
                 Ok(false)
             }
@@ -134,6 +134,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 object,
                 index,
                 value,
+                ..
             } => {
                 let (ptr_alloca, var_type) =
                     self.variables.get(object).cloned().ok_or_else(|| {
@@ -170,6 +171,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 condition,
                 then_body,
                 else_body,
+                ..
             } => {
                 let cond_val = self.compile_expr(condition, function)?;
                 let cond_int = cond_val.into_int_value();
@@ -212,6 +214,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             Stmt::While {
                 condition,
                 body: while_body,
+                ..
             } => {
                 let cond_bb = self.context.append_basic_block(function, "while_cond");
                 let body_bb = self.context.append_basic_block(function, "while_body");
@@ -247,6 +250,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 start,
                 end,
                 body: foreach_body,
+                ..
             } => {
                 let cond_bb = self.context.append_basic_block(function, "foreach_cond");
                 let body_bb = self.context.append_basic_block(function, "foreach_body");
@@ -332,7 +336,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 self.builder.position_at_end(exit_bb);
                 Ok(false)
             }
-            Stmt::Unroll { body, .. } => {
+            Stmt::Unroll { body, .. } => { // span ignored via ..
                 // Compile the inner loop normally — LLVM at O2/O3 handles unrolling.
                 // The unroll(N) annotation is a semantic hint; metadata attachment
                 // requires inkwell API support for instruction-level metadata which
@@ -347,6 +351,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 object,
                 field,
                 value,
+                ..
             } => {
                 self.compile_field_assign(object, field, value, function)?;
                 Ok(false)

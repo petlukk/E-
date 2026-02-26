@@ -10,7 +10,7 @@ pub fn generate(stmts: &[Stmt], module_name: &str) -> String {
     out.push_str("#include <stdint.h>\n\n");
 
     for stmt in stmts {
-        if let Stmt::Struct { name, fields } = stmt {
+        if let Stmt::Struct { name, fields, .. } = stmt {
             out.push_str(&format!("struct {name} {{\n"));
             for f in fields {
                 out.push_str(&format!("    {} {};\n", type_to_c(&f.ty), f.name));

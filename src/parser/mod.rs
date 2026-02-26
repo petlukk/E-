@@ -3,7 +3,7 @@ mod statements;
 
 use crate::ast::{Param, Stmt, TypeAnnotation};
 use crate::error::CompileError;
-use crate::lexer::{Position, Token, TokenKind};
+use crate::lexer::{Position, Span, Token, TokenKind};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -25,17 +25,20 @@ impl Parser {
 
     fn declaration(&mut self) -> crate::error::Result<Stmt> {
         if self.check(TokenKind::Export) {
+            let start = self.current_position();
             self.advance();
             self.expect_kind(TokenKind::Func, "expected 'func' after 'export'")?;
-            return self.function(true);
+            return self.function(true, start);
         }
         if self.check(TokenKind::Func) {
+            let start = self.current_position();
             self.advance();
-            return self.function(false);
+            return self.function(false, start);
         }
         if self.check(TokenKind::Struct) {
+            let start = self.current_position();
             self.advance();
-            return self.parse_struct();
+            return self.parse_struct(start);
         }
         Err(CompileError::parse_error(
             format!("expected declaration, found {:?}", self.peek_kind()),
@@ -43,7 +46,7 @@ impl Parser {
         ))
     }
 
-    fn function(&mut self, export: bool) -> crate::error::Result<Stmt> {
+    fn function(&mut self, export: bool, start: Position) -> crate::error::Result<Stmt> {
         let name_token = self.expect_kind(TokenKind::Identifier, "expected function name")?;
         let name = name_token.lexeme.clone();
 
@@ -61,6 +64,7 @@ impl Parser {
         self.expect_kind(TokenKind::LeftBrace, "expected '{' before function body")?;
         let body = self.parse_block()?;
         self.expect_kind(TokenKind::RightBrace, "expected '}' after function body")?;
+        let end = self.previous_position();
 
         Ok(Stmt::Function {
             name,
@@ -68,10 +72,11 @@ impl Parser {
             return_type,
             body,
             export,
+            span: Span::new(start, end),
         })
     }
 
-    fn parse_struct(&mut self) -> crate::error::Result<Stmt> {
+    fn parse_struct(&mut self, start: Position) -> crate::error::Result<Stmt> {
         let name_token =
             self.expect_kind(TokenKind::Identifier, "expected struct name after 'struct'")?;
         let name = name_token.lexeme.clone();
@@ -91,7 +96,12 @@ impl Parser {
             }
         }
         self.expect_kind(TokenKind::RightBrace, "expected '}' after struct fields")?;
-        Ok(Stmt::Struct { name, fields })
+        let end = self.previous_position();
+        Ok(Stmt::Struct {
+            name,
+            fields,
+            span: Span::new(start, end),
+        })
     }
 
     fn parse_params(&mut self) -> crate::error::Result<Vec<Param>> {
@@ -309,5 +319,13 @@ impl Parser {
                     .map(|t| t.position.clone())
                     .unwrap_or_default()
             })
+    }
+
+    pub(super) fn previous_position(&self) -> Position {
+        if self.current > 0 {
+            self.tokens[self.current - 1].position.clone()
+        } else {
+            Position::default()
+        }
     }
 }

@@ -84,7 +84,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         self.declare_printf();
 
         for stmt in stmts {
-            if let Stmt::Struct { name, fields } = stmt {
+            if let Stmt::Struct { name, fields, .. } = stmt {
                 self.register_struct(name, fields);
             }
         }
