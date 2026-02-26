@@ -40,7 +40,7 @@ GCC 11.4, LLVM 18, Linux (WSL2). 1M elements, 100–200 runs, averaged.
 | Implementation  | Avg (us) | vs Fastest C |
 | --------------- | -------- | ------------ |
 | C f32x4 (SSE)   | 100      | 1.00x        |
-| **Ea f32x4**    | **78**   | **0.83x**    |
+| **Ea f32x4**    | **78**   | **0.78x**    |
 | Clang-14 f32x4  | 89       | 0.95x        |
 | ISPC            | 71       | 0.76x        |
 | Rust f32x4      | 180      | 1.93x        |

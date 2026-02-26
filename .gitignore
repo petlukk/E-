@@ -60,7 +60,20 @@ LLVM18-unroll.md
 demo_api.md
 docs/
 
+# Stale audit scripts
+audit_losses.py
+
 # Scratch test files
 test_*_exe
 test_*.ea
 gigabench.sh
+
+# Compiled test binaries
+tests/simd_test
+
+# Demo generated output
+demo/skimage_fusion/compare.png
+demo/skimage_fusion/diff_heatmap.png
+demo/skimage_fusion/input.png
+demo/skimage_fusion/output_*.png
+demo/tokenizer_prepass/test_text.txt

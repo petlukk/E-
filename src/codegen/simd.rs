@@ -96,7 +96,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         ty: &TypeAnnotation,
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
-        let vec_type = self.resolve_annotation(ty);
+        let vec_type = Self::resolve_annotation(ty);
         let elem_hint = match &vec_type {
             Type::Vector { elem, .. } => Some(elem.as_ref()),
             _ => None,

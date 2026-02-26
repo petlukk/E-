@@ -43,30 +43,38 @@ Default output is an object file. No JIT. No `.ll` in the default path. Use `--e
 
 ```
 src/
-├── main.rs                 # CLI
-├── lib.rs                  # Pipeline orchestration
-├── error.rs                # Error types
-├── target.rs               # LLVM target machine setup
+├── main.rs                    # CLI
+├── lib.rs                     # Pipeline orchestration
+├── error.rs                   # Error types
+├── target.rs                  # LLVM target machine setup
+├── header.rs                  # C header generation (--header)
 ├── lexer/
-│   ├── mod.rs              # Logos tokenizer
-│   └── tokens.rs           # Token utilities
+│   ├── mod.rs                 # Logos tokenizer
+│   └── tokens.rs              # Token utilities
 ├── ast/
-│   ├── mod.rs              # Core AST (Expr, Stmt, types)
-│   └── simd.rs             # SIMD AST nodes (Phase 5+)
+│   └── mod.rs                 # Core AST (Expr, Stmt, types)
 ├── parser/
-│   ├── mod.rs              # Parser core + expressions
-│   └── statements.rs       # Statement parsing
+│   ├── mod.rs                 # Parser core
+│   ├── expressions.rs         # Expression parsing
+│   └── statements.rs          # Statement parsing
 ├── typeck/
-│   └── mod.rs              # Type checker
+│   ├── mod.rs                 # Type checker entry point
+│   ├── types.rs               # Type enum + utilities
+│   ├── check.rs               # Statement-level type checking
+│   ├── expr_check.rs          # Expression type checking
+│   ├── intrinsics.rs          # Scalar intrinsic signatures
+│   └── intrinsics_simd.rs     # SIMD intrinsic signatures
 └── codegen/
-    ├── mod.rs              # Core + module + object emission
-    ├── expressions.rs      # Expression compilation
-    ├── statements.rs       # Statement compilation
-    ├── functions.rs        # Function compilation + C ABI
-    └── simd.rs             # SIMD codegen (Phase 5+)
+    ├── mod.rs                 # Core + module + object emission
+    ├── expressions.rs         # Expression compilation
+    ├── builtins.rs            # println compilation
+    ├── statements.rs          # Statement + function compilation
+    ├── structs.rs             # Struct codegen + field access
+    ├── simd.rs                # SIMD vector literals + intrinsic dispatch
+    ├── simd_arithmetic.rs     # SIMD arithmetic ops (.+, .*, etc.)
+    ├── simd_math.rs           # SIMD math (fma, sqrt, reduce, widen)
+    └── simd_memory.rs         # SIMD load/store/splat
 ```
-
-Files get created as needed per phase. Not all exist from day one.
 
 ## Phases (strict order)
 

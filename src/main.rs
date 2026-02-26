@@ -14,7 +14,7 @@ fn main() {
             return;
         }
         "--version" | "-V" => {
-            println!("ea 0.1.0");
+            println!("ea {}", env!("CARGO_PKG_VERSION"));
             return;
         }
         _ => {}
@@ -162,12 +162,30 @@ fn main() {
         }
 
         if emit_header {
-            let tokens = ea_compiler::tokenize(&source).unwrap();
-            let stmts = ea_compiler::parse(tokens).unwrap();
-            ea_compiler::check_types(&stmts).unwrap();
+            let tokens = match ea_compiler::tokenize(&source) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("{e}");
+                    process::exit(1);
+                }
+            };
+            let stmts = match ea_compiler::parse(tokens) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("{e}");
+                    process::exit(1);
+                }
+            };
+            if let Err(e) = ea_compiler::check_types(&stmts) {
+                eprintln!("{e}");
+                process::exit(1);
+            }
             let header = ea_compiler::header::generate(&stmts, stem);
             let header_path = PathBuf::from(format!("{stem}.h"));
-            std::fs::write(&header_path, header).unwrap();
+            if let Err(e) = std::fs::write(&header_path, header) {
+                eprintln!("error: cannot write '{}': {e}", header_path.display());
+                process::exit(1);
+            }
             eprintln!("wrote {}", header_path.display());
         }
 

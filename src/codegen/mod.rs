@@ -1,4 +1,6 @@
 #[cfg(feature = "llvm")]
+mod builtins;
+#[cfg(feature = "llvm")]
 mod expressions;
 #[cfg(feature = "llvm")]
 mod simd;
@@ -130,7 +132,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         let field_types: Vec<BasicTypeEnum> = fields
             .iter()
             .map(|f| {
-                let ty = self.resolve_annotation(&f.ty);
+                let ty = Self::resolve_annotation(&f.ty);
                 self.llvm_type(&ty)
             })
             .collect();
@@ -140,7 +142,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             .iter()
             .enumerate()
             .map(|(i, f)| {
-                let ty = self.resolve_annotation(&f.ty);
+                let ty = Self::resolve_annotation(&f.ty);
                 (f.name.clone(), i as u32, ty)
             })
             .collect();
@@ -167,7 +169,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     BasicTypeEnum::IntType(t) => t.vec_type(*width as u32).into(),
                     BasicTypeEnum::FloatType(t) => t.vec_type(*width as u32).into(),
                     BasicTypeEnum::PointerType(t) => t.vec_type(*width as u32).into(),
-                    _ => self.context.i32_type().vec_type(*width as u32).into(),
+                    _ => panic!("BUG: unsupported vector element type {elem_ty:?}"),
                 }
             }
             Type::Struct(name) => {
@@ -177,12 +179,13 @@ impl<'ctx> CodeGenerator<'ctx> {
                     panic!("BUG: struct type '{name}' not registered — should have been caught by typechecker")
                 }
             }
-            _ => BasicTypeEnum::IntType(self.context.i32_type()),
+            Type::String | Type::Void => {
+                panic!("BUG: type {ty:?} has no LLVM representation — should have been caught by typechecker")
+            }
         }
     }
 
-    #[allow(clippy::only_used_in_recursion)]
-    pub(crate) fn resolve_annotation(&self, ann: &TypeAnnotation) -> Type {
+    pub(crate) fn resolve_annotation(ann: &TypeAnnotation) -> Type {
         match ann {
             TypeAnnotation::Named(name) => match name.as_str() {
                 "i8" => Type::I8,
@@ -203,7 +206,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 restrict,
                 inner,
             } => {
-                let inner_type = self.resolve_annotation(inner);
+                let inner_type = Self::resolve_annotation(inner);
                 Type::Pointer {
                     mutable: *mutable,
                     restrict: *restrict,
@@ -211,7 +214,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 }
             }
             TypeAnnotation::Vector { elem, width } => {
-                let elem_type = self.resolve_annotation(elem);
+                let elem_type = Self::resolve_annotation(elem);
                 Type::Vector {
                     elem: Box::new(elem_type),
                     width: *width,
@@ -230,14 +233,14 @@ impl<'ctx> CodeGenerator<'ctx> {
         let param_types: Vec<BasicMetadataTypeEnum> = params
             .iter()
             .map(|p| {
-                let ty = self.resolve_annotation(&p.ty);
+                let ty = Self::resolve_annotation(&p.ty);
                 self.llvm_type(&ty).into()
             })
             .collect();
 
         let fn_type = match return_type {
             Some(ann) => {
-                let ret_ty = self.resolve_annotation(ann);
+                let ret_ty = Self::resolve_annotation(ann);
                 let llvm_ret = self.llvm_type(&ret_ty);
                 llvm_ret.fn_type(&param_types, false)
             }
@@ -279,9 +282,9 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let sig_param_types: Vec<Type> = params
             .iter()
-            .map(|p| self.resolve_annotation(&p.ty))
+            .map(|p| Self::resolve_annotation(&p.ty))
             .collect();
-        let sig_ret = return_type.map(|ann| self.resolve_annotation(ann));
+        let sig_ret = return_type.map(Self::resolve_annotation);
         self.func_signatures
             .insert(name.to_string(), (sig_param_types, sig_ret));
 

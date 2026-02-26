@@ -114,17 +114,17 @@ Real workloads. Real data. Verified against established tools.
 
 | Demo                                           | Domain               | Patterns                                        | Result                                                                     |
 | ---------------------------------------------- | -------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| [Sobel edge detection](demo/sobel/)            | Image processing     | Stencil, pipeline                               | 9.4x faster than NumPy, 4.4x faster than OpenCV                            |
-| [Video anomaly detection](demo/video_anomaly/) | Video analysis       | Streaming, fused pipeline                       | 3 kernels: **0.8x (slower)**. Fused: **10.9x faster**                      |
-| [Astronomy stacking](demo/astro_stack/)        | Scientific computing | Streaming dataset                               | 2.3x faster, 16x less memory than NumPy                                    |
-| [MNIST preprocessing](demo/mnist_normalize/)   | ML preprocessing     | Streaming, fused pipeline                       | Single op: **1.0x (tie)**. Fused pipeline: **3.9x faster**                 |
-| [Pixel pipeline](demo/pixel_pipeline/)         | Image processing     | u8x16 threshold, u8→f32 widen                   | threshold: **21x warm / 14x cold**, normalize: **2.1x** vs NumPy           |
-| [Conv2d (dot/1d)](demo/conv2d/)                | Integer SIMD         | maddubs_i16, u8×i8                              | dot: **6.9x**, conv1d: **3.3x** vs NumPy                                   |
-| [Conv2d 3×3 NHWC](demo/conv2d_3x3/)            | Quantized inference  | maddubs_i16 dual-acc / maddubs_i32 safe variant | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64                                |
+| [Sobel edge detection](demo/sobel/)            | Image processing     | Stencil, pipeline                               | 9.3x faster than NumPy, 2.7x faster than OpenCV                            |
+| [Video anomaly detection](demo/video_anomaly/) | Video analysis       | Streaming, fused pipeline                       | 3 kernels: **0.98x (slower)**. Fused: **13x faster**                       |
+| [Astronomy stacking](demo/astro_stack/)        | Scientific computing | Streaming dataset                               | 6.4x faster, 16x less memory than NumPy                                    |
+| [MNIST preprocessing](demo/mnist_normalize/)   | ML preprocessing     | Streaming, fused pipeline                       | Single op: **0.9x (slower)**. Fused pipeline: **2.6x faster**              |
+| [Pixel pipeline](demo/pixel_pipeline/)         | Image processing     | u8x16 threshold, u8→f32 widen                   | threshold: **22x**, normalize: **2.1x** vs NumPy                           |
+| [Conv2d (dot/1d)](demo/conv2d/)                | Integer SIMD         | maddubs_i16, u8×i8                              | dot: **5.9x**, conv1d: **3.0x** vs NumPy                                   |
+| [Conv2d 3×3 NHWC](demo/conv2d_3x3/)            | Quantized inference  | maddubs_i16 dual-acc / maddubs_i32 safe variant | **48x vs NumPy**, 38 GMACs/s on 56×56×64                                   |
 | [Pipeline fusion](demo/skimage_fusion/)        | Image processing     | Stencil fusion, algebraic optimization          | 6.2x vs NumPy, **1.3x fusion at 4K**, 7x memory reduction                  |
 | [Tokenizer prepass](demo/tokenizer_prepass/)   | Text/NLP             | Structural scan, bitwise ops                    | unfused: **78.7x**, fused: **58.1x** vs NumPy (fusion: 0.74x — see README) |
 | [Particle update](demo/particles/)             | Struct FFI           | C-compatible structs over FFI                   | Correctness demo — proves struct layout matches C exactly                  |
-| [Cornell Box ray tracer](demo/cornell_box/)    | Graphics             | Struct return, recursion, scalar math           | First non-SIMD demo: full ray tracer in ~200 lines of Eä                   |
+| [Cornell Box ray tracer](demo/cornell_box/)    | Graphics             | Struct return, recursion, scalar math           | First non-SIMD demo: full ray tracer in 245 lines of Eä                    |
 | [Particle life](demo/particle_life/)           | Simulation           | N-body scalar, fused vs unfused                 | Matches hand-written C at -O2. Interactive pygame UI                       |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
@@ -141,7 +141,7 @@ accounting, i16 overflow constraint, and cross-machine results.
 fused (1-kernel) implementations. Same language. Same compiler. Same data.
 
 ```
-Ea (3 kernels)      :  1.12 ms   (slower than NumPy — FFI + memory overhead)
+Ea (3 kernels)      :  1.12 ms   (0.98x — slightly slower due to FFI + memory overhead)
 Ea fused (1 kernel) :  0.08 ms   (13x faster than NumPy, 12x faster than OpenCV)
 ```
 
@@ -285,7 +285,7 @@ lib.fma_kernel(
 Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
-~5,800 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+~6,400 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
 198 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, and compiler flags.
 
 ## License

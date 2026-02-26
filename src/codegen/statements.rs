@@ -24,7 +24,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         self.variables.clear();
         for (i, param) in params.iter().enumerate() {
-            let ty = self.resolve_annotation(&param.ty);
+            let ty = Self::resolve_annotation(&param.ty);
             let llvm_ty = self.llvm_type(&ty);
             let alloca = self
                 .builder
@@ -54,7 +54,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .build_return(Some(&zero))
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
             } else if let Some(ret_ann) = return_type {
-                let ret_ty = self.resolve_annotation(ret_ann);
+                let ret_ty = Self::resolve_annotation(ret_ann);
                 let llvm_ty = self.llvm_type(&ret_ty);
                 let zero_val = llvm_ty.const_zero();
                 self.builder
@@ -84,7 +84,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             Stmt::Let {
                 name, ty, value, ..
             } => {
-                let declared = self.resolve_annotation(ty);
+                let declared = Self::resolve_annotation(ty);
                 let llvm_ty = self.llvm_type(&declared);
                 let alloca = self
                     .builder

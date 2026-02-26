@@ -62,7 +62,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         };
 
         if let BasicValueEnum::VectorValue(vec_val) = val {
-            let load_inst = vec_val.as_instruction_value().unwrap();
+            let load_inst = vec_val.as_instruction_value().ok_or_else(|| {
+                CompileError::codegen_error("vector load did not produce an instruction")
+            })?;
             load_inst.set_alignment(element_alignment).map_err(|e| {
                 CompileError::codegen_error(format!("failed to set alignment: {e}"))
             })?;
