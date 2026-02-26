@@ -87,6 +87,28 @@ LLVM 18, Linux (WSL2). 1M elements, 100–200 runs, **minimum** time reported.
 
 ---
 
+## foreach vs Explicit SIMD
+
+v0.6.0 added `foreach` (auto-vectorized scalar loops) and `unroll(N)` hints.
+New kernel variants in `benchmarks/` compare these against hand-written SIMD.
+
+**How to compare:** Run `python bench.py` in `benchmarks/fma_kernel/` or
+`benchmarks/horizontal_reduction/`. The harness now includes `Ea foreach`,
+`Ea foreach+unroll`, `Ea unroll(4)`, and an `--opt-level` comparison (O0–O3).
+
+**Expected results:**
+- FMA (streaming, no dependency chain): `foreach` at O2+ should approach explicit
+  SIMD, since LLVM's auto-vectorizer handles simple streaming patterns well.
+- Sum reduction (dependency chain): `foreach` will be slower — LLVM does not
+  auto-split into multiple accumulators. Explicit multi-acc SIMD wins here.
+
+**Key question answered:** `foreach` is a good default for simple streaming kernels.
+For anything with dependency chains, explicit SIMD with the multi-accumulator
+pattern remains necessary. See `examples/foreach_fma.ea` and
+`examples/foreach_reduction.ea` for side-by-side comparison code.
+
+---
+
 ## `restrict` / noalias analysis
 
 The `noalias` attribute is correctly emitted in LLVM IR, but it has no measurable impact on these benchmarks because:

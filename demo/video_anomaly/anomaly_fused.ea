@@ -15,6 +15,8 @@ export func anomaly_count_fused(a: *restrict f32, b: *restrict f32, len: i32, th
     let mut acc1: f32x8 = splat(0.0)
     let mut i: i32 = 0
     while i + 16 <= len {
+        prefetch(a, i + 64)
+        prefetch(b, i + 64)
         // Unroll 2x for ILP
         let va0: f32x8 = load(a, i)
         let vb0: f32x8 = load(b, i)

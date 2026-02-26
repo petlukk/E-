@@ -210,6 +210,12 @@ impl<'ctx> CodeGenerator<'ctx> {
         type_hint: Option<&Type>,
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        match op {
+            BinaryOp::And => return self.compile_short_circuit_and(lhs, rhs, function),
+            BinaryOp::Or => return self.compile_short_circuit_or(lhs, rhs, function),
+            _ => {}
+        }
+
         let hint = self.infer_binary_hint(lhs, rhs, type_hint);
         let unsigned = hint.as_ref().map(is_unsigned).unwrap_or(false);
         let left = self.compile_expr_typed(lhs, hint.as_ref(), function)?;
@@ -225,18 +231,6 @@ impl<'ctx> CodeGenerator<'ctx> {
                 | BinaryOp::NotEqual
         ) {
             return self.compile_comparison(&left, &right, op, unsigned);
-        }
-
-        if matches!(op, BinaryOp::And | BinaryOp::Or) {
-            let l = left.into_int_value();
-            let r = right.into_int_value();
-            let result = match op {
-                BinaryOp::And => self.builder.build_and(l, r, "and"),
-                BinaryOp::Or => self.builder.build_or(l, r, "or"),
-                _ => unreachable!(),
-            }
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
-            return Ok(BasicValueEnum::IntValue(result));
         }
 
         match (&left, &right) {
@@ -365,6 +359,82 @@ impl<'ctx> CodeGenerator<'ctx> {
                 "mismatched types in comparison",
             )),
         }
+    }
+
+    /// Short-circuit AND: if left is false, result is false (skip right)
+    fn compile_short_circuit_and(
+        &mut self,
+        lhs: &Expr,
+        rhs: &Expr,
+        function: FunctionValue<'ctx>,
+    ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        let left = self.compile_expr(lhs, function)?.into_int_value();
+        let lhs_bb = self.builder.get_insert_block().unwrap();
+
+        let rhs_bb = self.context.append_basic_block(function, "and_rhs");
+        let merge_bb = self.context.append_basic_block(function, "and_merge");
+
+        self.builder
+            .build_conditional_branch(left, rhs_bb, merge_bb)
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+        self.builder.position_at_end(rhs_bb);
+        let right = self.compile_expr(rhs, function)?.into_int_value();
+        let rhs_end_bb = self.builder.get_insert_block().unwrap();
+        self.builder
+            .build_unconditional_branch(merge_bb)
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+        self.builder.position_at_end(merge_bb);
+        let bool_ty = self.context.bool_type();
+        let phi = self
+            .builder
+            .build_phi(bool_ty, "and_result")
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+        let false_val = bool_ty.const_int(0, false);
+        phi.add_incoming(&[(&false_val, lhs_bb), (&right, rhs_end_bb)]);
+
+        Ok(BasicValueEnum::IntValue(
+            phi.as_basic_value().into_int_value(),
+        ))
+    }
+
+    /// Short-circuit OR: if left is true, result is true (skip right)
+    fn compile_short_circuit_or(
+        &mut self,
+        lhs: &Expr,
+        rhs: &Expr,
+        function: FunctionValue<'ctx>,
+    ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        let left = self.compile_expr(lhs, function)?.into_int_value();
+        let lhs_bb = self.builder.get_insert_block().unwrap();
+
+        let rhs_bb = self.context.append_basic_block(function, "or_rhs");
+        let merge_bb = self.context.append_basic_block(function, "or_merge");
+
+        self.builder
+            .build_conditional_branch(left, merge_bb, rhs_bb)
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+        self.builder.position_at_end(rhs_bb);
+        let right = self.compile_expr(rhs, function)?.into_int_value();
+        let rhs_end_bb = self.builder.get_insert_block().unwrap();
+        self.builder
+            .build_unconditional_branch(merge_bb)
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+        self.builder.position_at_end(merge_bb);
+        let bool_ty = self.context.bool_type();
+        let phi = self
+            .builder
+            .build_phi(bool_ty, "or_result")
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+        let true_val = bool_ty.const_int(1, false);
+        phi.add_incoming(&[(&true_val, lhs_bb), (&right, rhs_end_bb)]);
+
+        Ok(BasicValueEnum::IntValue(
+            phi.as_basic_value().into_int_value(),
+        ))
     }
 
     pub(super) fn arg_is_unsigned(&self, expr: &Expr) -> bool {

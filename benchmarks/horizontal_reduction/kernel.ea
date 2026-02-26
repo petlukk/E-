@@ -62,6 +62,26 @@ export func max_f32x4(data: *restrict f32, len: i32) -> f32 {
     return result
 }
 
+// foreach scalar sum (relies on LLVM auto-vectorization)
+export func sum_foreach(data: *restrict f32, len: i32) -> f32 {
+    let mut total: f32 = 0.0
+    foreach (i in 0..len) {
+        total = total + data[i]
+    }
+    return total
+}
+
+// unroll(4) while — single accumulator with hint
+export func sum_unroll(data: *restrict f32, len: i32) -> f32 {
+    let mut total: f32 = 0.0
+    let mut i: i32 = 0
+    unroll(4) while i < len {
+        total = total + data[i]
+        i = i + 1
+    }
+    return total
+}
+
 // Multi-accumulator min reduction
 export func min_f32x4(data: *restrict f32, len: i32) -> f32 {
     let mut acc0: f32x4 = load(data, 0)

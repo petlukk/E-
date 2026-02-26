@@ -110,8 +110,11 @@ def load_libraries():
     ea_lib = ctypes.CDLL(str(BENCH_DIR / "kernel.so"))
     c_lib = ctypes.CDLL(str(BENCH_DIR / "reference.so"))
 
-    ea_lib.fma_kernel_f32x4.argtypes = FMA_ARGTYPES
-    ea_lib.fma_kernel_f32x4.restype = None
+    for name in ["fma_kernel_f32x4", "fma_kernel_f32x8",
+                  "fma_kernel_foreach", "fma_kernel_foreach_unroll"]:
+        fn = getattr(ea_lib, name)
+        fn.argtypes = FMA_ARGTYPES
+        fn.restype = None
 
     c_lib.fma_kernel_f32x4_c.argtypes = FMA_ARGTYPES
     c_lib.fma_kernel_f32x4_c.restype = None
@@ -123,6 +126,21 @@ def load_libraries():
     c_lib.fma_kernel_scalar_c.restype = None
 
     return ea_lib, c_lib
+
+
+def compile_ea_kernel_at_opt(opt_level):
+    """Compile Ea kernel at a specific optimization level, return .so path"""
+    so_name = f"kernel_O{opt_level}.so"
+    ea_root = BENCH_DIR.parent.parent
+    result = subprocess.run([
+        "cargo", "run", "--features=llvm", "--",
+        str(BENCH_DIR / "kernel.ea"), "--lib",
+        f"--opt-level={opt_level}", "-o", str(BENCH_DIR / so_name),
+    ], capture_output=True, text=True, cwd=ea_root)
+    if result.returncode != 0:
+        print(f"  Ea O{opt_level} compilation failed: {result.stderr[:200]}")
+        return None
+    return BENCH_DIR / so_name
 
 
 def compile_and_load_competitors():
@@ -277,12 +295,15 @@ def main():
 
     print("\n=== Performance Results ===")
 
-    # Build the full benchmark list: core + competitors
+    # Build the full benchmark list: core + foreach + competitors
     bench_list = [
         ("GCC f32x8 (AVX2)", c_lib.fma_kernel_f32x8_c),
         ("GCC f32x4 (SSE)",  c_lib.fma_kernel_f32x4_c),
         ("GCC scalar",       c_lib.fma_kernel_scalar_c),
+        ("Ea f32x8",         ea_lib.fma_kernel_f32x8),
         ("Ea f32x4",         ea_lib.fma_kernel_f32x4),
+        ("Ea foreach",       ea_lib.fma_kernel_foreach),
+        ("Ea foreach+unroll", ea_lib.fma_kernel_foreach_unroll),
     ]
     bench_list.extend(competitors)
 
@@ -324,6 +345,26 @@ def main():
     scalar_avg = results["GCC scalar"][0]
     speedup = scalar_avg / gcc4_avg
     print(f"SIMD speedup vs scalar = {speedup:.1f}x")
+
+    # --- Opt-level comparison ---
+    print("\n=== Optimization Level Comparison (Ea foreach) ===")
+    print(f"  {'Opt Level':<12} | {'Avg (us)':>10} | {'Min (us)':>10} "
+          f"| {'vs Best C':>10}")
+    print(f"  {'-'*12}-+-{'-'*10}-+-{'-'*10}-+-{'-'*10}")
+    for opt in [0, 1, 2, 3]:
+        so_path = compile_ea_kernel_at_opt(opt)
+        if so_path is None:
+            continue
+        opt_lib = ctypes.CDLL(str(so_path))
+        opt_lib.fma_kernel_foreach.argtypes = FMA_ARGTYPES
+        opt_lib.fma_kernel_foreach.restype = None
+        avg, mint = benchmark_function(
+            opt_lib.fma_kernel_foreach, a_ptr, b_ptr, c_ptr, result_ptr,
+            f"Ea foreach O{opt}"
+        )
+        ratio = avg / baseline_avg
+        print(f"  O{opt:<11} | {avg*1e6:>10.1f} | {mint*1e6:>10.1f} "
+              f"| {ratio:>9.3f}x")
 
 
 if __name__ == "__main__":

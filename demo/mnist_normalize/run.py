@@ -135,6 +135,26 @@ def normalize_ea(data, so_path):
     return out.reshape(data.shape)
 
 
+def normalize_ea_foreach(data, so_path):
+    """Ea foreach (auto-vectorized) normalization."""
+    lib = ctypes.CDLL(str(so_path))
+    lib.normalize_foreach.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32,
+                                      ctypes.c_float]
+    lib.normalize_foreach.restype = None
+
+    flat = np.ascontiguousarray(data, dtype=np.float32).ravel()
+    out = np.empty_like(flat)
+    n = len(flat)
+
+    lib.normalize_foreach(
+        flat.ctypes.data_as(FLOAT_PTR),
+        out.ctypes.data_as(FLOAT_PTR),
+        n,
+        ctypes.c_float(1.0 / 255.0),
+    )
+    return out.reshape(data.shape)
+
+
 # ---------------------------------------------------------------------------
 # Full preprocessing pipeline: normalize + standardize + clip
 # ---------------------------------------------------------------------------
@@ -249,7 +269,10 @@ def main():
     print(f"  NumPy (x / 255.0)  : {t_numpy:8.2f} ms  ±{s_numpy:.2f}")
 
     t_ea, s_ea = benchmark(normalize_ea, images, so_path)
-    print(f"  Ea (1 kernel)      : {t_ea:8.2f} ms  ±{s_ea:.2f}")
+    print(f"  Ea f32x8 (SIMD)    : {t_ea:8.2f} ms  ±{s_ea:.2f}")
+
+    t_fe, s_fe = benchmark(normalize_ea_foreach, images, so_path)
+    print(f"  Ea foreach (auto)  : {t_fe:8.2f} ms  ±{s_fe:.2f}")
 
     print()
     speedup1 = t_numpy / t_ea

@@ -249,6 +249,45 @@ def anomaly_ea(frame_a, frame_b, threshold, so_path):
     return diff.reshape(h, w), mask.reshape(h, w), float(count)
 
 
+def anomaly_ea_foreach(frame_a, frame_b, threshold, so_path):
+    """Run Ea foreach (auto-vectorized) anomaly kernels via ctypes."""
+    lib = ctypes.CDLL(str(so_path))
+
+    lib.frame_diff_foreach.argtypes = [FLOAT_PTR, FLOAT_PTR, FLOAT_PTR,
+                                       ctypes.c_int32]
+    lib.frame_diff_foreach.restype = None
+
+    lib.threshold_foreach.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32,
+                                      ctypes.c_float]
+    lib.threshold_foreach.restype = None
+
+    lib.sum_foreach.argtypes = [FLOAT_PTR, ctypes.c_int32]
+    lib.sum_foreach.restype = ctypes.c_float
+
+    h, w = frame_a.shape
+    flat_a = np.ascontiguousarray(frame_a, dtype=np.float32).ravel()
+    flat_b = np.ascontiguousarray(frame_b, dtype=np.float32).ravel()
+    diff = np.zeros_like(flat_a)
+    mask = np.zeros_like(flat_a)
+    n = len(flat_a)
+
+    lib.frame_diff_foreach(
+        flat_a.ctypes.data_as(FLOAT_PTR),
+        flat_b.ctypes.data_as(FLOAT_PTR),
+        diff.ctypes.data_as(FLOAT_PTR),
+        n,
+    )
+    lib.threshold_foreach(
+        diff.ctypes.data_as(FLOAT_PTR),
+        mask.ctypes.data_as(FLOAT_PTR),
+        n,
+        ctypes.c_float(threshold),
+    )
+    count = lib.sum_foreach(mask.ctypes.data_as(FLOAT_PTR), n)
+
+    return diff.reshape(h, w), mask.reshape(h, w), float(count)
+
+
 def anomaly_ea_fused(frame_a, frame_b, threshold, so_path):
     """Run fused Ea kernel: diff+threshold+count in one pass. No intermediate arrays."""
     lib = ctypes.CDLL(str(so_path))
@@ -369,7 +408,11 @@ def main():
     print(f"  NumPy              : {t_numpy:8.2f} ms  ±{s_numpy:.2f}")
 
     t_ea, s_ea = benchmark(anomaly_ea, frame_a, frame_b, THRESHOLD, so_path)
-    print(f"  Ea (3 kernels)     : {t_ea:8.2f} ms  ±{s_ea:.2f}")
+    print(f"  Ea SIMD (3 kernels): {t_ea:8.2f} ms  ±{s_ea:.2f}")
+
+    t_fe, s_fe = benchmark(anomaly_ea_foreach, frame_a, frame_b, THRESHOLD,
+                            so_path)
+    print(f"  Ea foreach (3 kern): {t_fe:8.2f} ms  ±{s_fe:.2f}")
 
     t_fused, s_fused = benchmark(anomaly_ea_fused, frame_a, frame_b, THRESHOLD,
                                  so_fused_path)

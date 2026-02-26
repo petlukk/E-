@@ -23,6 +23,9 @@ export func sobel(
         let mut x: i32 = 1
 
         while x + 4 <= width - 1 {
+            prefetch(input, row_above + x + 16)
+            prefetch(input, row_curr + x + 16)
+            prefetch(input, row_below + x + 16)
             let r0a: f32x4 = load(input, row_above + x - 1)
             let r0b: f32x4 = load(input, row_above + x)
             let r0c: f32x4 = load(input, row_above + x + 1)

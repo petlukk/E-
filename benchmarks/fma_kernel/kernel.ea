@@ -43,29 +43,63 @@ export func fma_kernel_f32x4(
 
 export func fma_kernel_f32x8(
     a: *restrict f32,
-    b: *restrict f32, 
+    b: *restrict f32,
     c: *restrict f32,
     result: *restrict mut f32,
     len: i32
 ) {
     let mut i: i32 = 0
-    
+
     // Process 8 elements at a time
     while i + 8 <= len {
         let va: f32x8 = load(a, i)
         let vb: f32x8 = load(b, i)
         let vc: f32x8 = load(c, i)
-        
+
         // Fused multiply-add
         let vresult: f32x8 = fma(va, vb, vc)
-        
+
         store(result, i, vresult)
         i = i + 8
     }
-    
+
     // Scalar remainder
     while i < len {
         result[i] = a[i] * b[i] + c[i]
         i = i + 1
+    }
+}
+
+
+// ============================================================
+// foreach version (scalar — relies on LLVM auto-vectorization)
+// ============================================================
+
+export func fma_kernel_foreach(
+    a: *restrict f32,
+    b: *restrict f32,
+    c: *restrict f32,
+    result: *restrict mut f32,
+    len: i32
+) {
+    foreach (i in 0..len) {
+        result[i] = a[i] * b[i] + c[i]
+    }
+}
+
+
+// ============================================================
+// foreach + unroll(4) version
+// ============================================================
+
+export func fma_kernel_foreach_unroll(
+    a: *restrict f32,
+    b: *restrict f32,
+    c: *restrict f32,
+    result: *restrict mut f32,
+    len: i32
+) {
+    unroll(4) foreach (i in 0..len) {
+        result[i] = a[i] * b[i] + c[i]
     }
 }

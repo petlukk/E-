@@ -296,21 +296,27 @@ def stack_numpy(frames):
     return np.mean(np.array(frames), axis=0)
 
 
-def stack_ea(frames, so_path):
-    """Stack frames using Ea SIMD kernels. Uses O(pixels) extra memory."""
+def _load_ea_lib(so_path):
+    """Load Ea shared library and set up function signatures."""
     lib = ctypes.CDLL(str(so_path))
     lib.accumulate_f32x8.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32]
     lib.accumulate_f32x8.restype = None
+    lib.accumulate_foreach.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32]
+    lib.accumulate_foreach.restype = None
     lib.scale_f32x8.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32, ctypes.c_float]
     lib.scale_f32x8.restype = None
+    return lib
 
+
+def _stack_ea_impl(frames, lib, accumulate_fn):
+    """Common stacking logic using a given accumulate function."""
     h, w = frames[0].shape
     n = h * w
     acc = np.zeros(n, dtype=np.float32)
 
     for frame in frames:
         flat = np.ascontiguousarray(frame, dtype=np.float32).ravel()
-        lib.accumulate_f32x8(
+        accumulate_fn(
             acc.ctypes.data_as(FLOAT_PTR),
             flat.ctypes.data_as(FLOAT_PTR),
             n,
@@ -324,6 +330,18 @@ def stack_ea(frames, so_path):
         ctypes.c_float(1.0 / len(frames)),
     )
     return out.reshape(h, w)
+
+
+def stack_ea(frames, so_path):
+    """Stack frames using Ea f32x8 SIMD kernels."""
+    lib = _load_ea_lib(so_path)
+    return _stack_ea_impl(frames, lib, lib.accumulate_f32x8)
+
+
+def stack_ea_foreach(frames, so_path):
+    """Stack frames using Ea foreach (auto-vectorized) kernel."""
+    lib = _load_ea_lib(so_path)
+    return _stack_ea_impl(frames, lib, lib.accumulate_foreach)
 
 
 # ---------------------------------------------------------------------------
@@ -445,7 +463,10 @@ def main():
     print(f"  NumPy               : {t_numpy:8.2f} ms  ±{s_numpy:.2f}")
 
     t_ea, s_ea = benchmark(stack_ea, frames, so_path)
-    print(f"  Ea (stack.so)       : {t_ea:8.2f} ms  ±{s_ea:.2f}")
+    print(f"  Ea f32x8 (SIMD)     : {t_ea:8.2f} ms  ±{s_ea:.2f}")
+
+    t_fe, s_fe = benchmark(stack_ea_foreach, frames, so_path)
+    print(f"  Ea foreach (auto)   : {t_fe:8.2f} ms  ±{s_fe:.2f}")
     print()
 
     # Memory note

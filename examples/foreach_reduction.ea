@@ -1,0 +1,19 @@
+// foreach reduction: scalar sum over an array.
+// LLVM can auto-vectorize at O2+ but won't use multi-accumulator ILP.
+// Compare with explicit SIMD multi-acc version in reduction.ea.
+
+export func sum_foreach(data: *restrict f32, len: i32) -> f32 {
+    let mut total: f32 = 0.0
+    foreach (i in 0..len) {
+        total = total + data[i]
+    }
+    return total
+}
+
+export func sum_foreach_unroll(data: *restrict f32, len: i32) -> f32 {
+    let mut total: f32 = 0.0
+    unroll(4) foreach (i in 0..len) {
+        total = total + data[i]
+    }
+    return total
+}

@@ -354,4 +354,142 @@ int main() {
             "-1 0 1",
         );
     }
+
+    // === Short-circuit evaluation ===
+
+    #[test]
+    fn test_short_circuit_and_skips_right() {
+        // false && side_effect(): must NOT execute right side
+        assert_c_interop(
+            r#"
+export func test_and(data: *mut i32, len: i32, i: i32) -> i32 {
+    if i < len && data[i] > 0 {
+        return 1
+    }
+    return 0
+}
+"#,
+            r#"
+#include <stdio.h>
+extern int test_and(int*, int, int);
+int main() {
+    int data[] = {10, 20, 30};
+    printf("%d\n", test_and(data, 3, 1));
+    printf("%d\n", test_and(data, 3, 5));
+    return 0;
+}
+"#,
+            "1\n0",
+        );
+    }
+
+    #[test]
+    fn test_short_circuit_or_skips_right() {
+        // true || side_effect(): must NOT execute right side
+        assert_c_interop(
+            r#"
+export func test_or(data: *mut i32, len: i32, i: i32) -> i32 {
+    if i >= len || data[i] == 0 {
+        return 1
+    }
+    return 0
+}
+"#,
+            r#"
+#include <stdio.h>
+extern int test_or(int*, int, int);
+int main() {
+    int data[] = {10, 0, 30};
+    printf("%d\n", test_or(data, 3, 5));
+    printf("%d\n", test_or(data, 3, 1));
+    printf("%d\n", test_or(data, 3, 0));
+    return 0;
+}
+"#,
+            "1\n1\n0",
+        );
+    }
+
+    #[test]
+    fn test_short_circuit_and_no_mutation() {
+        // false && mutating_call(): mutation must NOT happen
+        assert_c_interop(
+            r#"
+func set_flag(out: *mut i32) -> bool {
+    out[0] = 999
+    return true
+}
+
+export func test(out: *mut i32) {
+    out[0] = 0
+    let cond: bool = false
+    if cond && set_flag(out) {
+        out[0] = 1
+    }
+}
+"#,
+            r#"
+#include <stdio.h>
+extern void test(int*);
+int main() {
+    int flag = 42;
+    test(&flag);
+    printf("%d\n", flag);
+    return 0;
+}
+"#,
+            "0",
+        );
+    }
+
+    #[test]
+    fn test_short_circuit_or_no_mutation() {
+        // true || mutating_call(): mutation must NOT happen
+        assert_c_interop(
+            r#"
+func set_flag(out: *mut i32) -> bool {
+    out[0] = 999
+    return true
+}
+
+export func test(out: *mut i32) {
+    out[0] = 0
+    let cond: bool = true
+    if cond || set_flag(out) {
+        out[0] = 1
+    }
+}
+"#,
+            r#"
+#include <stdio.h>
+extern void test(int*);
+int main() {
+    int flag = 42;
+    test(&flag);
+    printf("%d\n", flag);
+    return 0;
+}
+"#,
+            "1",
+        );
+    }
+
+    #[test]
+    fn test_and_or_nested() {
+        assert_output(
+            r#"
+            func main() {
+                let a: i32 = 5
+                let b: i32 = 3
+                let c: i32 = 5
+                if a > 0 && (b < 10 || c == 5) {
+                    println(1)
+                } else {
+                    println(0)
+                }
+            }
+            "#,
+            "1",
+        );
+    }
 }

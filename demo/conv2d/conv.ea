@@ -30,7 +30,7 @@ export func conv1d_u8i8(src: *u8, wt: *i8, dst: *mut i16, n: i32, k: i32) {
     while j < n {
         let mut acc: i16x8 = splat(0)
         let mut ki: i32 = 0
-        while ki < k {
+        unroll(4) while ki < k {
             let a: u8x16 = load(src, j + ki)
             let b: i8x16 = load(wt, ki)
             acc = acc .+ maddubs_i16(a, b)

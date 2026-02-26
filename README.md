@@ -1,11 +1,11 @@
-# Ea
+# Eä
 
 **SIMD kernel language for C and Python.**
 
 Write readable SIMD code. Compile to `.o` or `.so`. Call from C, Rust, Python via C ABI.
-No runtime. No garbage collector. Explicit memory control. Just kernels.
+No runtime. No garbage collector. Explicit memory control.
 
-→ **[Ea Showcase](https://github.com/petlukk/Ea_showcase)** — visual demo application showing Ea kernels running live.
+> **[Ea Showcase](https://github.com/petlukk/Ea_showcase)** — visual demo application showing Ea kernels running live.
 
 ## Example
 
@@ -35,6 +35,27 @@ extern void fma_kernel(const float*, const float*, const float*, float*, int);
 
 fma_kernel(a, b, c, result, n);  // that's it
 ```
+
+## Design Principles
+
+- **Explicit over implicit** — SIMD width, loop stepping, and memory access are programmer-controlled
+- **Predictable performance over abstraction** — no hidden allocations, no auto-vectorizer surprises
+- **Kernel isolation over language integration** — compute kernels are compiled separately, called via C ABI
+- **Zero runtime cost** — no garbage collector, no runtime, no hidden checks
+
+## Non-goals
+
+- Not a general-purpose language — no strings, collections, or modules
+- No safety guarantees — correctness is the programmer's responsibility
+- No auto-vectorization in the default path — SIMD width is always explicit (`foreach` relies on LLVM, but explicit vector types are the primary path)
+- Not intended to replace Rust, C++, or any host language
+
+## Compute Model
+
+Seven kernel patterns — streaming, reduction, stencil, streaming dataset, fused
+pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) for
+the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
+of when each pattern wins and when it doesn't.
 
 ## v0.6.0 — foreach, unroll, compiler tools
 
@@ -87,37 +108,24 @@ void scale(const float* data, float* out, int32_t n, float factor);
 ea kernel.ea --emit-asm  # produces kernel.s
 ```
 
-## Benchmarks
-
-Eä matches or beats hand-written C intrinsics on FMA and reduction kernels,
-using strict IEEE floating point (no fast-math). See [`BENCHMARKS.md`](BENCHMARKS.md)
-for full tables (AMD Ryzen 7, Intel i7), restrict analysis, and ILP methodology.
-
-## Compute Model
-
-Seven kernel patterns — streaming, reduction, stencil, streaming dataset, fused
-pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) for
-the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
-of when each pattern wins and when it doesn't.
-
 ## Demos
 
 Real workloads. Real data. Verified against established tools.
 
-| Demo | Domain | Patterns | Result |
-|------|--------|----------|--------|
-| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 9.4x faster than NumPy, 4.4x faster than OpenCV |
-| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, fused pipeline | 3 kernels: **0.8x (slower)**. Fused: **10.9x faster** |
-| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 2.3x faster, 16x less memory than NumPy |
-| [MNIST preprocessing](demo/mnist_normalize/) | ML preprocessing | Streaming, fused pipeline | Single op: **1.0x (tie)**. Fused pipeline: **3.9x faster** |
-| [Pixel pipeline](demo/pixel_pipeline/) | Image processing | u8x16 threshold, u8→f32 widen | threshold: **21x warm / 14x cold**, normalize: **2.1x** vs NumPy |
-| [Conv2d (dot/1d)](demo/conv2d/) | Integer SIMD | maddubs_i16, u8×i8 | dot: **6.9x**, conv1d: **3.3x** vs NumPy |
-| [Conv2d 3×3 NHWC](demo/conv2d_3x3/) | Quantized inference | maddubs_i16 dual-acc / maddubs_i32 safe variant | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64 |
-| [Pipeline fusion](demo/skimage_fusion/) | Image processing | Stencil fusion, algebraic optimization | 6.2x vs NumPy, **1.3x fusion at 4K**, 7x memory reduction |
-| [Tokenizer prepass](demo/tokenizer_prepass/) | Text/NLP | Structural scan, bitwise ops | unfused: **78.7x**, fused: **58.1x** vs NumPy (fusion: 0.74x — see README) |
-| [Particle update](demo/particles/) | Struct FFI | C-compatible structs over FFI | Correctness demo — proves struct layout matches C exactly |
-| [Cornell Box ray tracer](demo/cornell_box/) | Graphics | Struct return, recursion, scalar math | First non-SIMD demo: full ray tracer in ~200 lines of Eä |
-| [Particle life](demo/particle_life/) | Simulation | N-body scalar, fused vs unfused | Matches hand-written C at -O2. Interactive pygame UI |
+| Demo                                           | Domain               | Patterns                                        | Result                                                                     |
+| ---------------------------------------------- | -------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
+| [Sobel edge detection](demo/sobel/)            | Image processing     | Stencil, pipeline                               | 9.4x faster than NumPy, 4.4x faster than OpenCV                            |
+| [Video anomaly detection](demo/video_anomaly/) | Video analysis       | Streaming, fused pipeline                       | 3 kernels: **0.8x (slower)**. Fused: **10.9x faster**                      |
+| [Astronomy stacking](demo/astro_stack/)        | Scientific computing | Streaming dataset                               | 2.3x faster, 16x less memory than NumPy                                    |
+| [MNIST preprocessing](demo/mnist_normalize/)   | ML preprocessing     | Streaming, fused pipeline                       | Single op: **1.0x (tie)**. Fused pipeline: **3.9x faster**                 |
+| [Pixel pipeline](demo/pixel_pipeline/)         | Image processing     | u8x16 threshold, u8→f32 widen                   | threshold: **21x warm / 14x cold**, normalize: **2.1x** vs NumPy           |
+| [Conv2d (dot/1d)](demo/conv2d/)                | Integer SIMD         | maddubs_i16, u8×i8                              | dot: **6.9x**, conv1d: **3.3x** vs NumPy                                   |
+| [Conv2d 3×3 NHWC](demo/conv2d_3x3/)            | Quantized inference  | maddubs_i16 dual-acc / maddubs_i32 safe variant | **29–49x vs NumPy**, 39 GMACs/s on 56×56×64                                |
+| [Pipeline fusion](demo/skimage_fusion/)        | Image processing     | Stencil fusion, algebraic optimization          | 6.2x vs NumPy, **1.3x fusion at 4K**, 7x memory reduction                  |
+| [Tokenizer prepass](demo/tokenizer_prepass/)   | Text/NLP             | Structural scan, bitwise ops                    | unfused: **78.7x**, fused: **58.1x** vs NumPy (fusion: 0.74x — see README) |
+| [Particle update](demo/particles/)             | Struct FFI           | C-compatible structs over FFI                   | Correctness demo — proves struct layout matches C exactly                  |
+| [Cornell Box ray tracer](demo/cornell_box/)    | Graphics             | Struct return, recursion, scalar math           | First non-SIMD demo: full ray tracer in ~200 lines of Eä                   |
+| [Particle life](demo/particle_life/)           | Simulation           | N-body scalar, fused vs unfused                 | Matches hand-written C at -O2. Interactive pygame UI                       |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
@@ -127,7 +135,7 @@ Where cold-cache numbers differ materially they are noted. See [`AUDIT_v0.3.0.md
 for the full integrity audit: assembly verification, cold-cache analysis, honest loss
 accounting, i16 overflow constraint, and cross-machine results.
 
-### Kernel fusion: the most important result
+### Kernel fusion
 
 **Streaming fusion** — the video anomaly demo ships both unfused (3-kernel) and
 fused (1-kernel) implementations. Same language. Same compiler. Same data.
@@ -147,7 +155,7 @@ The MNIST scaling experiment confirms this scales linearly with pipeline depth:
 ```
 
 **Stencil fusion** — the pipeline fusion demo fuses Gaussian blur + Sobel +
-threshold into a single 5x5 stencil. The first attempt was *slower* than
+threshold into a single 5x5 stencil. The first attempt was _slower_ than
 unfused — naive composition computed 8 redundant Gaussian blurs per output
 pixel. Algebraic reformulation (precomputing the combined convolution as a
 separable 5x5 kernel) reduced ops from ~120 to ~50 and made fusion win:
@@ -166,19 +174,26 @@ Same language. Same compiler. The compute formulation changed.
 See [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for the full analysis of all
 compute classes, including when Ea wins, when it doesn't, and when fusion hurts.
 
-## Why not...
+## Benchmarks
 
-**C with intrinsics?**
+In tested kernels, Ea reaches performance comparable to hand-written C intrinsics
+on FMA and reduction workloads, using strict IEEE floating point (no fast-math).
+See [`BENCHMARKS.md`](BENCHMARKS.md) for full tables (AMD Ryzen 7, Intel i7),
+restrict analysis, and ILP methodology.
+
+## Relation to existing approaches
+
+**C with intrinsics** —
 Works, but `_mm256_fmadd_ps(_mm256_loadu_ps(&a[i]), ...)` is unreadable and error-prone.
 Ea compiles `fma(load(a, i), load(b, i), load(c, i))` to the same instructions.
 
-**Rust with `std::simd`?**
+**Rust with `std::simd`** —
 `std::simd` is nightly-only and Rust's type system adds friction for kernel code.
-Ea is purpose-built: no lifetimes, no borrows, no generics. Just SIMD.
+Ea is purpose-built: no lifetimes, no borrows, no generics.
 
-**ISPC?**
-ISPC auto-vectorizes scalar code. Ea gives you explicit control over vector width and operations.
-Different philosophy -- Ea is closer to "portable intrinsics" than an auto-vectorizer.
+**ISPC** —
+ISPC auto-vectorizes scalar code. Ea gives explicit control over vector width and operations.
+Different philosophy — Ea is closer to portable intrinsics than an auto-vectorizer.
 
 ## Safety Model
 
@@ -200,9 +215,9 @@ kernel code needs predictable performance without hidden checks.
 - **Structs**: C-compatible layout, pointer-to-struct, array-of-structs
 - **Pointers**: `*T`, `*mut T`, pointer indexing (`arr[i]`)
 - **Literals**: decimal (`255`), hex (`0xFF`), binary (`0b11110000`)
-- **Control flow**: `if`/`else if`/`else`, `while`
+- **Control flow**: `if`/`else if`/`else`, `while`, short-circuit `&&`/`||`
 - **Types**: `i8`, `u8`, `i16`, `u16`, `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`
-- **foreach**: `foreach (i in 0..n) { ... }` — auto-vectorized element-wise loops
+- **foreach**: `foreach (i in 0..n) { ... }` — element-wise loops (LLVM may auto-vectorize at O2+)
 - **unroll(N)**: loop unrolling hint for `while` and `foreach`
 - **prefetch**: `prefetch(ptr, offset)` — software prefetch for large-array streaming
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
@@ -230,7 +245,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (226 passing)
+# Run tests (198 passing)
 cargo test --features=llvm
 ```
 
@@ -271,7 +286,7 @@ Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
 ~5,800 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-226 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, and compiler flags.
+198 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, and compiler flags.
 
 ## License
 

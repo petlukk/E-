@@ -4,6 +4,13 @@
 // This is the simplest useful ML preprocessing kernel:
 // one streaming pass, no dependencies, no intermediate arrays.
 
+// foreach variant (relies on LLVM auto-vectorization at O2+)
+export func normalize_foreach(input: *restrict f32, out: *mut f32, len: i32, scale: f32) {
+    foreach (i in 0..len) {
+        out[i] = input[i] * scale
+    }
+}
+
 export func normalize_f32x8(input: *restrict f32, out: *mut f32, len: i32, scale: f32) {
     let vscale: f32x8 = splat(scale)
     let mut i: i32 = 0

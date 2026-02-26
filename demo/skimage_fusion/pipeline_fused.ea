@@ -38,6 +38,11 @@ export func edge_detect_fused(
         let mut x: i32 = 2
 
         while x + 4 <= width - 2 {
+            prefetch(input, r0 + x + 16)
+            prefetch(input, r1 + x + 16)
+            prefetch(input, r2 + x + 16)
+            prefetch(input, r3 + x + 16)
+            prefetch(input, r4 + x + 16)
             // --- Load 5x5 neighborhood (24 loads, skip p22) ---
             let p00: f32x4 = load(input, r0 + x - 2)
             let p01: f32x4 = load(input, r0 + x - 1)
