@@ -90,22 +90,51 @@ LLVM 18, Linux (WSL2). 1M elements, 100–200 runs, **minimum** time reported.
 ## foreach vs Explicit SIMD
 
 v0.6.0 added `foreach` (auto-vectorized scalar loops) and `unroll(N)` hints.
-New kernel variants in `benchmarks/` compare these against hand-written SIMD.
+Measured on Intel i7-1260P (Alder Lake), 1M f32 elements, 100 runs.
 
-**How to compare:** Run `python bench.py` in `benchmarks/fma_kernel/` or
-`benchmarks/horizontal_reduction/`. The harness now includes `Ea foreach`,
-`Ea foreach+unroll`, `Ea unroll(4)`, and an `--opt-level` comparison (O0–O3).
+### FMA (streaming — element-independent)
 
-**Expected results:**
-- FMA (streaming, no dependency chain): `foreach` at O2+ should approach explicit
-  SIMD, since LLVM's auto-vectorizer handles simple streaming patterns well.
-- Sum reduction (dependency chain): `foreach` will be slower — LLVM does not
-  auto-split into multiple accumulators. Explicit multi-acc SIMD wins here.
+| Implementation       | Avg (us) | vs GCC f32x8 |
+| -------------------- | -------- | ------------ |
+| GCC f32x8 (AVX2)     | 2629     | 1.00x        |
+| GCC f32x4 (SSE)      | 2425     | 0.92x        |
+| GCC scalar           | 3740     | 1.42x        |
+| Ea f32x8             | 3176     | 1.21x        |
+| Ea f32x4             | 5775     | 2.20x        |
+| **Ea foreach**       | **2667** | **1.01x**    |
+| Ea foreach+unroll    | 3148     | 1.20x        |
 
-**Key question answered:** `foreach` is a good default for simple streaming kernels.
-For anything with dependency chains, explicit SIMD with the multi-accumulator
-pattern remains necessary. See `examples/foreach_fma.ea` and
-`examples/foreach_reduction.ea` for side-by-side comparison code.
+`foreach` matches GCC f32x8 on streaming FMA — LLVM auto-vectorizes the trivial
+element-independent pattern. The `unroll` hint does not help here; LLVM already
+unrolls optimally.
+
+### Sum Reduction (cross-element dependency)
+
+| Implementation       | Avg (us) | vs C scalar |
+| -------------------- | -------- | ----------- |
+| C scalar             | 578      | 1.00x       |
+| C f32x8 (AVX2)       | 634      | 1.10x       |
+| Ea f32x8 (multi-acc) | 929      | 1.61x       |
+| Ea f32x4             | 1376     | 2.38x       |
+| Ea unroll(4)         | 2961     | 5.12x       |
+| **Ea foreach**       | **4175** | **7.22x**   |
+
+`foreach` is 7x slower than C scalar for sum reduction. LLVM cannot automatically
+break the accumulator dependency chain into multiple independent accumulators.
+Explicit SIMD with multi-accumulator ILP remains essential for reductions.
+
+### Interpretation
+
+`foreach` is a good default for element-wise streaming operations where each
+output depends only on its own index. For anything with cross-element dependencies
+(reductions, prefix sums, recurrences), explicit SIMD with the multi-accumulator
+pattern is necessary.
+
+This matches the language design: `foreach` is convenience for simple cases,
+explicit vector types are control for performance-critical patterns.
+
+See `examples/foreach_fma.ea` and `examples/foreach_reduction.ea` for
+side-by-side comparison code.
 
 ---
 

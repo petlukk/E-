@@ -260,9 +260,26 @@ impl<'ctx> CodeGenerator<'ctx> {
                     .build_unconditional_branch(cond_bb)
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
-                // Condition block with phi node
-                self.builder.position_at_end(cond_bb);
+                // Alloca in function entry block (not loop block) to avoid
+                // stack growth at O0 where mem2reg does not run.
                 let i32_type = self.context.i32_type();
+                let fn_entry = function.get_first_basic_block().unwrap();
+                let alloca = if let Some(first_instr) = fn_entry.get_first_instruction() {
+                    self.builder.position_before(&first_instr);
+                    let a = self
+                        .builder
+                        .build_alloca(i32_type, var)
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+                    self.builder.position_at_end(cond_bb);
+                    a
+                } else {
+                    self.builder.position_at_end(cond_bb);
+                    self.builder
+                        .build_alloca(i32_type, var)
+                        .map_err(|e| CompileError::codegen_error(e.to_string()))?
+                };
+
+                // Condition block with phi node
                 let phi = self
                     .builder
                     .build_phi(i32_type, var)
@@ -271,11 +288,6 @@ impl<'ctx> CodeGenerator<'ctx> {
 
                 let i_val = phi.as_basic_value().into_int_value();
 
-                // Alloca so body can access loop var by name
-                let alloca = self
-                    .builder
-                    .build_alloca(i32_type, var)
-                    .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 self.builder
                     .build_store(alloca, i_val)
                     .map_err(|e| CompileError::codegen_error(e.to_string()))?;
