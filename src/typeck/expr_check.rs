@@ -30,7 +30,7 @@ impl TypeChecker {
                 let inner_type = self.check_expr(inner, locals)?;
                 if !inner_type.is_bool() {
                     return Err(CompileError::type_error(
-                        format!("'!' requires bool operand, got {inner_type:?}"),
+                        format!("'!' requires bool operand, got {inner_type}"),
                         Span::default(),
                     ));
                 }
@@ -43,7 +43,7 @@ impl TypeChecker {
                 } else {
                     Err(CompileError::type_error(
                         format!(
-                            "unary '-' requires numeric or vector operand, got {inner_type:?}"
+                            "unary '-' requires numeric or vector operand, got {inner_type}"
                         ),
                         Span::default(),
                     ))
@@ -54,7 +54,7 @@ impl TypeChecker {
                 let idx_type = self.check_expr(index, locals)?;
                 if !idx_type.is_integer() {
                     return Err(CompileError::type_error(
-                        format!("index must be integer, got {idx_type:?}"),
+                        format!("index must be integer, got {idx_type}"),
                         Span::default(),
                     ));
                 }
@@ -64,7 +64,7 @@ impl TypeChecker {
                 match obj_type.pointee() {
                     Some(inner) => Ok(inner.clone()),
                     None => Err(CompileError::type_error(
-                        format!("cannot index type {obj_type:?}"),
+                        format!("cannot index type {obj_type}. Only pointers and vectors support indexing"),
                         Span::default(),
                     )),
                 }
@@ -97,7 +97,7 @@ impl TypeChecker {
                         if !lt.is_bool() || !rt.is_bool() {
                             return Err(CompileError::type_error(
                                 format!(
-                                    "logical operators require bool operands, got {lt:?} and {rt:?}"
+                                    "logical operators require bool operands, got {lt} and {rt}"
                                 ),
                                 Span::default(),
                             ));
@@ -114,13 +114,13 @@ impl TypeChecker {
                             Type::Vector { elem, .. } if elem.is_integer() => Ok(result),
                             Type::Vector { elem, .. } => Err(CompileError::type_error(
                                 format!(
-                                    "bitwise vector ops require integer element type, got {elem:?}"
+                                    "bitwise vector ops require integer element type, got {elem}"
                                 ),
                                 Span::default(),
                             )),
                             _ => Err(CompileError::type_error(
                                 format!(
-                                    "bitwise vector ops require vector operands, got {result:?}"
+                                    "bitwise vector ops require vector operands, got {result}"
                                 ),
                                 Span::default(),
                             )),
@@ -139,7 +139,7 @@ impl TypeChecker {
                                 width: *width,
                             }),
                             _ => Err(CompileError::type_error(
-                                format!("dotted comparison requires vectors, got {lt:?}"),
+                                format!("dotted comparison requires vectors, got {lt}"),
                                 Span::default(),
                             )),
                         }
@@ -153,7 +153,7 @@ impl TypeChecker {
                     Type::Vector { elem, width } => (elem.as_ref(), *width),
                     _ => {
                         return Err(CompileError::type_error(
-                            format!("expected vector type, got {vec_type:?}"),
+                            format!("expected vector type, got {vec_type}"),
                             Span::default(),
                         ))
                     }
@@ -170,7 +170,7 @@ impl TypeChecker {
                     let actual = self.check_expr(el, locals)?;
                     if !types::types_compatible(&actual, elem_type) {
                         return Err(CompileError::type_error(
-                            format!("vector element {i} expected {elem_type:?}, got {actual:?}"),
+                            format!("vector element {i} expected {elem_type}, got {actual}"),
                             Span::default(),
                         ));
                     }
@@ -189,14 +189,14 @@ impl TypeChecker {
                         Type::Struct(name) => name.clone(),
                         _ => {
                             return Err(CompileError::type_error(
-                                format!("field access on non-struct pointer type {obj_type:?}"),
+                                format!("field access on non-struct pointer type {obj_type}"),
                                 Span::default(),
                             ))
                         }
                     },
                     _ => {
                         return Err(CompileError::type_error(
-                            format!("field access on non-struct type {obj_type:?}"),
+                            format!("field access on non-struct type {obj_type}"),
                             Span::default(),
                         ))
                     }
@@ -250,7 +250,7 @@ impl TypeChecker {
                     if !types::types_compatible(&actual, &expected) {
                         return Err(CompileError::type_error(
                             format!(
-                                "field '{field_name}': expected {expected:?}, got {actual:?}"
+                                "field '{field_name}': expected {expected}, got {actual}"
                             ),
                             Span::default(),
                         ));
@@ -284,7 +284,7 @@ impl TypeChecker {
                     if !types::types_compatible(&actual, expected) {
                         return Err(CompileError::type_error(
                             format!(
-                                "argument {} of '{}': expected {:?}, got {:?}",
+                                "argument {} of '{}': expected {}, got {}",
                                 i + 1,
                                 name,
                                 expected,

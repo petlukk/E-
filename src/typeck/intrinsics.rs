@@ -56,7 +56,7 @@ impl TypeChecker {
         let arg_type = self.check_expr(&args[0], locals)?;
         if !arg_type.is_numeric() && arg_type != Type::String && !arg_type.is_vector() {
             return Err(CompileError::type_error(
-                format!("println expects numeric, string, or vector result, got {arg_type:?}"),
+                format!("println expects numeric, string, or vector argument, got {arg_type}"),
                 Span::default(),
             ));
         }
@@ -106,7 +106,7 @@ impl TypeChecker {
                 width,
             }),
             _ => Err(CompileError::type_error(
-                format!("splat expects numeric, got {arg_type:?}"),
+                format!("splat expects numeric argument, got {arg_type}"),
                 Span::default(),
             )),
         }
@@ -128,7 +128,7 @@ impl TypeChecker {
         let t3 = self.check_expr(&args[2], locals)?;
         if !t1.is_vector() || !t2.is_vector() || !t3.is_vector() {
             return Err(CompileError::type_error(
-                format!("fma expects vector arguments, got {t1:?}, {t2:?}, {t3:?}"),
+                format!("fma expects vector arguments, got {t1}, {t2}, {t3}"),
                 Span::default(),
             ));
         }
@@ -137,7 +137,7 @@ impl TypeChecker {
         match &t1 {
             Type::Vector { elem, .. } if !elem.is_float() => {
                 return Err(CompileError::type_error(
-                    "fma requires float vector arguments",
+                    "fma requires float vector arguments. fma only works on f32 or f64 vectors",
                     Span::default(),
                 ));
             }
@@ -163,7 +163,7 @@ impl TypeChecker {
             Type::F32 | Type::F64 | Type::FloatLiteral => Ok(arg_type),
             Type::Vector { elem, .. } if elem.is_float() => Ok(arg_type),
             _ => Err(CompileError::type_error(
-                format!("{name} expects float or float vector argument, got {arg_type:?}"),
+                format!("{name} expects float or float vector argument, got {arg_type}"),
                 Span::default(),
             )),
         }
@@ -183,14 +183,14 @@ impl TypeChecker {
         let ptr_type = self.check_expr(&args[0], locals)?;
         if !matches!(ptr_type, Type::Pointer { .. }) {
             return Err(CompileError::type_error(
-                format!("prefetch first argument must be a pointer, got {ptr_type:?}"),
+                format!("prefetch first argument must be a pointer, got {ptr_type}"),
                 Span::default(),
             ));
         }
         let offset_type = self.check_expr(&args[1], locals)?;
         if !offset_type.is_integer() {
             return Err(CompileError::type_error(
-                format!("prefetch offset must be integer, got {offset_type:?}"),
+                format!("prefetch offset must be integer, got {offset_type}"),
                 Span::default(),
             ));
         }
@@ -212,7 +212,7 @@ impl TypeChecker {
         let arg_type = self.check_expr(&args[0], locals)?;
         if !arg_type.is_numeric() {
             return Err(CompileError::type_error(
-                format!("{name} expects numeric argument, got {arg_type:?}"),
+                format!("{name} expects numeric argument, got {arg_type}"),
                 Span::default(),
             ));
         }

@@ -85,14 +85,14 @@ impl TypeChecker {
             ) => {
                 if !types::types_compatible(&elem, &inner) {
                     return Err(CompileError::type_error(
-                        format!("store mismatch: ptr to {inner:?}, val {elem:?}"),
+                        format!("store mismatch: ptr to {inner}, val {elem}"),
                         Span::default(),
                     ));
                 }
                 Ok(Type::Void)
             }
             (Type::Pointer { mutable: false, .. }, _) => Err(CompileError::type_error(
-                "store requires mutable pointer",
+                "store requires mutable pointer. Declare as *mut to allow writes",
                 Span::default(),
             )),
             (_, _) => Err(CompileError::type_error(
@@ -118,7 +118,7 @@ impl TypeChecker {
         match &arg_type {
             Type::Vector { elem, .. } => Ok(*elem.clone()),
             _ => Err(CompileError::type_error(
-                format!("{name} expects vector argument, got {arg_type:?}"),
+                format!("{name} expects vector argument, got {arg_type}"),
                 Span::default(),
             )),
         }
@@ -140,7 +140,7 @@ impl TypeChecker {
             Type::Vector { width, .. } => *width,
             _ => {
                 return Err(CompileError::type_error(
-                    format!("shuffle first argument must be vector, got {vec_type:?}"),
+                    format!("shuffle first argument must be vector, got {vec_type}"),
                     Span::default(),
                 ))
             }
@@ -214,7 +214,7 @@ impl TypeChecker {
             ) if mask_elem.is_bool() && mask_w == val_w => Ok(a_type),
             _ => Err(CompileError::type_error(
                 format!(
-                    "select mask must be bool vector matching operand width, got {mask_type:?}"
+                    "select mask must be bool vector matching operand width, got {mask_type}. Use comparison operators (.>, .==) to create a mask"
                 ),
                 Span::default(),
             )),
@@ -242,7 +242,7 @@ impl TypeChecker {
                 })
             }
             _ => Err(CompileError::type_error(
-                format!("{name} expects i8x16 or u8x16, got {arg_type:?}"),
+                format!("{name} expects i8x16 or u8x16, got {arg_type}"),
                 Span::default(),
             )),
         }
@@ -268,7 +268,7 @@ impl TypeChecker {
                 })
             }
             _ => Err(CompileError::type_error(
-                format!("narrow_f32x4_i8 expects f32x4, got {arg_type:?}"),
+                format!("narrow_f32x4_i8 expects f32x4, got {arg_type}"),
                 Span::default(),
             )),
         }
@@ -304,7 +304,7 @@ impl TypeChecker {
                 })
             }
             _ => Err(CompileError::type_error(
-                format!("maddubs_i16 expects (u8x16, i8x16), got ({a:?}, {b:?})"),
+                format!("maddubs_i16 expects (u8x16, i8x16), got ({a}, {b})"),
                 Span::default(),
             )),
         }
@@ -340,7 +340,7 @@ impl TypeChecker {
                 })
             }
             _ => Err(CompileError::type_error(
-                format!("maddubs_i32 expects (u8x16, i8x16), got ({a:?}, {b:?})"),
+                format!("maddubs_i32 expects (u8x16, i8x16), got ({a}, {b})"),
                 Span::default(),
             )),
         }

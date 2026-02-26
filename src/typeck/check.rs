@@ -29,7 +29,7 @@ impl TypeChecker {
                     if !types::types_compatible(&init_type, &declared) {
                         return Err(CompileError::type_error(
                             format!(
-                                "cannot initialize '{name}' of type {declared:?} with {init_type:?}"
+                                "cannot initialize '{name}' of type {declared} with {init_type}"
                             ),
                             Span::default(),
                         ));
@@ -53,7 +53,7 @@ impl TypeChecker {
                     if !types::types_compatible(&val_type, &var_type) {
                         return Err(CompileError::type_error(
                             format!(
-                                "cannot assign {val_type:?} to '{target}' of type {var_type:?}"
+                                "cannot assign {val_type} to '{target}' of type {var_type}"
                             ),
                             Span::default(),
                         ));
@@ -75,14 +75,14 @@ impl TypeChecker {
                         Type::Pointer { mutable, inner, .. } => {
                             if !mutable {
                                 return Err(CompileError::type_error(
-                                    format!("cannot write through immutable pointer '{object}'"),
+                                    format!("cannot write through immutable pointer '{object}'. Declare as *mut to allow writes"),
                                     Span::default(),
                                 ));
                             }
                             let idx_type = self.check_expr(index, locals)?;
                             if !idx_type.is_integer() {
                                 return Err(CompileError::type_error(
-                                    format!("index must be integer, got {idx_type:?}"),
+                                    format!("index must be integer, got {idx_type}"),
                                     Span::default(),
                                 ));
                             }
@@ -90,7 +90,7 @@ impl TypeChecker {
                             if !types::types_compatible(&val_type, inner) {
                                 return Err(CompileError::type_error(
                                     format!(
-                                        "cannot assign {val_type:?} to element of {var_type:?}"
+                                        "cannot assign {val_type} to element of {var_type}"
                                     ),
                                     Span::default(),
                                 ));
@@ -117,7 +117,7 @@ impl TypeChecker {
                     if !types::types_compatible(&actual, expected_return) {
                         return Err(CompileError::type_error(
                             format!(
-                                "function '{func_name}' returns {actual:?} but expected {expected_return:?}"
+                                "function '{func_name}' returns {actual} but expected {expected_return}"
                             ),
                             Span::default(),
                         ));
@@ -126,7 +126,7 @@ impl TypeChecker {
                 Stmt::Return(None, _) => {
                     if *expected_return != Type::Void {
                         return Err(CompileError::type_error(
-                            format!("function '{func_name}' must return {expected_return:?}"),
+                            format!("function '{func_name}' must return {expected_return}"),
                             Span::default(),
                         ));
                     }
@@ -143,7 +143,7 @@ impl TypeChecker {
                     let cond_type = self.check_expr(condition, locals)?;
                     if !cond_type.is_bool() {
                         return Err(CompileError::type_error(
-                            format!("if condition must be bool, got {cond_type:?}"),
+                            format!("if condition must be bool, got {cond_type}"),
                             Span::default(),
                         ));
                     }
@@ -160,7 +160,7 @@ impl TypeChecker {
                     let cond_type = self.check_expr(condition, locals)?;
                     if !cond_type.is_bool() {
                         return Err(CompileError::type_error(
-                            format!("while condition must be bool, got {cond_type:?}"),
+                            format!("while condition must be bool, got {cond_type}"),
                             Span::default(),
                         ));
                     }
@@ -176,14 +176,14 @@ impl TypeChecker {
                     let start_type = self.check_expr(start, locals)?;
                     if !start_type.is_integer() {
                         return Err(CompileError::type_error(
-                            format!("foreach start must be integer, got {start_type:?}"),
+                            format!("foreach start must be integer, got {start_type}"),
                             Span::default(),
                         ));
                     }
                     let end_type = self.check_expr(end, locals)?;
                     if !end_type.is_integer() {
                         return Err(CompileError::type_error(
-                            format!("foreach end must be integer, got {end_type:?}"),
+                            format!("foreach end must be integer, got {end_type}"),
                             Span::default(),
                         ));
                     }
@@ -226,7 +226,7 @@ impl TypeChecker {
                             Type::Struct(name) => name.clone(),
                             _ => {
                                 return Err(CompileError::type_error(
-                                    format!("field assign on non-struct pointer type {obj_type:?}"),
+                                    format!("field assign on non-struct pointer type {obj_type}"),
                                     Span::default(),
                                 ))
                             }
@@ -237,13 +237,13 @@ impl TypeChecker {
                             ..
                         } if matches!(inner.as_ref(), Type::Struct(_)) => {
                             return Err(CompileError::type_error(
-                                "cannot assign field through immutable pointer",
+                                "cannot assign field through immutable pointer. Declare as *mut to allow writes",
                                 Span::default(),
                             ))
                         }
                         _ => {
                             return Err(CompileError::type_error(
-                                format!("field assign on non-struct type {obj_type:?}"),
+                                format!("field assign on non-struct type {obj_type}"),
                                 Span::default(),
                             ))
                         }
@@ -268,7 +268,7 @@ impl TypeChecker {
                     if !types::types_compatible(&val_type, &field_type) {
                         return Err(CompileError::type_error(
                             format!(
-                                "cannot assign {val_type:?} to field '{field}' of type {field_type:?}"
+                                "cannot assign {val_type} to field '{field}' of type {field_type}"
                             ),
                             Span::default(),
                         ));

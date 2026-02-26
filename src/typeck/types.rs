@@ -1,3 +1,5 @@
+use std::fmt;
+
 use crate::ast::TypeAnnotation;
 use crate::error::CompileError;
 use crate::lexer::Span;
@@ -79,6 +81,40 @@ impl Type {
     }
 }
 
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::I8 => write!(f, "i8"),
+            Type::U8 => write!(f, "u8"),
+            Type::I16 => write!(f, "i16"),
+            Type::U16 => write!(f, "u16"),
+            Type::I32 => write!(f, "i32"),
+            Type::U32 => write!(f, "u32"),
+            Type::I64 => write!(f, "i64"),
+            Type::U64 => write!(f, "u64"),
+            Type::F32 => write!(f, "f32"),
+            Type::F64 => write!(f, "f64"),
+            Type::Bool => write!(f, "bool"),
+            Type::IntLiteral => write!(f, "integer literal"),
+            Type::FloatLiteral => write!(f, "float literal"),
+            Type::String => write!(f, "string"),
+            Type::Void => write!(f, "void"),
+            Type::Pointer {
+                mutable: true,
+                inner,
+                ..
+            } => write!(f, "*mut {inner}"),
+            Type::Pointer {
+                mutable: false,
+                inner,
+                ..
+            } => write!(f, "*{inner}"),
+            Type::Vector { elem, width } => write!(f, "{elem}x{width}"),
+            Type::Struct(name) => write!(f, "{name}"),
+        }
+    }
+}
+
 pub fn types_compatible(actual: &Type, expected: &Type) -> bool {
     if actual == expected {
         return true;
@@ -133,14 +169,14 @@ pub fn unify_vector(left: &Type, right: &Type, span: Span) -> crate::error::Resu
             }
             if !types_compatible(l_elem, r_elem) {
                 return Err(CompileError::type_error(
-                    format!("vector element type mismatch: {l_elem:?} vs {r_elem:?}"),
+                    format!("vector element type mismatch: {l_elem} vs {r_elem}"),
                     span,
                 ));
             }
             Ok(left.clone())
         }
         _ => Err(CompileError::type_error(
-            format!("binary vector operations require vector operands, got {left:?} and {right:?}"),
+            format!("binary vector operations require vector operands, got {left} and {right}"),
             span,
         )),
     }
@@ -149,13 +185,13 @@ pub fn unify_vector(left: &Type, right: &Type, span: Span) -> crate::error::Resu
 pub fn unify_numeric(left: &Type, right: &Type, span: Span) -> crate::error::Result<Type> {
     if !left.is_numeric() || !right.is_numeric() {
         return Err(CompileError::type_error(
-            format!("binary operations require numeric operands, got {left:?} and {right:?}"),
+            format!("binary operations require numeric operands, got {left} and {right}"),
             span,
         ));
     }
     if left.is_integer() != right.is_integer() {
         return Err(CompileError::type_error(
-            format!("cannot mix integer and float in binary operation: {left:?} and {right:?}"),
+            format!("cannot mix integer and float in binary operation: {left} and {right}"),
             span,
         ));
     }
@@ -166,7 +202,7 @@ pub fn unify_numeric(left: &Type, right: &Type, span: Span) -> crate::error::Res
         (Type::FloatLiteral, concrete) | (concrete, Type::FloatLiteral) => Ok(concrete.clone()),
         (a, b) if a == b => Ok(a.clone()),
         _ => Err(CompileError::type_error(
-            format!("mismatched types in binary operation: {left:?} and {right:?}"),
+            format!("mismatched types in binary operation: {left} and {right}"),
             span,
         )),
     }
