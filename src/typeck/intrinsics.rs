@@ -15,29 +15,30 @@ impl TypeChecker {
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
         type_hint: Option<&Type>,
+        span: &Span,
     ) -> Option<crate::error::Result<Type>> {
         match name {
-            "println" => Some(self.check_println(args, locals)),
-            "splat" => Some(self.check_splat(args, locals, type_hint)),
-            "load" => Some(self.check_load(args, locals, type_hint)),
-            "store" => Some(self.check_store(args, locals)),
-            "fma" => Some(self.check_fma(args, locals)),
-            "sqrt" | "rsqrt" => Some(self.check_sqrt(name, args, locals)),
+            "println" => Some(self.check_println(args, locals, span)),
+            "splat" => Some(self.check_splat(args, locals, type_hint, span)),
+            "load" => Some(self.check_load(args, locals, type_hint, span)),
+            "store" => Some(self.check_store(args, locals, span)),
+            "fma" => Some(self.check_fma(args, locals, span)),
+            "sqrt" | "rsqrt" => Some(self.check_sqrt(name, args, locals, span)),
             "to_f32" | "to_f64" | "to_i32" | "to_i64" => {
-                Some(self.check_conversion(name, args, locals))
+                Some(self.check_conversion(name, args, locals, span))
             }
             "reduce_add" | "reduce_max" | "reduce_min" => {
-                Some(self.check_reduction(name, args, locals))
+                Some(self.check_reduction(name, args, locals, span))
             }
-            "shuffle" => Some(self.check_shuffle(args, locals)),
-            "select" => Some(self.check_select(args, locals)),
+            "shuffle" => Some(self.check_shuffle(args, locals, span)),
+            "select" => Some(self.check_select(args, locals, span)),
             "widen_i8_f32x4" | "widen_u8_f32x4" => {
-                Some(self.check_widen_i8_f32x4(name, args, locals))
+                Some(self.check_widen_i8_f32x4(name, args, locals, span))
             }
-            "narrow_f32x4_i8" => Some(self.check_narrow_f32x4_i8(args, locals)),
-            "maddubs_i16" => Some(self.check_maddubs_i16(args, locals)),
-            "maddubs_i32" => Some(self.check_maddubs_i32(args, locals)),
-            "prefetch" => Some(self.check_prefetch(args, locals)),
+            "narrow_f32x4_i8" => Some(self.check_narrow_f32x4_i8(args, locals, span)),
+            "maddubs_i16" => Some(self.check_maddubs_i16(args, locals, span)),
+            "maddubs_i32" => Some(self.check_maddubs_i32(args, locals, span)),
+            "prefetch" => Some(self.check_prefetch(args, locals, span)),
             _ => None,
         }
     }
@@ -46,18 +47,19 @@ impl TypeChecker {
         &self,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 "println expects exactly 1 argument",
-                Span::default(),
+                span.clone(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
         if !arg_type.is_numeric() && arg_type != Type::String && !arg_type.is_vector() {
             return Err(CompileError::type_error(
                 format!("println expects numeric, string, or vector argument, got {arg_type}"),
-                Span::default(),
+                args[0].span().clone(),
             ));
         }
         Ok(Type::Void)
@@ -68,11 +70,12 @@ impl TypeChecker {
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
         type_hint: Option<&Type>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 "splat expects 1 argument",
-                Span::default(),
+                span.clone(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
@@ -107,7 +110,7 @@ impl TypeChecker {
             }),
             _ => Err(CompileError::type_error(
                 format!("splat expects numeric argument, got {arg_type}"),
-                Span::default(),
+                args[0].span().clone(),
             )),
         }
     }
@@ -116,11 +119,12 @@ impl TypeChecker {
         &self,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 3 {
             return Err(CompileError::type_error(
                 "fma expects 3 arguments",
-                Span::default(),
+                span.clone(),
             ));
         }
         let t1 = self.check_expr(&args[0], locals)?;
@@ -129,16 +133,16 @@ impl TypeChecker {
         if !t1.is_vector() || !t2.is_vector() || !t3.is_vector() {
             return Err(CompileError::type_error(
                 format!("fma expects vector arguments, got {t1}, {t2}, {t3}"),
-                Span::default(),
+                span.clone(),
             ));
         }
-        types::unify_vector(&t1, &t2, Span::default())?;
-        types::unify_vector(&t1, &t3, Span::default())?;
+        types::unify_vector(&t1, &t2, span.clone())?;
+        types::unify_vector(&t1, &t3, span.clone())?;
         match &t1 {
             Type::Vector { elem, .. } if !elem.is_float() => {
                 return Err(CompileError::type_error(
                     "fma requires float vector arguments. fma only works on f32 or f64 vectors",
-                    Span::default(),
+                    span.clone(),
                 ));
             }
             _ => {}
@@ -151,11 +155,12 @@ impl TypeChecker {
         name: &str,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 format!("{name} expects 1 argument"),
-                Span::default(),
+                span.clone(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
@@ -164,7 +169,7 @@ impl TypeChecker {
             Type::Vector { elem, .. } if elem.is_float() => Ok(arg_type),
             _ => Err(CompileError::type_error(
                 format!("{name} expects float or float vector argument, got {arg_type}"),
-                Span::default(),
+                args[0].span().clone(),
             )),
         }
     }
@@ -173,25 +178,26 @@ impl TypeChecker {
         &self,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 2 {
             return Err(CompileError::type_error(
                 "prefetch expects 2 arguments: (ptr, offset)",
-                Span::default(),
+                span.clone(),
             ));
         }
         let ptr_type = self.check_expr(&args[0], locals)?;
         if !matches!(ptr_type, Type::Pointer { .. }) {
             return Err(CompileError::type_error(
                 format!("prefetch first argument must be a pointer, got {ptr_type}"),
-                Span::default(),
+                args[0].span().clone(),
             ));
         }
         let offset_type = self.check_expr(&args[1], locals)?;
         if !offset_type.is_integer() {
             return Err(CompileError::type_error(
                 format!("prefetch offset must be integer, got {offset_type}"),
-                Span::default(),
+                args[1].span().clone(),
             ));
         }
         Ok(Type::Void)
@@ -202,18 +208,19 @@ impl TypeChecker {
         name: &str,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 format!("{name} expects 1 argument"),
-                Span::default(),
+                span.clone(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
         if !arg_type.is_numeric() {
             return Err(CompileError::type_error(
                 format!("{name} expects numeric argument, got {arg_type}"),
-                Span::default(),
+                args[0].span().clone(),
             ));
         }
         let target = match name {

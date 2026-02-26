@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::ast::Stmt;
 use crate::error::CompileError;
-use crate::lexer::Span;
 
 use super::types::{self, Type};
 use super::TypeChecker;
@@ -31,22 +30,26 @@ impl TypeChecker {
                             format!(
                                 "cannot initialize '{name}' of type {declared} with {init_type}"
                             ),
-                            Span::default(),
+                            value.span().clone(),
                         ));
                     }
                     locals.insert(name.clone(), (declared, *mutable));
                 }
-                Stmt::Assign { target, value, .. } => {
+                Stmt::Assign {
+                    target,
+                    value,
+                    span,
+                } => {
                     let (var_type, mutable) = locals.get(target).cloned().ok_or_else(|| {
                         CompileError::type_error(
                             format!("undefined variable '{target}'"),
-                            Span::default(),
+                            span.clone(),
                         )
                     })?;
                     if !mutable {
                         return Err(CompileError::type_error(
                             format!("cannot assign to immutable variable '{target}'"),
-                            Span::default(),
+                            span.clone(),
                         ));
                     }
                     let val_type = self.check_expr(value, locals)?;
@@ -55,7 +58,7 @@ impl TypeChecker {
                             format!(
                                 "cannot assign {val_type} to '{target}' of type {var_type}"
                             ),
-                            Span::default(),
+                            value.span().clone(),
                         ));
                     }
                 }
@@ -63,12 +66,12 @@ impl TypeChecker {
                     object,
                     index,
                     value,
-                    ..
+                    span,
                 } => {
                     let (var_type, _) = locals.get(object).cloned().ok_or_else(|| {
                         CompileError::type_error(
                             format!("undefined variable '{object}'"),
-                            Span::default(),
+                            span.clone(),
                         )
                     })?;
                     match &var_type {
@@ -76,14 +79,14 @@ impl TypeChecker {
                             if !mutable {
                                 return Err(CompileError::type_error(
                                     format!("cannot write through immutable pointer '{object}'. Declare as *mut to allow writes"),
-                                    Span::default(),
+                                    span.clone(),
                                 ));
                             }
                             let idx_type = self.check_expr(index, locals)?;
                             if !idx_type.is_integer() {
                                 return Err(CompileError::type_error(
                                     format!("index must be integer, got {idx_type}"),
-                                    Span::default(),
+                                    index.span().clone(),
                                 ));
                             }
                             let val_type = self.check_expr(value, locals)?;
@@ -92,14 +95,14 @@ impl TypeChecker {
                                     format!(
                                         "cannot assign {val_type} to element of {var_type}"
                                     ),
-                                    Span::default(),
+                                    value.span().clone(),
                                 ));
                             }
                         }
                         _ => {
                             return Err(CompileError::type_error(
                                 format!("cannot index-assign to non-pointer '{object}'"),
-                                Span::default(),
+                                span.clone(),
                             ));
                         }
                     }
@@ -111,7 +114,7 @@ impl TypeChecker {
                             format!(
                                 "function '{func_name}' has no return type but returns a value"
                             ),
-                            Span::default(),
+                            expr.span().clone(),
                         ));
                     }
                     if !types::types_compatible(&actual, expected_return) {
@@ -119,15 +122,15 @@ impl TypeChecker {
                             format!(
                                 "function '{func_name}' returns {actual} but expected {expected_return}"
                             ),
-                            Span::default(),
+                            expr.span().clone(),
                         ));
                     }
                 }
-                Stmt::Return(None, _) => {
+                Stmt::Return(None, span) => {
                     if *expected_return != Type::Void {
                         return Err(CompileError::type_error(
                             format!("function '{func_name}' must return {expected_return}"),
-                            Span::default(),
+                            span.clone(),
                         ));
                     }
                 }
@@ -144,7 +147,7 @@ impl TypeChecker {
                     if !cond_type.is_bool() {
                         return Err(CompileError::type_error(
                             format!("if condition must be bool, got {cond_type}"),
-                            Span::default(),
+                            condition.span().clone(),
                         ));
                     }
                     self.check_body(then_body, locals, expected_return, func_name)?;
@@ -161,7 +164,7 @@ impl TypeChecker {
                     if !cond_type.is_bool() {
                         return Err(CompileError::type_error(
                             format!("while condition must be bool, got {cond_type}"),
-                            Span::default(),
+                            condition.span().clone(),
                         ));
                     }
                     self.check_body(while_body, locals, expected_return, func_name)?;
@@ -177,33 +180,36 @@ impl TypeChecker {
                     if !start_type.is_integer() {
                         return Err(CompileError::type_error(
                             format!("foreach start must be integer, got {start_type}"),
-                            Span::default(),
+                            start.span().clone(),
                         ));
                     }
                     let end_type = self.check_expr(end, locals)?;
                     if !end_type.is_integer() {
                         return Err(CompileError::type_error(
                             format!("foreach end must be integer, got {end_type}"),
-                            Span::default(),
+                            end.span().clone(),
                         ));
                     }
                     let mut inner_locals = locals.clone();
                     inner_locals.insert(var.clone(), (Type::I32, false));
                     self.check_body(foreach_body, &mut inner_locals, expected_return, func_name)?;
                 }
-                Stmt::Unroll { count, body, .. } => {
+                Stmt::Unroll { count, span, .. } => {
                     if *count == 0 {
                         return Err(CompileError::type_error(
                             "unroll count must be greater than 0",
-                            Span::default(),
+                            span.clone(),
                         ));
                     }
-                    self.check_body(&[*body.clone()], locals, expected_return, func_name)?;
+                    // Note: body check still uses the stmt's body
+                    if let Stmt::Unroll { body, .. } = stmt {
+                        self.check_body(&[*body.clone()], locals, expected_return, func_name)?;
+                    }
                 }
-                Stmt::Function { .. } => {
+                Stmt::Function { span, .. } => {
                     return Err(CompileError::type_error(
                         "nested functions are not supported",
-                        Span::default(),
+                        span.clone(),
                     ));
                 }
                 Stmt::Struct { .. } => {
@@ -213,7 +219,7 @@ impl TypeChecker {
                     object,
                     field,
                     value,
-                    ..
+                    span,
                 } => {
                     let obj_type = self.check_expr(object, locals)?;
                     let struct_name = match &obj_type {
@@ -227,7 +233,7 @@ impl TypeChecker {
                             _ => {
                                 return Err(CompileError::type_error(
                                     format!("field assign on non-struct pointer type {obj_type}"),
-                                    Span::default(),
+                                    span.clone(),
                                 ))
                             }
                         },
@@ -238,20 +244,20 @@ impl TypeChecker {
                         } if matches!(inner.as_ref(), Type::Struct(_)) => {
                             return Err(CompileError::type_error(
                                 "cannot assign field through immutable pointer. Declare as *mut to allow writes",
-                                Span::default(),
+                                span.clone(),
                             ))
                         }
                         _ => {
                             return Err(CompileError::type_error(
                                 format!("field assign on non-struct type {obj_type}"),
-                                Span::default(),
+                                span.clone(),
                             ))
                         }
                     };
                     let fields = self.structs.get(&struct_name).ok_or_else(|| {
                         CompileError::type_error(
                             format!("unknown struct '{struct_name}'"),
-                            Span::default(),
+                            span.clone(),
                         )
                     })?;
                     let field_type = fields
@@ -261,7 +267,7 @@ impl TypeChecker {
                         .ok_or_else(|| {
                             CompileError::type_error(
                                 format!("struct '{struct_name}' has no field '{field}'"),
-                                Span::default(),
+                                span.clone(),
                             )
                         })?;
                     let val_type = self.check_expr(value, locals)?;
@@ -270,7 +276,7 @@ impl TypeChecker {
                             format!(
                                 "cannot assign {val_type} to field '{field}' of type {field_type}"
                             ),
-                            Span::default(),
+                            value.span().clone(),
                         ));
                     }
                 }
