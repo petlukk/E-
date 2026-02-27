@@ -57,6 +57,20 @@ pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) f
 the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
 of when each pattern wins and when it doesn't.
 
+## v1.1 — ARM/NEON support, integration examples, CI
+
+**ARM/AArch64 cross-compilation** — compile kernels for ARM targets with NEON (128-bit) SIMD:
+
+```bash
+ea kernel.ea --lib --target=aarch64   # produces kernel.so for ARM
+```
+
+The compiler validates vector widths at the type-check level: 128-bit types (`f32x4`, `i32x4`, `u8x16`, `i16x8`) work on ARM; 256-bit+ types (`f32x8`, `i32x8`) and x86-specific intrinsics (`maddubs`, `gather`, `scatter`) produce clear error messages with alternatives.
+
+**Integration examples** — five examples showing how to embed Eä kernels into Python (setuptools), C/C++ (CMake), Rust (build.rs), PyTorch (custom op), and FFmpeg (libav*). See [Integrations](#integrations).
+
+**CI** — build and test on Linux x86_64, Linux ARM (aarch64), and Windows on every push.
+
 ## v1.0 — error diagnostics, masked ops, scatter/gather
 
 **`foreach`** — auto-vectorized element-wise loops with phi-node codegen:
@@ -240,7 +254,9 @@ kernel code needs predictable performance without hidden checks.
 - **Restrict pointers**: `*restrict T`, `*mut restrict T` for alias-free optimization
 - **AVX-512**: `f32x16` via `--avx512` flag
 
-Currently tested on x86-64 with AVX2. Other architectures depend on LLVM backend support.
+- **ARM/NEON**: Cross-compile to AArch64 with `--target=aarch64` (128-bit NEON SIMD: f32x4, i32x4, u8x16, i8x16, i16x8)
+
+Tested on x86-64 (AVX2) and AArch64 (NEON). CI runs on both architectures plus Windows.
 
 ## Quick Start
 
@@ -260,7 +276,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (247 passing)
+# Run tests (263 passing)
 cargo test --features=llvm
 ```
 
@@ -301,7 +317,7 @@ Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
 ~7,300 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-247 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, error diagnostics, masked operations, scatter/gather, and compiler flags.
+263 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, error diagnostics, masked operations, scatter/gather, ARM target validation, and compiler flags.
 
 ## License
 
