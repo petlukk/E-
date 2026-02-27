@@ -1,5 +1,10 @@
 pub mod ast;
+pub mod bind_cmake;
+pub mod bind_common;
+pub mod bind_cpp;
+pub mod bind_pytorch;
 pub mod bind_python;
+pub mod bind_rust;
 pub mod error;
 pub mod header;
 pub mod lexer;

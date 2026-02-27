@@ -1,46 +1,70 @@
 # Eä
 
-**SIMD kernel language for C and Python.**
+**Write compute accelerators. Call them from any language.**
 
-Write SIMD kernels in clean, minimal syntax. Compile to `.o` or `.so`. Call from C, Rust, Python via C ABI.
-No runtime. No garbage collector. No hidden performance cliffs.
+Write a kernel once in clean, explicit syntax. `ea bind` generates native bindings for Python, Rust, C++, PyTorch, and CMake. No runtime, no garbage collector, no glue code by hand.
 
 > **[Ea Showcase](https://github.com/petlukk/Ea_showcase)** — visual demo application showing Ea kernels running live.
 
 ## Example
 
 ```
-export func fma_kernel(a: *f32, b: *f32, c: *f32, out: *mut f32, len: i32) {
+export func scale(data: *mut f32, len: i32, alpha: f32) {
     let mut i: i32 = 0
-    while i + 4 <= len {
-        let va: f32x4 = load(a, i)
-        let vb: f32x4 = load(b, i)
-        let vc: f32x4 = load(c, i)
-        store(out, i, fma(va, vb, vc))
-        i = i + 4
+    while i + 8 <= len {
+        let v: f32x8 = load(data, i)
+        store(data, i, v * splat(alpha))
+        i = i + 8
     }
 }
 ```
 
-SIMD width and tail handling are explicit by design -- you control the vector width, loop stepping, and remainder logic. No auto-vectorizer magic.
-
-Compile and call from C:
+Compile, bind, use:
 
 ```bash
-ea kernel.ea --lib    # produces kernel.so
+ea kernel.ea --lib                          # -> kernel.so + kernel.ea.json
+ea bind kernel.ea --python --rust --cpp     # -> kernel.py, kernel.rs, kernel.hpp
 ```
 
-```c
-extern void fma_kernel(const float*, const float*, const float*, float*, int);
-
-fma_kernel(a, b, c, result, n);  // that's it
+```python
+import numpy as np, kernel
+data = np.random.rand(1_000_000).astype(np.float32)
+kernel.scale(data, 2.0)        # len auto-filled, dtype checked
 ```
+
+```rust
+// kernel.rs (generated)
+kernel::scale(&mut data, 2.0); // length from slice, unsafe hidden
+```
+
+```cpp
+// kernel.hpp (generated)
+ea::scale(data_span, 2.0f);   // std::span, length from .size()
+```
+
+The kernel is the same. The language boundary disappears.
+
+## `ea bind`
+
+One kernel, five targets:
+
+```bash
+ea bind kernel.ea --python    # -> kernel.py         (NumPy + ctypes)
+ea bind kernel.ea --rust      # -> kernel.rs         (FFI + safe wrappers)
+ea bind kernel.ea --pytorch   # -> kernel_torch.py   (autograd.Function)
+ea bind kernel.ea --cpp       # -> kernel.hpp        (std::span + extern "C")
+ea bind kernel.ea --cmake     # -> CMakeLists.txt + EaCompiler.cmake
+```
+
+Multiple flags in one invocation: `ea bind kernel.ea --python --rust --cpp`
+
+Each generator reads `kernel.ea.json` (emitted by `--lib`) and produces idiomatic glue for the target ecosystem. Pointer args become slices/arrays/tensors. Length params are collapsed automatically. Types are checked at the boundary.
 
 ## Design Principles
 
 - **Explicit over implicit** — SIMD width, loop stepping, and memory access are programmer-controlled
 - **Predictable performance over abstraction** — no hidden allocations, no auto-vectorizer surprises
-- **Kernel isolation over language integration** — compute kernels are compiled separately, called via C ABI
+- **Write once, bind everywhere** — one kernel source, native bindings for each host language
 - **Zero runtime cost** — no garbage collector, no runtime, no hidden checks
 
 ## Non-goals
@@ -48,7 +72,7 @@ fma_kernel(a, b, c, result, n);  // that's it
 - Not a general-purpose language — no strings, collections, or modules
 - No safety guarantees — correctness is the programmer's responsibility
 - No auto-vectorization in the default path — SIMD width is always explicit (`foreach` relies on LLVM, but explicit vector types are the primary path)
-- Not intended to replace Rust, C++, or any host language
+- Not intended to replace Rust, C++, or any host language — intended to accelerate them
 
 ## Compute Model
 
@@ -56,6 +80,20 @@ Seven kernel patterns — streaming, reduction, stencil, streaming dataset, fuse
 pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) for
 the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
 of when each pattern wins and when it doesn't.
+
+## v1.2 — `ea bind` multi-language bindings
+
+**`ea bind`** now generates native bindings for five targets from a single kernel:
+
+| Flag | Output | What you get |
+|------|--------|--------------|
+| `--python` | `kernel.py` | NumPy ctypes module with dtype checks, length collapsing |
+| `--rust` | `kernel.rs` | `extern "C"` FFI + safe wrappers with `&[T]`/`&mut [T]` |
+| `--pytorch` | `kernel_torch.py` | `torch.autograd.Function` per export, tensor contiguity/device checks |
+| `--cpp` | `kernel.hpp` | `namespace ea`, `extern "C"` declarations, `std::span` overloads |
+| `--cmake` | `CMakeLists.txt` + `EaCompiler.cmake` | Ready-to-build CMake project skeleton |
+
+All generators share a common JSON parser (`bind_common.rs`) and the same length-collapsing heuristic: parameters named `n`/`len`/`length`/`count`/`size`/`num` after a pointer arg are auto-filled from the slice/array/tensor size.
 
 ## v1.1 — ARM/NEON support, integration examples, CI
 
@@ -67,7 +105,7 @@ ea kernel.ea --lib --target=aarch64   # produces kernel.so for ARM
 
 The compiler validates vector widths at the type-check level: 128-bit types (`f32x4`, `i32x4`, `u8x16`, `i16x8`) work on ARM; 256-bit+ types (`f32x8`, `i32x8`) and x86-specific intrinsics (`maddubs`, `gather`, `scatter`) produce clear error messages with alternatives.
 
-**Integration examples** — five examples showing how to embed Eä kernels into Python (setuptools), C/C++ (CMake), Rust (build.rs), PyTorch (custom op), and FFmpeg (libav*). See [Integrations](#integrations).
+**Integration examples** — manual integration patterns for embedding Eä kernels into host projects. Most are now superseded by `ea bind`; see [FFmpeg filter](integrations/ffmpeg-filter/) for the remaining manual example.
 
 **CI** — build and test on Linux x86_64, Linux ARM (aarch64), and Windows on every push.
 
@@ -190,15 +228,13 @@ compute classes, including when Ea wins, when it doesn't, and when fusion hurts.
 
 ## Integrations
 
-Eä kernels embed into existing build systems via standard C ABI. Five examples in [`integrations/`](integrations/):
+For Python, Rust, C++, PyTorch, and CMake — `ea bind` generates the glue. See [`ea bind`](#ea-bind) above.
 
-| Example | Ecosystem | Build command | What it proves |
-|---------|-----------|---------------|----------------|
-| [Python setuptools](integrations/python-extension/) | Python/pip | `pip install .` | Kernel compiles at install time, loads via ctypes, numpy API |
-| [CMake](integrations/cmake/) | C/C++ | `cmake -B build && cmake --build build` | Reusable `add_ea_kernel()` CMake module with generated headers |
-| [Rust build.rs](integrations/rust-crate/) | Rust/Cargo | `cargo run` | Static linking via build script, `extern "C"` FFI |
-| [PyTorch custom op](integrations/pytorch-custom-op/) | ML/PyTorch | `python example.py` | `torch.autograd.Function` wrapper, tensor data pointer extraction |
-| [FFmpeg filter](integrations/ffmpeg-filter/) | Video/C | `./build.sh` | libav* decode + Eä kernel per scanline, realistic embed pattern |
+For ecosystems that need manual integration (custom build systems, embedding into larger C projects), [`integrations/`](integrations/) has a reference example:
+
+| Example | Ecosystem | What it shows |
+|---------|-----------|---------------|
+| [FFmpeg filter](integrations/ffmpeg-filter/) | Video/C | libav* decode + Ea kernel per scanline — realistic C embed pattern |
 
 ## Benchmarks
 
@@ -248,7 +284,8 @@ kernel code needs predictable performance without hidden checks.
 - **prefetch**: `prefetch(ptr, offset)` — software prefetch for large-array streaming
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
 - **C ABI**: every `export func` is callable from any language
-- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output), `bind --python` (auto-generated Python bindings)
+- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output)
+- **`ea bind`**: auto-generated bindings for Python/NumPy, Rust, C++/std::span, PyTorch/autograd, CMake
 - **Masked memory**: `load_masked`, `store_masked` for safe SIMD tail handling
 - **Scatter/Gather**: `gather(ptr, indices)`, `scatter(ptr, indices, values)` (scatter requires `--avx512`)
 - **Restrict pointers**: `*restrict T`, `*mut restrict T` for alias-free optimization
@@ -267,34 +304,35 @@ sudo apt install llvm-18-dev clang-18 libpolly-18-dev libzstd-dev
 # Build
 cargo build --features=llvm
 
-# Compile a kernel to object file
-ea kernel.ea              # -> kernel.o
-
-# Compile to shared library (+ JSON metadata)
+# Compile a kernel to shared library (+ JSON metadata)
 ea kernel.ea --lib        # -> kernel.so + kernel.ea.json
 
-# Generate Python bindings
-ea bind kernel.ea --python  # -> kernel.py
+# Generate bindings for your language
+ea bind kernel.ea --python              # -> kernel.py
+ea bind kernel.ea --rust                # -> kernel.rs
+ea bind kernel.ea --cpp                 # -> kernel.hpp
+ea bind kernel.ea --pytorch             # -> kernel_torch.py
+ea bind kernel.ea --cmake               # -> CMakeLists.txt + EaCompiler.cmake
+ea bind kernel.ea --python --rust --cpp # -> all three at once
 
-# Compile standalone executable
+# Or compile to object file / executable
+ea kernel.ea              # -> kernel.o
 ea app.ea -o app          # -> app
 
-# Run tests (263 passing)
+# Run tests (306 passing)
 cargo test --features=llvm
 ```
 
-## Call from Python
+## Call from your language
 
-### Auto-generated bindings (recommended)
+### Python (auto-generated)
 
 ```bash
-ea kernel.ea --lib             # -> kernel.so + kernel.ea.json
-ea bind kernel.ea --python     # -> kernel.py
+ea kernel.ea --lib && ea bind kernel.ea --python
 ```
 
 ```python
-import numpy as np
-import kernel
+import numpy as np, kernel
 
 a = np.random.rand(1_000_000).astype(np.float32)
 b = np.random.rand(1_000_000).astype(np.float32)
@@ -304,13 +342,47 @@ out = np.zeros(1_000_000, dtype=np.float32)
 kernel.fma_kernel(a, b, c, out)  # len auto-filled from array size
 ```
 
-`ea bind --python` reads the JSON metadata emitted by `--lib` and generates a Python module with ctypes setup, numpy dtype checks, and automatic length parameter collapsing.
+### PyTorch (auto-generated)
+
+```bash
+ea kernel.ea --lib && ea bind kernel.ea --pytorch
+```
+
+```python
+import torch, kernel_torch
+
+data = torch.randn(1_000_000)
+result = kernel_torch.scale(data, 2.0)  # autograd-compatible, CPU tensors
+```
+
+### Rust (auto-generated)
+
+```bash
+ea kernel.ea --lib && ea bind kernel.ea --rust
+```
+
+```rust
+// include the generated kernel.rs
+let mut data = vec![1.0f32; 1_000_000];
+kernel::scale(&mut data, 2.0);  // safe wrapper, length from slice
+```
+
+### C++ (auto-generated)
+
+```bash
+ea kernel.ea --lib && ea bind kernel.ea --cpp
+```
+
+```cpp
+#include "kernel.hpp"
+std::vector<float> data(1'000'000, 1.0f);
+ea::scale(data, 2.0f);  // std::span overload, length from .size()
+```
 
 ### Manual ctypes (for custom control)
 
 ```python
-import ctypes
-import numpy as np
+import ctypes, numpy as np
 
 lib = ctypes.CDLL("./kernel.so")
 lib.fma_kernel.argtypes = [
@@ -323,10 +395,7 @@ lib.fma_kernel.argtypes = [
 lib.fma_kernel.restype = None
 
 a = np.random.rand(1_000_000).astype(np.float32)
-b = np.random.rand(1_000_000).astype(np.float32)
-c = np.random.rand(1_000_000).astype(np.float32)
 out = np.zeros(1_000_000, dtype=np.float32)
-
 lib.fma_kernel(
     a.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
     b.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
@@ -340,10 +409,11 @@ lib.fma_kernel(
 
 ```
 Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
+                                                                   -> .ea.json -> ea bind -> .py / .rs / .hpp / _torch.py / CMakeLists.txt
 ```
 
-~7,300 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-263 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, error diagnostics, masked operations, scatter/gather, ARM target validation, and compiler flags.
+~8,700 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+306 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, error diagnostics, masked operations, scatter/gather, ARM target validation, compiler flags, and binding generation for all five targets.
 
 ## License
 
