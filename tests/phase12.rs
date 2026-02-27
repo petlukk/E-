@@ -270,7 +270,8 @@ mod tests {
                 let vfactor: f32x8 = splat(factor)
                 let mut i: i32 = 0
                 while i + 8 <= n {
-                    store(out, i, load(data, i) .* vfactor)
+                    let vd: f32x8 = load(data, i)
+                    store(out, i, vd .* vfactor)
                     i = i + 8
                 }
                 let rem: i32 = n - i
