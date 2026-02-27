@@ -40,33 +40,35 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    env:
+      LLVM_VERSION: "18.1.8"
+      LLVM_SYS_180_PREFIX: C:\llvm
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LLVM 18
-        id: install-llvm
-        uses: KyleMayes/install-llvm-action@v2
-        with:
-          version: "18"
-
-      - name: Debug LLVM install
+      - name: Download and extract LLVM 18
         shell: pwsh
         run: |
-          Write-Host "LLVM_PATH env: $env:LLVM_PATH"
-          Write-Host "Action output: ${{ steps.install-llvm.outputs.LLVM_PATH }}"
-          if (Test-Path "$env:LLVM_PATH") { Get-ChildItem "$env:LLVM_PATH" } else { Write-Host "LLVM_PATH dir does not exist" }
-          Get-Command llvm-config -ErrorAction SilentlyContinue | Select-Object Source
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc.tar.xz"
+          Invoke-WebRequest -Uri $url -OutFile llvm.tar.xz -MaximumRetryCount 3 -RetryIntervalSec 10
+          7z x llvm.tar.xz
+          7z x llvm.tar
+          Move-Item "clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc" C:\llvm
+
+      - name: Create stub libs for LLVM link dependencies
+        shell: pwsh
+        run: |
+          $vcDir = & vswhere -latest -property installationPath
+          $libExe = Join-Path $vcDir "VC\Tools\MSVC\*\bin\HostX64\x64\lib.exe" | Resolve-Path | Select-Object -First 1
+          & $libExe /NOLOGO /OUT:C:\llvm\lib\libxml2s.lib /MACHINE:X64
+          & $libExe /NOLOGO /OUT:C:\llvm\lib\zstd.lib /MACHINE:X64
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Build
-        env:
-          LLVM_SYS_180_PREFIX: ${{ env.LLVM_PATH }}
         run: cargo build --release --features=llvm
 
       - name: Test
-        env:
-          LLVM_SYS_180_PREFIX: ${{ env.LLVM_PATH }}
         run: cargo test --tests --features=llvm
 
       - name: Package
