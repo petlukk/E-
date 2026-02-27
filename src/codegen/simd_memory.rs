@@ -9,6 +9,46 @@ use crate::typeck::Type;
 use super::CodeGenerator;
 
 impl<'ctx> CodeGenerator<'ctx> {
+    /// Returns the natural alignment in bytes for an element type.
+    fn element_alignment(&self, elem_ty: BasicTypeEnum<'ctx>) -> u32 {
+        match elem_ty {
+            BasicTypeEnum::FloatType(ft) => {
+                if ft == self.context.f64_type() { 8 } else { 4 }
+            }
+            BasicTypeEnum::IntType(it) if it.get_bit_width() == 8 => 1,
+            BasicTypeEnum::IntType(it) if it.get_bit_width() == 16 => 2,
+            BasicTypeEnum::IntType(it) if it.get_bit_width() == 32 => 4,
+            BasicTypeEnum::IntType(it) if it.get_bit_width() == 64 => 8,
+            _ => 1,
+        }
+    }
+
+    /// Builds a `<width x i1>` mask where lane `i` is true iff `i < count_val`.
+    fn build_count_mask(
+        &mut self,
+        count_val: inkwell::values::IntValue<'ctx>,
+        width: u32,
+    ) -> crate::error::Result<VectorValue<'ctx>> {
+        let i32_ty = self.context.i32_type();
+        let lane_indices: Vec<_> = (0..width)
+            .map(|i| i32_ty.const_int(i as u64, false))
+            .collect();
+        let indices_vec = VectorType::const_vector(&lane_indices);
+
+        let count_i32 = self
+            .builder
+            .build_int_z_extend_or_bit_cast(count_val, i32_ty, "count_i32")
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+        let count_splat = self.build_splat(count_i32.into(), width)?;
+
+        let mask = self
+            .builder
+            .build_int_compare(IntPredicate::ULT, indices_vec, count_splat, "mask")
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+        Ok(mask)
+    }
+
     fn infer_load_vector_type(&self, ptr_arg: &Expr, type_hint: Option<&Type>) -> VectorType<'ctx> {
         if let Some(Type::Vector { elem, width }) = type_hint {
             let elem_llvm = self.llvm_type(elem);
@@ -53,14 +93,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             .build_load(vec_ty, elem_ptr, "vec_load")
             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
-        let element_alignment = match vec_ty.get_element_type() {
-            BasicTypeEnum::FloatType(_) => 4,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 8 => 1,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 16 => 2,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 32 => 4,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 64 => 8,
-            _ => 1,
-        };
+        let element_alignment = self.element_alignment(vec_ty.get_element_type());
 
         if let BasicValueEnum::VectorValue(vec_val) = val {
             let load_inst = vec_val.as_instruction_value().ok_or_else(|| {
@@ -96,14 +129,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             .build_store(elem_ptr, vec_val)
             .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
-        let element_alignment = match vec_ty.get_element_type() {
-            BasicTypeEnum::FloatType(_) => 4,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 8 => 1,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 16 => 2,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 32 => 4,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 64 => 8,
-            _ => 1,
-        };
+        let element_alignment = self.element_alignment(vec_ty.get_element_type());
 
         store_inst.set_alignment(element_alignment).map_err(|e| {
             CompileError::codegen_error(format!("failed to set store alignment: {e}"))
@@ -136,37 +162,16 @@ impl<'ctx> CodeGenerator<'ctx> {
         .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
         // Build mask: lane_indices < count_splat → <N x i1>
-        let i32_ty = self.context.i32_type();
-        let lane_indices: Vec<_> = (0..width)
-            .map(|i| i32_ty.const_int(i as u64, false))
-            .collect();
-        let indices_vec = VectorType::const_vector(&lane_indices);
-
-        let count_i32 = self
-            .builder
-            .build_int_z_extend_or_bit_cast(count_val, i32_ty, "count_i32")
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
-        let count_splat = self.build_splat(count_i32.into(), width)?;
-
-        let mask = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, indices_vec, count_splat, "mask")
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+        let mask = self.build_count_mask(count_val, width)?;
 
         // Build zero passthrough vector
         let passthrough = vec_ty.const_zero();
 
-        // Element alignment (same logic as compile_load)
-        let element_alignment = match elem_ty {
-            BasicTypeEnum::FloatType(_) => 4u32,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 8 => 1,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 16 => 2,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 32 => 4,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 64 => 8,
-            _ => 1,
-        };
+        // Element alignment
+        let element_alignment = self.element_alignment(elem_ty);
 
         // Declare @llvm.masked.load.vNTy.p0
+        let i32_ty = self.context.i32_type();
         let suffix = self.llvm_vector_type_suffix(vec_ty);
         let intrinsic_name = format!("llvm.masked.load.{suffix}");
         let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
@@ -229,34 +234,13 @@ impl<'ctx> CodeGenerator<'ctx> {
         .map_err(|e| CompileError::codegen_error(e.to_string()))?;
 
         // Build mask: lane_indices < count_splat → <N x i1>
-        let i32_ty = self.context.i32_type();
-        let lane_indices: Vec<_> = (0..width)
-            .map(|i| i32_ty.const_int(i as u64, false))
-            .collect();
-        let indices_vec = VectorType::const_vector(&lane_indices);
+        let mask = self.build_count_mask(count_val, width)?;
 
-        let count_i32 = self
-            .builder
-            .build_int_z_extend_or_bit_cast(count_val, i32_ty, "count_i32")
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
-        let count_splat = self.build_splat(count_i32.into(), width)?;
-
-        let mask = self
-            .builder
-            .build_int_compare(IntPredicate::ULT, indices_vec, count_splat, "mask")
-            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
-
-        // Element alignment (same logic as compile_store)
-        let element_alignment = match elem_ty {
-            BasicTypeEnum::FloatType(_) => 4u32,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 8 => 1,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 16 => 2,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 32 => 4,
-            BasicTypeEnum::IntType(it) if it.get_bit_width() == 64 => 8,
-            _ => 1,
-        };
+        // Element alignment
+        let element_alignment = self.element_alignment(elem_ty);
 
         // Declare @llvm.masked.store.vNTy.p0
+        let i32_ty = self.context.i32_type();
         let suffix = self.llvm_vector_type_suffix(vec_ty);
         let intrinsic_name = format!("llvm.masked.store.{suffix}");
         let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());

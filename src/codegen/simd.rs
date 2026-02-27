@@ -215,11 +215,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
     }
 
-    pub(crate) fn llvm_vector_intrinsic_name(
-        &self,
-        base: &str,
-        vec_ty: VectorType<'ctx>,
-    ) -> String {
+    /// Returns `(width, elem_name)` for a vector type, e.g. `(8, "f32")`.
+    fn vector_type_parts(&self, vec_ty: VectorType<'ctx>) -> (u32, &'static str) {
         let width = vec_ty.get_size();
         let elem = vec_ty.get_element_type();
         let elem_name = if elem.is_float_type() {
@@ -238,6 +235,15 @@ impl<'ctx> CodeGenerator<'ctx> {
                 _ => "i64",
             }
         };
+        (width, elem_name)
+    }
+
+    pub(crate) fn llvm_vector_intrinsic_name(
+        &self,
+        base: &str,
+        vec_ty: VectorType<'ctx>,
+    ) -> String {
+        let (width, elem_name) = self.vector_type_parts(vec_ty);
         format!("{base}.v{width}{elem_name}")
     }
 
@@ -247,24 +253,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         &self,
         vec_ty: VectorType<'ctx>,
     ) -> String {
-        let width = vec_ty.get_size();
-        let elem = vec_ty.get_element_type();
-        let elem_name = if elem.is_float_type() {
-            let ft = elem.into_float_type();
-            if ft == self.context.f32_type() {
-                "f32"
-            } else {
-                "f64"
-            }
-        } else {
-            let it = elem.into_int_type();
-            match it.get_bit_width() {
-                8 => "i8",
-                16 => "i16",
-                32 => "i32",
-                _ => "i64",
-            }
-        };
+        let (width, elem_name) = self.vector_type_parts(vec_ty);
         format!("v{width}{elem_name}.p0")
     }
 }
