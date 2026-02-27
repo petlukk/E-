@@ -57,7 +57,7 @@ pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) f
 the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
 of when each pattern wins and when it doesn't.
 
-## v0.6.0 — foreach, unroll, compiler tools
+## v1.0 — error diagnostics, masked ops, scatter/gather
 
 **`foreach`** — auto-vectorized element-wise loops with phi-node codegen:
 
@@ -223,6 +223,9 @@ kernel code needs predictable performance without hidden checks.
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
 - **C ABI**: every `export func` is callable from any language
 - **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output)
+- **Masked memory**: `load_masked`, `store_masked` for safe SIMD tail handling
+- **Scatter/Gather**: `gather(ptr, indices)`, `scatter(ptr, indices, values)` (scatter requires `--avx512`)
+- **Restrict pointers**: `*restrict T`, `*mut restrict T` for alias-free optimization
 - **AVX-512**: `f32x16` via `--avx512` flag
 
 Currently tested on x86-64 with AVX2. Other architectures depend on LLVM backend support.
@@ -245,7 +248,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (198 passing)
+# Run tests (247 passing)
 cargo test --features=llvm
 ```
 
@@ -285,8 +288,8 @@ lib.fma_kernel(
 Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
-~6,400 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-198 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, and compiler flags.
+~7,300 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+247 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, error diagnostics, masked operations, scatter/gather, and compiler flags.
 
 ## License
 
