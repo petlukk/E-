@@ -58,8 +58,8 @@ jobs:
       - name: Create stub libs for LLVM link dependencies
         shell: pwsh
         run: |
-          & C:\llvm\bin\llvm-lib.exe /OUT:C:\llvm\lib\libxml2s.lib /MACHINE:X64
-          & C:\llvm\bin\llvm-lib.exe /OUT:C:\llvm\lib\zstd.lib /MACHINE:X64
+          & C:\llvm\bin\llvm-lib.exe /llvmlibempty /OUT:C:\llvm\lib\libxml2s.lib /MACHINE:X64
+          & C:\llvm\bin\llvm-lib.exe /llvmlibempty /OUT:C:\llvm\lib\zstd.lib /MACHINE:X64
           if (-not (Test-Path C:\llvm\lib\libxml2s.lib)) { throw "Failed to create libxml2s.lib" }
 
       - uses: dtolnay/rust-toolchain@stable
