@@ -40,43 +40,24 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
-    env:
-      LLVM_VERSION: "18.1.8"
-      LLVM_SYS_180_PREFIX: C:/llvm
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download and extract LLVM 18
-        shell: pwsh
-        run: |
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc.tar.xz"
-          $retries = 3
-          for ($i = 1; $i -le $retries; $i++) {
-            try {
-              Invoke-WebRequest -Uri $url -OutFile llvm.tar.xz -MaximumRetryCount 3 -RetryIntervalSec 10
-              break
-            } catch {
-              if ($i -eq $retries) { throw }
-              Write-Host "Attempt $i failed, retrying in 30s..."
-              Start-Sleep -Seconds 30
-            }
-          }
-          7z x llvm.tar.xz
-          7z x llvm.tar
-          Move-Item "clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc" C:/llvm
-
-      - name: Install LLVM link dependencies
-        shell: pwsh
-        run: |
-          vcpkg install libxml2:x64-windows-static zstd:x64-windows-static
-          echo "LIB=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib;$env:LIB" >> $env:GITHUB_ENV
+      - name: Install LLVM 18
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18"
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Build
+        env:
+          LLVM_SYS_180_PREFIX: ${{ env.LLVM_PATH }}
         run: cargo build --release --features=llvm
 
       - name: Test
+        env:
+          LLVM_SYS_180_PREFIX: ${{ env.LLVM_PATH }}
         run: cargo test --tests --features=llvm
 
       - name: Package
