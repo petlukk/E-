@@ -55,12 +55,15 @@ jobs:
           7z x llvm.tar
           Move-Item "clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc" C:\llvm
 
+      - uses: ilammy/msvc-dev-cmd@v1
+
       - name: Create stub libs for LLVM link dependencies
         shell: pwsh
         run: |
-          & C:\llvm\bin\llvm-lib.exe /llvmlibempty /OUT:C:\llvm\lib\libxml2s.lib /MACHINE:X64
-          & C:\llvm\bin\llvm-lib.exe /llvmlibempty /OUT:C:\llvm\lib\zstd.lib /MACHINE:X64
-          if (-not (Test-Path C:\llvm\lib\libxml2s.lib)) { throw "Failed to create libxml2s.lib" }
+          Set-Content -Path empty.c -Value "// stub"
+          cl /c /nologo empty.c
+          lib /NOLOGO /OUT:C:\llvm\lib\libxml2s.lib /MACHINE:X64 empty.obj
+          lib /NOLOGO /OUT:C:\llvm\lib\zstd.lib /MACHINE:X64 empty.obj
 
       - uses: dtolnay/rust-toolchain@stable
 
