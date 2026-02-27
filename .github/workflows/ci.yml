@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main, phase14-arm-support]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 18 and system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-18-dev clang-18 libpolly-18-dev libzstd-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --features=llvm
+
+      - name: Test
+        run: cargo test --tests --features=llvm
+
+  test-linux-arm:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 18 and system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-18-dev clang-18 libpolly-18-dev libzstd-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --features=llvm
+
+      - name: Test
+        run: cargo test --tests --features=llvm
+
+  test-windows:
+    runs-on: windows-latest
+    env:
+      LLVM_VERSION: "18.1.8"
+      LLVM_SYS_180_PREFIX: C:\llvm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and extract LLVM 18
+        shell: pwsh
+        run: |
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc.tar.xz"
+          Invoke-WebRequest -Uri $url -OutFile llvm.tar.xz -MaximumRetryCount 3 -RetryIntervalSec 10
+          7z x llvm.tar.xz
+          7z x llvm.tar
+          Move-Item "clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc" C:\llvm
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Create stub libs for LLVM link dependencies
+        shell: pwsh
+        run: |
+          Set-Content -Path empty.c -Value "// stub"
+          cl /c /nologo empty.c
+          lib /NOLOGO /OUT:C:\llvm\lib\libxml2s.lib /MACHINE:X64 empty.obj
+          lib /NOLOGO /OUT:C:\llvm\lib\zstd.lib /MACHINE:X64 empty.obj
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --features=llvm
+
+      - name: Test
+        run: cargo test --tests --features=llvm
