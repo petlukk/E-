@@ -249,10 +249,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     /// Formats a vector type suffix with opaque pointer for masked intrinsics.
     /// E.g. `"v8f32.p0"`, `"v4i32.p0"`.
-    pub(crate) fn llvm_vector_type_suffix(
-        &self,
-        vec_ty: VectorType<'ctx>,
-    ) -> String {
+    pub(crate) fn llvm_vector_type_suffix(&self, vec_ty: VectorType<'ctx>) -> String {
         let (width, elem_name) = self.vector_type_parts(vec_ty);
         format!("v{width}{elem_name}.p0")
     }

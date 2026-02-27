@@ -19,10 +19,7 @@ impl TypeChecker {
             Expr::Literal(Literal::StringLit(_), _) => Ok(Type::String),
             Expr::Variable(name, span) => {
                 locals.get(name).map(|(ty, _)| ty.clone()).ok_or_else(|| {
-                    CompileError::type_error(
-                        format!("undefined variable '{name}'"),
-                        span.clone(),
-                    )
+                    CompileError::type_error(format!("undefined variable '{name}'"), span.clone())
                 })
             }
             Expr::Not(inner, span) => {
@@ -41,9 +38,7 @@ impl TypeChecker {
                     Ok(inner_type)
                 } else {
                     Err(CompileError::type_error(
-                        format!(
-                            "unary '-' requires numeric or vector operand, got {inner_type}"
-                        ),
+                        format!("unary '-' requires numeric or vector operand, got {inner_type}"),
                         span.clone(),
                     ))
                 }
@@ -107,10 +102,9 @@ impl TypeChecker {
                         }
                         Ok(Type::Bool)
                     }
-                    BinaryOp::AddDot
-                    | BinaryOp::SubDot
-                    | BinaryOp::MulDot
-                    | BinaryOp::DivDot => types::unify_vector(&lt, &rt, span.clone()),
+                    BinaryOp::AddDot | BinaryOp::SubDot | BinaryOp::MulDot | BinaryOp::DivDot => {
+                        types::unify_vector(&lt, &rt, span.clone())
+                    }
                     BinaryOp::AndDot | BinaryOp::OrDot | BinaryOp::XorDot => {
                         let result = types::unify_vector(&lt, &rt, span.clone())?;
                         match &result {
@@ -122,9 +116,7 @@ impl TypeChecker {
                                 span.clone(),
                             )),
                             _ => Err(CompileError::type_error(
-                                format!(
-                                    "bitwise vector ops require vector operands, got {result}"
-                                ),
+                                format!("bitwise vector ops require vector operands, got {result}"),
                                 span.clone(),
                             )),
                         }
@@ -150,11 +142,7 @@ impl TypeChecker {
                 }
             }
 
-            Expr::Vector {
-                elements,
-                ty,
-                span,
-            } => {
+            Expr::Vector { elements, ty, span } => {
                 let vec_type = types::resolve_type(ty)?;
                 let (elem_type, width) = match &vec_type {
                     Type::Vector { elem, width } => (elem.as_ref(), *width),
@@ -229,16 +217,9 @@ impl TypeChecker {
                         )
                     })
             }
-            Expr::StructLiteral {
-                name,
-                fields,
-                span,
-            } => {
+            Expr::StructLiteral { name, fields, span } => {
                 let def_fields = self.structs.get(name).ok_or_else(|| {
-                    CompileError::type_error(
-                        format!("unknown struct '{name}'"),
-                        span.clone(),
-                    )
+                    CompileError::type_error(format!("unknown struct '{name}'"), span.clone())
                 })?;
                 if fields.len() != def_fields.len() {
                     return Err(CompileError::type_error(
@@ -264,9 +245,7 @@ impl TypeChecker {
                     let actual = self.check_expr(field_val, locals)?;
                     if !types::types_compatible(&actual, &expected) {
                         return Err(CompileError::type_error(
-                            format!(
-                                "field '{field_name}': expected {expected}, got {actual}"
-                            ),
+                            format!("field '{field_name}': expected {expected}, got {actual}"),
                             field_val.span().clone(),
                         ));
                     }
@@ -278,10 +257,7 @@ impl TypeChecker {
                     return result;
                 }
                 let sig = self.functions.get(name).ok_or_else(|| {
-                    CompileError::type_error(
-                        format!("undefined function '{name}'"),
-                        span.clone(),
-                    )
+                    CompileError::type_error(format!("undefined function '{name}'"), span.clone())
                 })?;
                 if args.len() != sig.params.len() {
                     return Err(CompileError::type_error(

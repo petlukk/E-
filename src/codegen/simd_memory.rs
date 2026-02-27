@@ -13,7 +13,11 @@ impl<'ctx> CodeGenerator<'ctx> {
     fn element_alignment(&self, elem_ty: BasicTypeEnum<'ctx>) -> u32 {
         match elem_ty {
             BasicTypeEnum::FloatType(ft) => {
-                if ft == self.context.f64_type() { 8 } else { 4 }
+                if ft == self.context.f64_type() {
+                    8
+                } else {
+                    4
+                }
             }
             BasicTypeEnum::IntType(it) if it.get_bit_width() == 8 => 1,
             BasicTypeEnum::IntType(it) if it.get_bit_width() == 16 => 2,

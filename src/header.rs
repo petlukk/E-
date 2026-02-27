@@ -46,7 +46,7 @@ pub fn generate(stmts: &[Stmt], module_name: &str) -> String {
 
 fn type_to_c(ty: &TypeAnnotation) -> String {
     match ty {
-        TypeAnnotation::Named(name) => match name.as_str() {
+        TypeAnnotation::Named(name, _) => match name.as_str() {
             "i8" => "int8_t".to_string(),
             "u8" => "uint8_t".to_string(),
             "i16" => "int16_t".to_string(),

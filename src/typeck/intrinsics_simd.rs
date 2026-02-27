@@ -48,7 +48,7 @@ impl TypeChecker {
                 }
             }
             _ => Err(CompileError::type_error(
-                "load expects pointer",
+                format!("load expects a pointer, got {ptr_type}"),
                 args[0].span().clone(),
             )),
         }
@@ -166,9 +166,7 @@ impl TypeChecker {
                         Expr::Literal(crate::ast::Literal::Integer(n), idx_span) => {
                             if *n < 0 || *n >= width as i64 {
                                 return Err(CompileError::type_error(
-                                    format!(
-                                        "shuffle index {i} out of range: {n} (width {width})"
-                                    ),
+                                    format!("shuffle index {i} out of range: {n} (width {width})"),
                                     idx_span.clone(),
                                 ));
                             }
@@ -402,7 +400,7 @@ impl TypeChecker {
                 }
             }
             _ => Err(CompileError::type_error(
-                "load_masked expects pointer",
+                format!("load_masked expects a pointer, got {ptr_type}"),
                 args[0].span().clone(),
             )),
         }

@@ -117,12 +117,7 @@ impl Parser {
             self.advance();
             let right = self.multiplicative()?;
             let end = right.span().end.clone();
-            left = Expr::Binary(
-                Box::new(left),
-                op,
-                Box::new(right),
-                Span::new(start, end),
-            );
+            left = Expr::Binary(Box::new(left), op, Box::new(right), Span::new(start, end));
         }
         Ok(left)
     }
@@ -150,12 +145,7 @@ impl Parser {
             self.advance();
             let right = self.unary()?;
             let end = right.span().end.clone();
-            left = Expr::Binary(
-                Box::new(left),
-                op,
-                Box::new(right),
-                Span::new(start, end),
-            );
+            left = Expr::Binary(Box::new(left), op, Box::new(right), Span::new(start, end));
         }
         Ok(left)
     }
@@ -219,10 +209,7 @@ impl Parser {
                         token.position.clone(),
                     )
                 })?;
-                return Ok(Expr::Literal(
-                    Literal::Float(-value),
-                    Span::new(start, end),
-                ));
+                return Ok(Expr::Literal(Literal::Float(-value), Span::new(start, end)));
             }
             if self.peek_next_kind() == Some(&TokenKind::HexLiteral) {
                 let start = self.current_position();
@@ -442,125 +429,37 @@ impl Parser {
             )?;
 
             // Check for vector type suffix
-            if self.check(TokenKind::I8x16) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("i8".to_string())),
-                        width: 16,
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-            if self.check(TokenKind::I8x32) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("i8".to_string())),
-                        width: 32,
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-            if self.check(TokenKind::U8x16) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("u8".to_string())),
-                        width: 16,
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-            if self.check(TokenKind::I16x8) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("i16".to_string())),
-                        width: 8,
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-            if self.check(TokenKind::I16x16) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("i16".to_string())),
-                        width: 16,
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-            if self.check(TokenKind::F32x4) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
-                        width: 4,
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-            if self.check(TokenKind::I32x4) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("i32".to_string())),
-                        width: 4,
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-            if self.check(TokenKind::F32x8) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
-                        width: 8,
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-            if self.check(TokenKind::I32x8) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("i32".to_string())),
-                        width: 8,
-                    },
-                    span: Span::new(start, end),
-                });
-            }
-            if self.check(TokenKind::F32x16) {
-                self.advance();
-                let end = self.previous_position();
-                return Ok(Expr::Vector {
-                    elements,
-                    ty: crate::ast::TypeAnnotation::Vector {
-                        elem: Box::new(crate::ast::TypeAnnotation::Named("f32".to_string())),
-                        width: 16,
-                    },
-                    span: Span::new(start, end),
-                });
+            let vec_suffixes: &[(TokenKind, &str, usize)] = &[
+                (TokenKind::I8x16, "i8", 16),
+                (TokenKind::I8x32, "i8", 32),
+                (TokenKind::U8x16, "u8", 16),
+                (TokenKind::I16x8, "i16", 8),
+                (TokenKind::I16x16, "i16", 16),
+                (TokenKind::F32x4, "f32", 4),
+                (TokenKind::I32x4, "i32", 4),
+                (TokenKind::F32x8, "f32", 8),
+                (TokenKind::I32x8, "i32", 8),
+                (TokenKind::F32x16, "f32", 16),
+            ];
+            for (tk, elem_name, width) in vec_suffixes {
+                if self.check(tk.clone()) {
+                    let ty_pos = self.current_position();
+                    self.advance();
+                    let end = self.previous_position();
+                    let ty_span = Span::new(ty_pos.clone(), ty_pos.clone());
+                    return Ok(Expr::Vector {
+                        elements,
+                        ty: crate::ast::TypeAnnotation::Vector {
+                            elem: Box::new(crate::ast::TypeAnnotation::Named(
+                                elem_name.to_string(),
+                                ty_span.clone(),
+                            )),
+                            width: *width,
+                            span: ty_span,
+                        },
+                        span: Span::new(start, end),
+                    });
+                }
             }
             // No type suffix — it's an array literal (used for shuffle masks etc.)
             let end = self.previous_position();

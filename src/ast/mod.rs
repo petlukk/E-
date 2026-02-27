@@ -193,26 +193,39 @@ impl fmt::Display for Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
-    Named(String),
+    Named(String, Span),
     Pointer {
         mutable: bool,
         restrict: bool,
         inner: Box<TypeAnnotation>,
+        span: Span,
     },
     Vector {
         elem: Box<TypeAnnotation>,
         width: usize,
+        span: Span,
     },
+}
+
+impl TypeAnnotation {
+    pub fn span(&self) -> &Span {
+        match self {
+            TypeAnnotation::Named(_, span) => span,
+            TypeAnnotation::Pointer { span, .. } => span,
+            TypeAnnotation::Vector { span, .. } => span,
+        }
+    }
 }
 
 impl fmt::Display for TypeAnnotation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            TypeAnnotation::Named(name) => write!(f, "{name}"),
+            TypeAnnotation::Named(name, _) => write!(f, "{name}"),
             TypeAnnotation::Pointer {
                 mutable,
                 restrict,
                 inner,
+                ..
             } => {
                 if *restrict && *mutable {
                     write!(f, "*restrict mut {inner}")
@@ -224,7 +237,7 @@ impl fmt::Display for TypeAnnotation {
                     write!(f, "*{inner}")
                 }
             }
-            TypeAnnotation::Vector { elem, width } => write!(f, "{elem}x{width}"),
+            TypeAnnotation::Vector { elem, width, .. } => write!(f, "{elem}x{width}"),
         }
     }
 }
@@ -233,6 +246,7 @@ impl fmt::Display for TypeAnnotation {
 pub struct Param {
     pub name: String,
     pub ty: TypeAnnotation,
+    pub span: Span,
 }
 
 impl fmt::Display for Param {

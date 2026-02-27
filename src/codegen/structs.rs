@@ -161,7 +161,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                     ))),
                 }
             }
-            Expr::Index { object: arr, index, .. } => {
+            Expr::Index {
+                object: arr, index, ..
+            } => {
                 let arr_val = self.compile_expr(arr, function)?;
                 let idx = self.compile_expr(index, function)?.into_int_value();
                 let ptr = arr_val.into_pointer_value();
@@ -174,7 +176,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                         .map_err(|e| CompileError::codegen_error(e.to_string()))?;
                 Ok((elem_ptr, struct_name))
             }
-            Expr::FieldAccess { .. } => Err(CompileError::codegen_error( // span absorbed by ..
+            Expr::FieldAccess { .. } => Err(CompileError::codegen_error(
+                // span absorbed by ..
                 "nested struct field access not supported",
             )),
             _ => Err(CompileError::codegen_error(

@@ -26,9 +26,12 @@ impl TypeChecker {
                     let declared = types::resolve_type(ty)?;
                     let init_type = self.check_expr_with_hint(value, locals, Some(&declared))?;
                     if !types::types_compatible(&init_type, &declared) {
+                        let hint = types::conversion_hint(&init_type, &declared)
+                            .map(|h| format!(". {h}"))
+                            .unwrap_or_default();
                         return Err(CompileError::type_error(
                             format!(
-                                "cannot initialize '{name}' of type {declared} with {init_type}"
+                                "cannot initialize '{name}' of type {declared} with {init_type}{hint}"
                             ),
                             value.span().clone(),
                         ));
@@ -54,9 +57,12 @@ impl TypeChecker {
                     }
                     let val_type = self.check_expr(value, locals)?;
                     if !types::types_compatible(&val_type, &var_type) {
+                        let hint = types::conversion_hint(&val_type, &var_type)
+                            .map(|h| format!(". {h}"))
+                            .unwrap_or_default();
                         return Err(CompileError::type_error(
                             format!(
-                                "cannot assign {val_type} to '{target}' of type {var_type}"
+                                "cannot assign {val_type} to '{target}' of type {var_type}{hint}"
                             ),
                             value.span().clone(),
                         ));
@@ -92,9 +98,7 @@ impl TypeChecker {
                             let val_type = self.check_expr(value, locals)?;
                             if !types::types_compatible(&val_type, inner) {
                                 return Err(CompileError::type_error(
-                                    format!(
-                                        "cannot assign {val_type} to element of {var_type}"
-                                    ),
+                                    format!("cannot assign {val_type} to element of {var_type}"),
                                     value.span().clone(),
                                 ));
                             }

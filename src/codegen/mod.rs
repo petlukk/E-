@@ -187,7 +187,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     pub(crate) fn resolve_annotation(ann: &TypeAnnotation) -> Type {
         match ann {
-            TypeAnnotation::Named(name) => match name.as_str() {
+            TypeAnnotation::Named(name, _) => match name.as_str() {
                 "i8" => Type::I8,
                 "u8" => Type::U8,
                 "i16" => Type::I16,
@@ -205,6 +205,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 mutable,
                 restrict,
                 inner,
+                ..
             } => {
                 let inner_type = Self::resolve_annotation(inner);
                 Type::Pointer {
@@ -213,7 +214,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                     inner: Box::new(inner_type),
                 }
             }
-            TypeAnnotation::Vector { elem, width } => {
+            TypeAnnotation::Vector { elem, width, .. } => {
                 let elem_type = Self::resolve_annotation(elem);
                 Type::Vector {
                     elem: Box::new(elem_type),

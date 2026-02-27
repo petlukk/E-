@@ -90,6 +90,63 @@ impl fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
+/// Multi-error collector. Accumulates errors for future multi-error reporting.
+/// Current pipeline stops at first error, but this infrastructure supports
+/// collecting all errors and reporting them at end.
+#[derive(Debug, Clone, Default)]
+pub struct CompileErrors {
+    errors: Vec<CompileError>,
+}
+
+impl CompileErrors {
+    pub fn new() -> Self {
+        Self { errors: Vec::new() }
+    }
+
+    pub fn push(&mut self, error: CompileError) {
+        self.errors.push(error);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.errors.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.errors.len()
+    }
+
+    pub fn errors(&self) -> &[CompileError] {
+        &self.errors
+    }
+
+    /// Convert to a single-error Result for backward compatibility.
+    /// Returns Ok(()) if no errors, Err(first_error) otherwise.
+    pub fn into_result(self) -> Result<()> {
+        match self.errors.into_iter().next() {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+}
+
+impl fmt::Display for CompileErrors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, e) in self.errors.iter().enumerate() {
+            if i > 0 {
+                writeln!(f)?;
+            }
+            write!(f, "{e}")?;
+        }
+        Ok(())
+    }
+}
+
+impl From<CompileError> for CompileErrors {
+    fn from(e: CompileError) -> Self {
+        Self { errors: vec![e] }
+    }
+}
+
 /// Format a compile error with source context showing the relevant line and caret.
 ///
 /// Output format:

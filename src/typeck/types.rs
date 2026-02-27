@@ -213,9 +213,25 @@ pub fn is_unsigned(ty: &Type) -> bool {
     matches!(ty, Type::U8 | Type::U16 | Type::U32 | Type::U64)
 }
 
+/// Returns a conversion hint like "Use to_i32() to convert" when a numeric type
+/// mismatch has an obvious fix via a built-in conversion function.
+pub fn conversion_hint(from: &Type, to: &Type) -> Option<String> {
+    if !from.is_numeric() || !to.is_numeric() {
+        return None;
+    }
+    let func = match to {
+        Type::I32 => "to_i32()",
+        Type::I64 => "to_i64()",
+        Type::F32 => "to_f32()",
+        Type::F64 => "to_f64()",
+        _ => return None,
+    };
+    Some(format!("Use {func} to convert"))
+}
+
 pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
     match ty {
-        TypeAnnotation::Named(name) => match name.as_str() {
+        TypeAnnotation::Named(name, _) => match name.as_str() {
             "i8" => Ok(Type::I8),
             "u8" => Ok(Type::U8),
             "i16" => Ok(Type::I16),
@@ -233,6 +249,7 @@ pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
             mutable,
             restrict,
             inner,
+            ..
         } => {
             let inner_type = resolve_type(inner)?;
             Ok(Type::Pointer {
@@ -241,7 +258,7 @@ pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
                 inner: Box::new(inner_type),
             })
         }
-        TypeAnnotation::Vector { elem, width } => {
+        TypeAnnotation::Vector { elem, width, .. } => {
             let elem_type = resolve_type(elem)?;
             Ok(Type::Vector {
                 elem: Box::new(elem_type),

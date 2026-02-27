@@ -60,10 +60,7 @@ mod tests {
         let src = "export func bad() {\n    let x: i32 = 1\n    let y: f32 = x\n    return\n}";
         let msg = error_msg(src);
         // The error should be on line 3 (let y: f32 = x)
-        assert!(
-            msg.contains("3:"),
-            "expected line 3 in error, got: {msg}"
-        );
+        assert!(msg.contains("3:"), "expected line 3 in error, got: {msg}");
     }
 
     #[test]
@@ -153,11 +150,57 @@ mod tests {
 
     #[test]
     fn test_fma_integer_vector_suggestion() {
-        let src = "export func bad(a: i32x4, b: i32x4, c: i32x4) -> i32x4 {\n    return fma(a, b, c)\n}";
+        let src =
+            "export func bad(a: i32x4, b: i32x4, c: i32x4) -> i32x4 {\n    return fma(a, b, c)\n}";
         let msg = error_msg(src);
         assert!(
             msg.contains("f32") || msg.contains("f64"),
             "expected float vector suggestion in fma error, got: {msg}"
+        );
+    }
+
+    // --- Type conversion hints ---
+
+    #[test]
+    fn test_assign_conversion_hint_to_i32() {
+        let src = "export func bad(x: f32) {\n    let mut y: i32 = 0\n    y = x\n    return\n}";
+        let msg = error_msg(src);
+        assert!(
+            msg.contains("Use to_i32() to convert"),
+            "expected to_i32() conversion hint, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_let_init_conversion_hint_to_f32() {
+        let src = "export func bad(x: i32) {\n    let y: f32 = x\n    return\n}";
+        let msg = error_msg(src);
+        assert!(
+            msg.contains("Use to_f32() to convert"),
+            "expected to_f32() conversion hint, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_no_conversion_hint_for_non_numeric() {
+        // Pointer-to-int mismatch should not suggest conversion
+        let src = "export func bad(p: *f32) {\n    let y: i32 = p\n    return\n}";
+        let msg = error_msg(src);
+        assert!(
+            !msg.contains("to convert"),
+            "should not suggest conversion for non-numeric mismatch, got: {msg}"
+        );
+    }
+
+    // --- load error includes received type ---
+
+    #[test]
+    fn test_load_non_pointer_shows_type() {
+        let src = "export func bad(x: i32) {\n    let v: f32x4 = load(x, 0)\n    return\n}";
+        let msg = error_msg(src);
+        assert!(
+            msg.contains("got i32"),
+            "expected 'got i32' in load error, got: {msg}"
         );
     }
 

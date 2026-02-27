@@ -83,7 +83,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         match stmt {
             Stmt::Let {
                 name, ty, value, ..
-            } => { // span ignored via ..
+            } => {
+                // span ignored via ..
                 let declared = Self::resolve_annotation(ty);
                 let llvm_ty = self.llvm_type(&declared);
                 let alloca = self
@@ -336,7 +337,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                 self.builder.position_at_end(exit_bb);
                 Ok(false)
             }
-            Stmt::Unroll { body, .. } => { // span ignored via ..
+            Stmt::Unroll { body, .. } => {
+                // span ignored via ..
                 // Compile the inner loop normally — LLVM at O2/O3 handles unrolling.
                 // The unroll(N) annotation is a semantic hint; metadata attachment
                 // requires inkwell API support for instruction-level metadata which

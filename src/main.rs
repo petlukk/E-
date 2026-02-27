@@ -223,16 +223,13 @@ fn main() {
             OutputMode::Asm => "assembly",
         };
         let output_display = match &mode {
-            OutputMode::Executable(ref name) | OutputMode::SharedLib(ref name) => {
-                name.clone()
-            }
+            OutputMode::Executable(ref name) | OutputMode::SharedLib(ref name) => name.clone(),
             _ => output_path.display().to_string(),
         };
 
         match ea_compiler::compile_with_options(&source, &output_path, mode, &opts) {
             Ok(()) => {
-                let stmts =
-                    ea_compiler::parse(ea_compiler::tokenize(&source).unwrap()).unwrap();
+                let stmts = ea_compiler::parse(ea_compiler::tokenize(&source).unwrap()).unwrap();
                 let exports = ea_compiler::ast::exported_function_names(&stmts);
                 if exports.is_empty() {
                     eprintln!(

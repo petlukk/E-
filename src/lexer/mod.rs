@@ -32,7 +32,7 @@ impl Default for Position {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Span {
     pub start: Position,
     pub end: Position,
@@ -41,15 +41,6 @@ pub struct Span {
 impl Span {
     pub fn new(start: Position, end: Position) -> Self {
         Self { start, end }
-    }
-}
-
-impl Default for Span {
-    fn default() -> Self {
-        Self {
-            start: Position::default(),
-            end: Position::default(),
-        }
     }
 }
 

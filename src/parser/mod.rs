@@ -110,11 +110,17 @@ impl Parser {
             return Ok(params);
         }
         loop {
+            let start = self.current_position();
             let name_token = self.expect_kind(TokenKind::Identifier, "expected parameter name")?;
             let name = name_token.lexeme.clone();
             self.expect_kind(TokenKind::Colon, "expected ':' after parameter name")?;
             let ty = self.parse_type()?;
-            params.push(Param { name, ty });
+            let end = ty.span().end.clone();
+            params.push(Param {
+                name,
+                ty,
+                span: Span::new(start, end),
+            });
             if !self.check(TokenKind::Comma) {
                 break;
             }
@@ -126,6 +132,7 @@ impl Parser {
     pub(super) fn parse_type(&mut self) -> crate::error::Result<TypeAnnotation> {
         // Pointer types: *T, *mut T, *restrict T, *restrict mut T
         if self.check(TokenKind::Star) {
+            let start = self.current_position();
             self.advance(); // consume *
             let restrict = if self.check(TokenKind::Restrict) {
                 self.advance();
@@ -140,10 +147,12 @@ impl Parser {
                 false
             };
             let inner = self.parse_type()?;
+            let end = inner.span().end.clone();
             return Ok(TypeAnnotation::Pointer {
                 mutable,
                 restrict,
                 inner: Box::new(inner),
+                span: Span::new(start, end),
             });
         }
 
@@ -159,86 +168,43 @@ impl Parser {
             TokenKind::Bool,
         ];
 
-        if self.check(TokenKind::I8x16) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("i8".to_string())),
-                width: 16,
-            });
-        }
-        if self.check(TokenKind::I8x32) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("i8".to_string())),
-                width: 32,
-            });
-        }
-        if self.check(TokenKind::U8x16) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("u8".to_string())),
-                width: 16,
-            });
-        }
-        if self.check(TokenKind::I16x8) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("i16".to_string())),
-                width: 8,
-            });
-        }
-        if self.check(TokenKind::I16x16) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("i16".to_string())),
-                width: 16,
-            });
-        }
-        if self.check(TokenKind::F32x4) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("f32".to_string())),
-                width: 4,
-            });
-        }
-        if self.check(TokenKind::I32x4) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("i32".to_string())),
-                width: 4,
-            });
-        }
-        if self.check(TokenKind::F32x8) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("f32".to_string())),
-                width: 8,
-            });
-        }
-        if self.check(TokenKind::I32x8) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("i32".to_string())),
-                width: 8,
-            });
-        }
-        if self.check(TokenKind::F32x16) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("f32".to_string())),
-                width: 16,
-            });
+        // Vector type tokens — single token like f32x4 gets one span
+        let vec_types: &[(TokenKind, &str, usize)] = &[
+            (TokenKind::I8x16, "i8", 16),
+            (TokenKind::I8x32, "i8", 32),
+            (TokenKind::U8x16, "u8", 16),
+            (TokenKind::I16x8, "i16", 8),
+            (TokenKind::I16x16, "i16", 16),
+            (TokenKind::F32x4, "f32", 4),
+            (TokenKind::I32x4, "i32", 4),
+            (TokenKind::F32x8, "f32", 8),
+            (TokenKind::I32x8, "i32", 8),
+            (TokenKind::F32x16, "f32", 16),
+        ];
+        for (tk, elem_name, width) in vec_types {
+            if self.check(tk.clone()) {
+                let pos = self.current_position();
+                self.advance();
+                let span = Span::new(pos.clone(), pos.clone());
+                return Ok(TypeAnnotation::Vector {
+                    elem: Box::new(TypeAnnotation::Named(elem_name.to_string(), span.clone())),
+                    width: *width,
+                    span,
+                });
+            }
         }
 
         for tk in &type_tokens {
             if self.check(tk.clone()) {
                 let token = self.advance().clone();
-                return Ok(TypeAnnotation::Named(token.lexeme.clone()));
+                let span = Span::new(token.position.clone(), token.position);
+                return Ok(TypeAnnotation::Named(token.lexeme.clone(), span));
             }
         }
         if self.check(TokenKind::Identifier) {
             let token = self.advance().clone();
-            return Ok(TypeAnnotation::Named(token.lexeme.clone()));
+            let span = Span::new(token.position.clone(), token.position);
+            return Ok(TypeAnnotation::Named(token.lexeme.clone(), span));
         }
         Err(CompileError::parse_error(
             format!("expected type, found {:?}", self.peek_kind()),
