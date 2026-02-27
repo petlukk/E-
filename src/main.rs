@@ -22,6 +22,10 @@ fn main() {
             println!("ea {}", env!("CARGO_PKG_VERSION"));
             return;
         }
+        "bind" => {
+            handle_bind(&args[1..]);
+            return;
+        }
         _ => {}
     }
 
@@ -250,6 +254,16 @@ fn main() {
                         "compiled {input_file} -> {output_display} ({mode_desc}, {count} exported: {names})"
                     );
                 }
+                if lib_mode {
+                    let lib_display_name = output_display.clone();
+                    let json = ea_compiler::metadata::generate_json(&stmts, &lib_display_name);
+                    let json_path = format!("{input_file}.json");
+                    if let Err(e) = std::fs::write(&json_path, &json) {
+                        eprintln!("warning: could not write {json_path}: {e}");
+                    } else {
+                        eprintln!("wrote {json_path}");
+                    }
+                }
             }
             Err(e) => {
                 print_error(&e, input_file, &source);
@@ -265,12 +279,68 @@ fn main() {
     }
 }
 
+fn handle_bind(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Usage: ea bind <file.ea> --python");
+        process::exit(1);
+    }
+
+    let input_file = &args[0];
+    let mut python_mode = false;
+
+    for arg in &args[1..] {
+        match arg.as_str() {
+            "--python" => python_mode = true,
+            other => {
+                eprintln!("error: unknown bind option '{other}'");
+                process::exit(1);
+            }
+        }
+    }
+
+    if !python_mode {
+        eprintln!("error: ea bind requires --python");
+        process::exit(1);
+    }
+
+    let json_path = format!("{input_file}.json");
+    let json_str = match std::fs::read_to_string(&json_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read '{json_path}': {e}");
+            eprintln!("hint: compile with --lib first to generate JSON metadata");
+            process::exit(1);
+        }
+    };
+
+    let stem = std::path::Path::new(input_file)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+
+    let py_code = match ea_compiler::bind_python::generate(&json_str, stem) {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("error: failed to generate Python bindings: {e}");
+            process::exit(1);
+        }
+    };
+
+    let py_path = format!("{stem}.py");
+    if let Err(e) = std::fs::write(&py_path, &py_code) {
+        eprintln!("error: cannot write '{py_path}': {e}");
+        process::exit(1);
+    }
+    eprintln!("wrote {py_path}");
+}
+
 fn print_usage() {
     eprintln!("Usage: ea <file.ea> [options]");
+    eprintln!("       ea bind <file.ea> --python");
     eprintln!();
     eprintln!("Options:");
     eprintln!("  -o <name>          Compile and link to executable");
-    eprintln!("  --lib              Produce shared library (.so/.dll)");
+    eprintln!("  --lib              Produce shared library (.so/.dll) + JSON metadata");
     eprintln!("  --opt-level=N      Optimization level 0-3 (default: 3)");
     eprintln!("  --target=CPU       Target CPU (default: native)");
     eprintln!("  --target-triple=T  Cross-compile target (e.g. aarch64-unknown-linux-gnu)");
@@ -282,4 +352,7 @@ fn print_usage() {
     eprintln!("  --emit-tokens      Print lexer tokens");
     eprintln!("  --help, -h         Show this message");
     eprintln!("  --version, -V      Show version");
+    eprintln!();
+    eprintln!("Subcommands:");
+    eprintln!("  bind <file.ea> --python   Generate Python bindings from JSON metadata");
 }

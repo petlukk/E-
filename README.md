@@ -248,7 +248,7 @@ kernel code needs predictable performance without hidden checks.
 - **prefetch**: `prefetch(ptr, offset)` — software prefetch for large-array streaming
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
 - **C ABI**: every `export func` is callable from any language
-- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output)
+- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output), `bind --python` (auto-generated Python bindings)
 - **Masked memory**: `load_masked`, `store_masked` for safe SIMD tail handling
 - **Scatter/Gather**: `gather(ptr, indices)`, `scatter(ptr, indices, values)` (scatter requires `--avx512`)
 - **Restrict pointers**: `*restrict T`, `*mut restrict T` for alias-free optimization
@@ -270,8 +270,11 @@ cargo build --features=llvm
 # Compile a kernel to object file
 ea kernel.ea              # -> kernel.o
 
-# Compile to shared library
-ea kernel.ea --lib        # -> kernel.so
+# Compile to shared library (+ JSON metadata)
+ea kernel.ea --lib        # -> kernel.so + kernel.ea.json
+
+# Generate Python bindings
+ea bind kernel.ea --python  # -> kernel.py
 
 # Compile standalone executable
 ea app.ea -o app          # -> app
@@ -281,6 +284,29 @@ cargo test --features=llvm
 ```
 
 ## Call from Python
+
+### Auto-generated bindings (recommended)
+
+```bash
+ea kernel.ea --lib             # -> kernel.so + kernel.ea.json
+ea bind kernel.ea --python     # -> kernel.py
+```
+
+```python
+import numpy as np
+import kernel
+
+a = np.random.rand(1_000_000).astype(np.float32)
+b = np.random.rand(1_000_000).astype(np.float32)
+c = np.random.rand(1_000_000).astype(np.float32)
+out = np.zeros(1_000_000, dtype=np.float32)
+
+kernel.fma_kernel(a, b, c, out)  # len auto-filled from array size
+```
+
+`ea bind --python` reads the JSON metadata emitted by `--lib` and generates a Python module with ctypes setup, numpy dtype checks, and automatic length parameter collapsing.
+
+### Manual ctypes (for custom control)
 
 ```python
 import ctypes

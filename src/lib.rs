@@ -1,7 +1,9 @@
 pub mod ast;
+pub mod bind_python;
 pub mod error;
 pub mod header;
 pub mod lexer;
+pub mod metadata;
 pub mod parser;
 pub mod typeck;
 
