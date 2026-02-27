@@ -24,6 +24,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             "splat"
                 | "load"
                 | "store"
+                | "load_masked"
+                | "store_masked"
                 | "fma"
                 | "sqrt"
                 | "rsqrt"
@@ -69,6 +71,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
             "load" => self.compile_load(args, type_hint, function),
             "store" => self.compile_store(args, function),
+            "load_masked" => self.compile_load_masked(args, type_hint, function),
+            "store_masked" => self.compile_store_masked(args, function),
             "fma" => self.compile_fma(args, function),
             "sqrt" => self.compile_sqrt(args, function),
             "rsqrt" => self.compile_rsqrt(args, function),
@@ -235,5 +239,32 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         };
         format!("{base}.v{width}{elem_name}")
+    }
+
+    /// Formats a vector type suffix with opaque pointer for masked intrinsics.
+    /// E.g. `"v8f32.p0"`, `"v4i32.p0"`.
+    pub(crate) fn llvm_vector_type_suffix(
+        &self,
+        vec_ty: VectorType<'ctx>,
+    ) -> String {
+        let width = vec_ty.get_size();
+        let elem = vec_ty.get_element_type();
+        let elem_name = if elem.is_float_type() {
+            let ft = elem.into_float_type();
+            if ft == self.context.f32_type() {
+                "f32"
+            } else {
+                "f64"
+            }
+        } else {
+            let it = elem.into_int_type();
+            match it.get_bit_width() {
+                8 => "i8",
+                16 => "i16",
+                32 => "i32",
+                _ => "i64",
+            }
+        };
+        format!("v{width}{elem_name}.p0")
     }
 }
