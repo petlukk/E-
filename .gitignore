@@ -44,8 +44,10 @@ demo/sobel/input.png
 demo/mnist_normalize/mnist_data/
 demo/cornell_box/output.png
 
-# Python caches
+# Python caches and build artifacts
 **/__pycache__/
+*.egg-info/
+build/
 
 # Downloaded toolchains
 ispc-v*-linux/
