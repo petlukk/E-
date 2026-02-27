@@ -81,3 +81,9 @@ demo/skimage_fusion/diff_heatmap.png
 demo/skimage_fusion/input.png
 demo/skimage_fusion/output_*.png
 demo/tokenizer_prepass/test_text.txt
+
+# Eastat build artifacts and test data
+demo/eastat/csv_parse.py
+demo/eastat/csv_stats.py
+demo/eastat/test_*.csv
+demo/eastat/kernels/*.ea.json

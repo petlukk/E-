@@ -1,0 +1,86 @@
+// Fused column statistics — single-pass sum + min + max + sum_of_squares
+//
+// f32x8 dual-accumulator with FMA for sum-of-squares.
+// One pass through the data computes all four statistics simultaneously.
+// Dual accumulators expose ILP for superscalar execution.
+
+export func f32_column_stats(
+    data: *restrict f32,
+    len: i32,
+    out_sum: *mut f32,
+    out_min: *mut f32,
+    out_max: *mut f32,
+    out_sumsq: *mut f32
+) {
+    let mut sum_acc0: f32x8 = splat(0.0)
+    let mut sum_acc1: f32x8 = splat(0.0)
+    let mut sumsq_acc0: f32x8 = splat(0.0)
+    let mut sumsq_acc1: f32x8 = splat(0.0)
+
+    let init_val: f32 = data[0]
+    let mut min_acc0: f32x8 = splat(init_val)
+    let mut min_acc1: f32x8 = splat(init_val)
+    let mut max_acc0: f32x8 = splat(init_val)
+    let mut max_acc1: f32x8 = splat(init_val)
+
+    let mut i: i32 = 0
+
+    // Main SIMD loop: 16 f32s per iteration (2x f32x8)
+    while i + 16 <= len {
+        prefetch(data, i + 64)
+
+        let v0: f32x8 = load(data, i)
+        let v1: f32x8 = load(data, i + 8)
+
+        sum_acc0 = sum_acc0 .+ v0
+        sum_acc1 = sum_acc1 .+ v1
+
+        sumsq_acc0 = fma(v0, v0, sumsq_acc0)
+        sumsq_acc1 = fma(v1, v1, sumsq_acc1)
+
+        min_acc0 = select(v0 .< min_acc0, v0, min_acc0)
+        min_acc1 = select(v1 .< min_acc1, v1, min_acc1)
+
+        max_acc0 = select(v0 .> max_acc0, v0, max_acc0)
+        max_acc1 = select(v1 .> max_acc1, v1, max_acc1)
+
+        i = i + 16
+    }
+
+    // Remaining full f32x8 vector
+    while i + 8 <= len {
+        let v: f32x8 = load(data, i)
+        sum_acc0 = sum_acc0 .+ v
+        sumsq_acc0 = fma(v, v, sumsq_acc0)
+        min_acc0 = select(v .< min_acc0, v, min_acc0)
+        max_acc0 = select(v .> max_acc0, v, max_acc0)
+        i = i + 8
+    }
+
+    // Merge dual accumulators
+    let sum_merged: f32x8 = sum_acc0 .+ sum_acc1
+    let sumsq_merged: f32x8 = sumsq_acc0 .+ sumsq_acc1
+    let min_merged: f32x8 = select(min_acc0 .< min_acc1, min_acc0, min_acc1)
+    let max_merged: f32x8 = select(max_acc0 .> max_acc1, max_acc0, max_acc1)
+
+    // Horizontal reduction
+    let mut total_sum: f32 = reduce_add(sum_merged)
+    let mut total_sumsq: f32 = reduce_add(sumsq_merged)
+    let mut total_min: f32 = reduce_min(min_merged)
+    let mut total_max: f32 = reduce_max(max_merged)
+
+    // Scalar tail
+    while i < len {
+        let v: f32 = data[i]
+        total_sum = total_sum + v
+        total_sumsq = total_sumsq + v * v
+        if v < total_min { total_min = v }
+        if v > total_max { total_max = v }
+        i = i + 1
+    }
+
+    out_sum[0] = total_sum
+    out_min[0] = total_min
+    out_max[0] = total_max
+    out_sumsq[0] = total_sumsq
+}
