@@ -34,3 +34,43 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ea-linux-x86_64.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    env:
+      LLVM_VERSION: "18.1.8"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download LLVM 18
+        shell: pwsh
+        run: |
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/LLVM-${{ env.LLVM_VERSION }}-win64.exe"
+          Invoke-WebRequest -Uri $url -OutFile llvm-installer.exe
+          Start-Process -Wait -FilePath .\llvm-installer.exe -ArgumentList "/S","/D=C:\LLVM"
+
+      - name: Set LLVM environment
+        shell: pwsh
+        run: |
+          echo "LLVM_SYS_180_PREFIX=C:\LLVM" >> $env:GITHUB_ENV
+          echo "C:\LLVM\bin" >> $env:GITHUB_PATH
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release --features=llvm
+
+      - name: Test
+        run: cargo test --tests --features=llvm
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path ea-windows-x86_64
+          Copy-Item target\release\ea.exe ea-windows-x86_64\
+          Compress-Archive -Path ea-windows-x86_64 -DestinationPath ea-windows-x86_64.zip
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ea-windows-x86_64.zip
