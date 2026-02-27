@@ -38,6 +38,35 @@ jobs:
         with:
           files: ea-linux-x86_64.tar.gz
 
+  build-linux-arm:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM 18 and system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-18-dev clang-18 libpolly-18-dev libzstd-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release --features=llvm
+
+      - name: Test
+        run: cargo test --tests --features=llvm
+
+      - name: Package
+        run: |
+          mkdir -p ea-linux-aarch64
+          cp target/release/ea ea-linux-aarch64/
+          tar czf ea-linux-aarch64.tar.gz ea-linux-aarch64
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ea-linux-aarch64.tar.gz
+
   build-windows:
     runs-on: windows-latest
     env:
