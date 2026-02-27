@@ -50,7 +50,17 @@ jobs:
         shell: pwsh
         run: |
           $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc.tar.xz"
-          Invoke-WebRequest -Uri $url -OutFile llvm.tar.xz
+          $retries = 3
+          for ($i = 1; $i -le $retries; $i++) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile llvm.tar.xz -MaximumRetryCount 3 -RetryIntervalSec 10
+              break
+            } catch {
+              if ($i -eq $retries) { throw }
+              Write-Host "Attempt $i failed, retrying in 30s..."
+              Start-Sleep -Seconds 30
+            }
+          }
           7z x llvm.tar.xz
           7z x llvm.tar
           Move-Item "clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc" C:/llvm
