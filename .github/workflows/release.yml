@@ -55,6 +55,12 @@ jobs:
           7z x llvm.tar
           Move-Item "clang+llvm-${{ env.LLVM_VERSION }}-x86_64-pc-windows-msvc" C:/llvm
 
+      - name: Install LLVM link dependencies
+        shell: pwsh
+        run: |
+          vcpkg install libxml2:x64-windows-static zstd:x64-windows-static
+          echo "LIB=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib;$env:LIB" >> $env:GITHUB_ENV
+
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Build
