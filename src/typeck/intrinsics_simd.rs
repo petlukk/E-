@@ -354,4 +354,114 @@ impl TypeChecker {
             )),
         }
     }
+
+    pub(super) fn check_load_masked(
+        &self,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+        type_hint: Option<&Type>,
+        span: &Span,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 3 {
+            return Err(CompileError::type_error(
+                "load_masked expects 3 arguments (ptr, offset, count)",
+                span.clone(),
+            ));
+        }
+        let ptr_type = self.check_expr(&args[0], locals)?;
+        let idx_type = self.check_expr(&args[1], locals)?;
+        let count_type = self.check_expr(&args[2], locals)?;
+
+        if !idx_type.is_integer() {
+            return Err(CompileError::type_error(
+                "load_masked offset must be integer",
+                args[1].span().clone(),
+            ));
+        }
+        if !count_type.is_integer() {
+            return Err(CompileError::type_error(
+                "load_masked count must be integer",
+                args[2].span().clone(),
+            ));
+        }
+
+        let width = match type_hint {
+            Some(Type::Vector { width, .. }) => *width,
+            _ => 4,
+        };
+
+        match ptr_type {
+            Type::Pointer { inner, .. } => {
+                if inner.is_numeric() {
+                    Ok(Type::Vector { elem: inner, width })
+                } else {
+                    Err(CompileError::type_error(
+                        "load_masked expects pointer to numeric type",
+                        args[0].span().clone(),
+                    ))
+                }
+            }
+            _ => Err(CompileError::type_error(
+                "load_masked expects pointer",
+                args[0].span().clone(),
+            )),
+        }
+    }
+
+    pub(super) fn check_store_masked(
+        &self,
+        args: &[Expr],
+        locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
+    ) -> crate::error::Result<Type> {
+        if args.len() != 4 {
+            return Err(CompileError::type_error(
+                "store_masked expects 4 arguments (ptr, offset, vector, count)",
+                span.clone(),
+            ));
+        }
+        let ptr_type = self.check_expr(&args[0], locals)?;
+        let idx_type = self.check_expr(&args[1], locals)?;
+        let val_type = self.check_expr(&args[2], locals)?;
+        let count_type = self.check_expr(&args[3], locals)?;
+
+        if !idx_type.is_integer() {
+            return Err(CompileError::type_error(
+                "store_masked offset must be integer",
+                args[1].span().clone(),
+            ));
+        }
+        if !count_type.is_integer() {
+            return Err(CompileError::type_error(
+                "store_masked count must be integer",
+                args[3].span().clone(),
+            ));
+        }
+        match (ptr_type, val_type) {
+            (
+                Type::Pointer {
+                    mutable: true,
+                    inner,
+                    ..
+                },
+                Type::Vector { elem, .. },
+            ) => {
+                if !types::types_compatible(&elem, &inner) {
+                    return Err(CompileError::type_error(
+                        format!("store_masked mismatch: ptr to {inner}, val {elem}"),
+                        span.clone(),
+                    ));
+                }
+                Ok(Type::Void)
+            }
+            (Type::Pointer { mutable: false, .. }, _) => Err(CompileError::type_error(
+                "store_masked requires mutable pointer. Declare as *mut to allow writes",
+                args[0].span().clone(),
+            )),
+            (_, _) => Err(CompileError::type_error(
+                "store_masked expects (mut ptr, offset, vector, count)",
+                span.clone(),
+            )),
+        }
+    }
 }
