@@ -174,6 +174,18 @@ Same language. Same compiler. The compute formulation changed.
 See [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for the full analysis of all
 compute classes, including when Ea wins, when it doesn't, and when fusion hurts.
 
+## Integrations
+
+Eä kernels embed into existing build systems via standard C ABI. Five examples in [`integrations/`](integrations/):
+
+| Example | Ecosystem | Build command | What it proves |
+|---------|-----------|---------------|----------------|
+| [Python setuptools](integrations/python-extension/) | Python/pip | `pip install .` | Kernel compiles at install time, loads via ctypes, numpy API |
+| [CMake](integrations/cmake/) | C/C++ | `cmake -B build && cmake --build build` | Reusable `add_ea_kernel()` CMake module with generated headers |
+| [Rust build.rs](integrations/rust-crate/) | Rust/Cargo | `cargo run` | Static linking via build script, `extern "C"` FFI |
+| [PyTorch custom op](integrations/pytorch-custom-op/) | ML/PyTorch | `python example.py` | `torch.autograd.Function` wrapper, tensor data pointer extraction |
+| [FFmpeg filter](integrations/ffmpeg-filter/) | Video/C | `./build.sh` | libav* decode + Eä kernel per scanline, realistic embed pattern |
+
 ## Benchmarks
 
 In tested kernels, Ea reaches performance comparable to hand-written C intrinsics

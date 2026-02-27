@@ -1,0 +1,21 @@
+// scale: multiply every element of data[] by a constant factor
+// Uses f32x8 SIMD with masked tail for arbitrary lengths.
+
+export func scale(data: *f32, out: *mut f32, n: i32, factor: f32) {
+    let vfactor: f32x8 = splat(factor)
+    let mut i: i32 = 0
+
+    // Main SIMD loop: 8 floats at a time
+    while i + 8 <= n {
+        let v: f32x8 = load(data, i)
+        store(out, i, v .* vfactor)
+        i = i + 8
+    }
+
+    // Masked tail: handle remaining elements
+    let rem: i32 = n - i
+    if rem > 0 {
+        let tail: f32x8 = load_masked(data, i, rem)
+        store_masked(out, i, tail .* vfactor, rem)
+    }
+}

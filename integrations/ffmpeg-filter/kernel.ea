@@ -1,0 +1,30 @@
+// threshold_u8: binary threshold on grayscale pixels
+//   dst[i] = 255 if src[i] >= thresh, else 0
+// Uses u8x16 SIMD with scalar tail.
+
+export func threshold_u8(src: *u8, dst: *mut u8, n: i32, thresh: u8) {
+    let vthresh: u8x16 = splat(thresh)
+    let v255: u8x16 = splat(255)
+    let v0: u8x16 = splat(0)
+    let mut i: i32 = 0
+
+    // Main SIMD loop: 16 bytes at a time
+    while i + 16 <= n {
+        let pixels: u8x16 = load(src, i)
+        // pixels >= thresh  is equivalent to  NOT (pixels < thresh)
+        let below: u8x16 = select(pixels .< vthresh, v255, v0)
+        let result: u8x16 = v255 .- below
+        store(dst, i, result)
+        i = i + 16
+    }
+
+    // Scalar tail
+    while i < n {
+        if src[i] >= thresh {
+            dst[i] = 255
+        } else {
+            dst[i] = 0
+        }
+        i = i + 1
+    }
+}
