@@ -25,6 +25,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         self.variables.clear();
         for (i, param) in params.iter().enumerate() {
             let ty = Self::resolve_annotation(&param.ty);
+            self.validate_type_for_target(&ty)?;
             let llvm_ty = self.llvm_type(&ty);
             let alloca = self
                 .builder
@@ -84,8 +85,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             Stmt::Let {
                 name, ty, value, ..
             } => {
-                // span ignored via ..
                 let declared = Self::resolve_annotation(ty);
+                self.validate_type_for_target(&declared)?;
                 let llvm_ty = self.llvm_type(&declared);
                 let alloca = self
                     .builder

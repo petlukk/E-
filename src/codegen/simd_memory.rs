@@ -359,6 +359,11 @@ impl<'ctx> CodeGenerator<'ctx> {
         type_hint: Option<&Type>,
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        if self.is_arm {
+            return Err(CompileError::codegen_error(
+                "gather has no NEON equivalent; use a scalar loop on ARM",
+            ));
+        }
         let base = self.compile_expr(&args[0], function)?.into_pointer_value();
         let indices = self.compile_expr(&args[1], function)?.into_vector_value();
         let vec_ty = self.infer_load_vector_type(&args[0], type_hint);
@@ -423,6 +428,11 @@ impl<'ctx> CodeGenerator<'ctx> {
         args: &[Expr],
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        if self.is_arm {
+            return Err(CompileError::codegen_error(
+                "scatter has no NEON equivalent; use a scalar loop on ARM",
+            ));
+        }
         if !self.avx512 {
             return Err(CompileError::codegen_error(
                 "scatter requires AVX-512 for hardware support; compile with --avx512 or write a scalar loop explicitly",

@@ -291,7 +291,11 @@ impl Parser {
         if self.current > 0 {
             self.tokens[self.current - 1].position.clone()
         } else {
-            Position { line: 1, column: 1, offset: 0 }
+            Position {
+                line: 1,
+                column: 1,
+                offset: 0,
+            }
         }
     }
 }

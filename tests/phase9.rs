@@ -40,8 +40,7 @@ mod tests {
 
         let opts = ea_compiler::CompileOptions {
             opt_level: 0,
-            target_cpu: None,
-            extra_features: String::new(),
+            ..ea_compiler::CompileOptions::default()
         };
         ea_compiler::compile_with_options(
             ea_source,
@@ -100,8 +99,7 @@ mod tests {
 
         let opts = ea_compiler::CompileOptions {
             opt_level: 3,
-            target_cpu: None,
-            extra_features: String::new(),
+            ..ea_compiler::CompileOptions::default()
         };
         ea_compiler::compile_with_options(
             ea_source,

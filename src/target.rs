@@ -1,5 +1,5 @@
 #[cfg(feature = "llvm")]
-use inkwell::targets::{CodeModel, FileType, RelocMode, Target, TargetMachine};
+use inkwell::targets::{CodeModel, FileType, RelocMode, Target, TargetMachine, TargetTriple};
 
 #[cfg(feature = "llvm")]
 use inkwell::passes::PassBuilderOptions;
@@ -25,12 +25,20 @@ fn opt_level_to_inkwell(level: u8) -> inkwell::OptimizationLevel {
 
 #[cfg(feature = "llvm")]
 pub fn create_target_machine(opts: &CompileOptions) -> crate::error::Result<TargetMachine> {
-    let triple = TargetMachine::get_default_triple();
+    let triple = if let Some(ref t) = opts.target_triple {
+        TargetTriple::create(t)
+    } else {
+        TargetMachine::get_default_triple()
+    };
     let target = Target::from_triple(&triple)
         .map_err(|e| CompileError::codegen_error(format!("failed to get target: {e}")))?;
 
+    let cross_compiling = opts.target_triple.is_some();
+
     let (cpu_str, base_features) = if let Some(ref cpu) = opts.target_cpu {
         (cpu.clone(), String::new())
+    } else if cross_compiling {
+        ("generic".to_string(), String::new())
     } else {
         let cpu = TargetMachine::get_host_cpu_name();
         let features = TargetMachine::get_host_cpu_features();

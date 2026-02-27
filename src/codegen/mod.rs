@@ -36,6 +36,8 @@ use inkwell::DLLStorageClass;
 #[cfg(feature = "llvm")]
 use crate::ast::{Stmt, TypeAnnotation};
 #[cfg(feature = "llvm")]
+use crate::error::CompileError;
+#[cfg(feature = "llvm")]
 use crate::typeck::Type;
 
 #[cfg(feature = "llvm")]
@@ -49,13 +51,19 @@ pub struct CodeGenerator<'ctx> {
     pub(crate) struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
     pub(crate) struct_fields: HashMap<String, Vec<(String, u32, Type)>>,
     pub(crate) avx512: bool,
+    pub(crate) is_arm: bool,
 }
 
 #[cfg(feature = "llvm")]
 impl<'ctx> CodeGenerator<'ctx> {
-    pub fn new(context: &'ctx Context, module_name: &str, avx512: bool) -> Self {
+    pub fn new(context: &'ctx Context, module_name: &str, opts: &crate::CompileOptions) -> Self {
         let module = context.create_module(module_name);
         let builder = context.create_builder();
+
+        if let Some(ref triple) = opts.target_triple {
+            use inkwell::targets::TargetTriple;
+            module.set_triple(&TargetTriple::create(triple));
+        }
 
         // On Windows, LLVM emits a reference to _fltused in every object that
         // uses floating-point.  It is an MSVC CRT sentinel (int = 1) that is
@@ -78,7 +86,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             func_signatures: HashMap::new(),
             struct_types: HashMap::new(),
             struct_fields: HashMap::new(),
-            avx512,
+            avx512: opts.extra_features.contains("avx512"),
+            is_arm: opts.is_arm(),
         }
     }
 
@@ -291,6 +300,39 @@ impl<'ctx> CodeGenerator<'ctx> {
         self.func_signatures
             .insert(name.to_string(), (sig_param_types, sig_ret));
 
+        Ok(())
+    }
+
+    pub(crate) fn validate_type_for_target(&self, ty: &Type) -> crate::error::Result<()> {
+        if !self.is_arm {
+            return Ok(());
+        }
+        if let Type::Vector { elem, width } = ty {
+            let elem_bits = match elem.as_ref() {
+                Type::F32 | Type::I32 | Type::U32 => 32,
+                Type::I16 | Type::U16 => 16,
+                Type::I8 | Type::U8 => 8,
+                Type::F64 | Type::I64 | Type::U64 => 64,
+                _ => return Ok(()),
+            };
+            let total_bits = elem_bits * width;
+            if total_bits > 128 {
+                let type_name = format!("{ty}");
+                let hint = match (elem.as_ref(), total_bits) {
+                    (Type::F32, 256) => "f32x8 requires AVX2; use f32x4 on ARM",
+                    (Type::F32, 512) => "f32x16 requires AVX-512; use f32x4 on ARM",
+                    (Type::I32, 256) => "i32x8 requires AVX2; use i32x4 on ARM",
+                    (Type::I8, 256) => "i8x32 requires AVX2; use i8x16 on ARM",
+                    (Type::I16, 256) => "i16x16 requires AVX2; use i16x8 on ARM",
+                    _ => {
+                        return Err(CompileError::codegen_error(format!(
+                            "{type_name} exceeds 128-bit NEON maximum; use a narrower vector on ARM"
+                        )));
+                    }
+                };
+                return Err(CompileError::codegen_error(hint));
+            }
+        }
         Ok(())
     }
 

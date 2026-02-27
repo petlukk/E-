@@ -243,6 +243,11 @@ impl<'ctx> CodeGenerator<'ctx> {
         args: &[Expr],
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        if self.is_arm {
+            return Err(CompileError::codegen_error(
+                "maddubs_i16 is x86-only (SSSE3); no NEON equivalent",
+            ));
+        }
         let a = self.compile_expr(&args[0], function)?.into_vector_value(); // u8x16
         let b = self.compile_expr(&args[1], function)?.into_vector_value(); // i8x16
 
@@ -277,6 +282,11 @@ impl<'ctx> CodeGenerator<'ctx> {
         args: &[Expr],
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        if self.is_arm {
+            return Err(CompileError::codegen_error(
+                "maddubs_i32 is x86-only (SSSE3+SSE2); no NEON equivalent",
+            ));
+        }
         let a = self.compile_expr(&args[0], function)?.into_vector_value(); // u8x16
         let b = self.compile_expr(&args[1], function)?.into_vector_value(); // i8x16
 

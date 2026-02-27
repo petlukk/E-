@@ -44,6 +44,7 @@ fn main() {
     let mut opt_level: u8 = 3;
     let mut target_cpu: Option<String> = None;
     let mut extra_features = String::new();
+    let mut target_triple: Option<String> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -79,6 +80,9 @@ fn main() {
                 } else {
                     target_cpu = Some(val.to_string());
                 }
+            }
+            s if s.starts_with("--target-triple=") => {
+                target_triple = Some(s["--target-triple=".len()..].to_string());
             }
             "--avx512" => {
                 extra_features = "+avx512f,+avx512vl,+avx512bw".to_string();
@@ -130,7 +134,13 @@ fn main() {
             opt_level,
             target_cpu,
             extra_features,
+            target_triple,
         };
+
+        if opts.is_arm() && opts.extra_features.contains("avx512") {
+            eprintln!("error: --avx512 is incompatible with ARM target");
+            process::exit(1);
+        }
 
         let stem = std::path::Path::new(input_file)
             .file_stem()
@@ -232,18 +242,12 @@ fn main() {
                 let stmts = ea_compiler::parse(ea_compiler::tokenize(&source).unwrap()).unwrap();
                 let exports = ea_compiler::ast::exported_function_names(&stmts);
                 if exports.is_empty() {
-                    eprintln!(
-                        "compiled {} -> {} ({})",
-                        input_file, output_display, mode_desc
-                    );
+                    eprintln!("compiled {input_file} -> {output_display} ({mode_desc})");
                 } else {
+                    let count = exports.len();
+                    let names = exports.join(", ");
                     eprintln!(
-                        "compiled {} -> {} ({}, {} exported: {})",
-                        input_file,
-                        output_display,
-                        mode_desc,
-                        exports.len(),
-                        exports.join(", ")
+                        "compiled {input_file} -> {output_display} ({mode_desc}, {count} exported: {names})"
                     );
                 }
             }
@@ -268,10 +272,9 @@ fn print_usage() {
     eprintln!("  -o <name>          Compile and link to executable");
     eprintln!("  --lib              Produce shared library (.so/.dll)");
     eprintln!("  --opt-level=N      Optimization level 0-3 (default: 3)");
-    eprintln!(
-        "  --target=CPU       Target CPU (default: native)
-  --avx512           Enable AVX-512 (f32x16) — requires AVX-512 capable CPU"
-    );
+    eprintln!("  --target=CPU       Target CPU (default: native)");
+    eprintln!("  --target-triple=T  Cross-compile target (e.g. aarch64-unknown-linux-gnu)");
+    eprintln!("  --avx512           Enable AVX-512 (f32x16) — requires AVX-512 capable CPU");
     eprintln!("  --emit-llvm        Print LLVM IR");
     eprintln!("  --emit-asm         Emit assembly (.s file)");
     eprintln!("  --header           Generate C header file (.h)");

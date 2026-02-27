@@ -333,8 +333,7 @@ mod tests {
         let ir_path = dir.path().join("dot_i32.ll");
         let opts = CompileOptions {
             opt_level: 0,
-            target_cpu: None,
-            extra_features: String::new(),
+            ..CompileOptions::default()
         };
         ea_compiler::compile_with_options(source, &ir_path, OutputMode::LlvmIr, &opts)
             .expect("maddubs_i32 IR compilation failed");
@@ -375,8 +374,8 @@ mod tests {
         let ir_path = dir.path().join("scale.ll");
         let opts = CompileOptions {
             opt_level: 0,
-            target_cpu: None,
             extra_features: "+avx512f".to_string(),
+            ..CompileOptions::default()
         };
         ea_compiler::compile_with_options(source, &ir_path, OutputMode::LlvmIr, &opts)
             .expect("f32x16 compilation failed");
@@ -402,8 +401,8 @@ mod tests {
         let ir_path = dir.path().join("sum.ll");
         let opts = CompileOptions {
             opt_level: 0,
-            target_cpu: None,
             extra_features: "+avx512f".to_string(),
+            ..CompileOptions::default()
         };
         ea_compiler::compile_with_options(source, &ir_path, OutputMode::LlvmIr, &opts)
             .expect("f32x16 reduce_add compilation failed");

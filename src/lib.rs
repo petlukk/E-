@@ -43,6 +43,8 @@ pub struct CompileOptions {
     pub target_cpu: Option<String>,
     /// Extra target features, e.g. "+avx512f" for AVX-512.
     pub extra_features: String,
+    /// Cross-compilation target triple, e.g. "aarch64-unknown-linux-gnu".
+    pub target_triple: Option<String>,
 }
 
 #[cfg(feature = "llvm")]
@@ -52,7 +54,17 @@ impl Default for CompileOptions {
             opt_level: 3,
             target_cpu: None, // native
             extra_features: String::new(),
+            target_triple: None,
         }
+    }
+}
+
+#[cfg(feature = "llvm")]
+impl CompileOptions {
+    pub fn is_arm(&self) -> bool {
+        self.target_triple
+            .as_ref()
+            .is_some_and(|t| t.starts_with("aarch64") || t.starts_with("arm"))
     }
 }
 
@@ -65,6 +77,7 @@ fn init_llvm() {
         use inkwell::targets::{InitializationConfig, Target};
         Target::initialize_native(&InitializationConfig::default())
             .expect("Failed to initialize LLVM native target");
+        Target::initialize_aarch64(&InitializationConfig::default());
     });
 }
 
@@ -86,8 +99,7 @@ pub fn compile_with_options(
     check_types(&stmts)?;
 
     let context = inkwell::context::Context::create();
-    let avx512 = opts.extra_features.contains("avx512");
-    let mut gen = codegen::CodeGenerator::new(&context, "ea_module", avx512);
+    let mut gen = codegen::CodeGenerator::new(&context, "ea_module", opts);
     gen.compile_program(&stmts)?;
 
     match mode {
@@ -200,7 +212,7 @@ pub fn compile_to_ir(source: &str) -> error::Result<String> {
     check_types(&stmts)?;
 
     let context = inkwell::context::Context::create();
-    let mut gen = codegen::CodeGenerator::new(&context, "ea_module", false);
+    let mut gen = codegen::CodeGenerator::new(&context, "ea_module", &CompileOptions::default());
     gen.compile_program(&stmts)?;
 
     Ok(gen.print_ir())
