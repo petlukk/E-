@@ -101,6 +101,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_i16x16_splat_and_element() {
         assert_output(
             r#"
@@ -118,6 +119,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_i16x16_literal_add() {
         assert_output(
             r#"
@@ -135,9 +137,10 @@ mod tests {
         );
     }
 
-    // === maddubs_i16: u8x16 × i8x16 → i16x8 (fast, wrapping) ===
+    // === maddubs_i16: u8x16 × i8x16 → i16x8 (fast, wrapping — x86 SSSE3 only) ===
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_maddubs_basic() {
         // maddubs_i16([2,3,...], [4,5,...]):
         // pair (2*4)+(3*5) = 8+15 = 23, (2*4)+(3*5)=23, etc.
@@ -161,6 +164,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_maddubs_dot_product() {
         // Dot product of 16 u8 values × 16 i8 weights, accumulate as i32.
         // [1,1,...] × [1,1,...] = 8 pairs each = 2, reduce_add(i16x8) = 16
@@ -179,6 +183,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_maddubs_c_interop() {
         assert_c_interop(
             r#"
@@ -211,9 +216,10 @@ mod tests {
         );
     }
 
-    // === maddubs_i32: u8x16 × i8x16 → i32x4 (safe accumulation via pmaddubsw+pmaddwd) ===
+    // === maddubs_i32: u8x16 × i8x16 → i32x4 (safe accumulation — x86 SSSE3 only) ===
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_maddubs_i32_basic() {
         // maddubs_i32([2,3,...], [4,5,...]):
         // step1 pmaddubsw: each i16 lane = 2*4+3*5 = 23 (8 lanes)
@@ -238,6 +244,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_maddubs_i32_overflow_regression() {
         // Proves i32 accumulation holds where i16 would overflow.
         // act=10, wt=5, all 16 elements.
@@ -278,6 +285,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_maddubs_i32_c_interop() {
         assert_c_interop(
             r#"
@@ -311,6 +319,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_maddubs_i32_ir_check() {
         // Verify the two-intrinsic chain (pmaddubsw + pmaddwd) appears in emitted IR.
         use ea_compiler::{CompileOptions, OutputMode};
@@ -352,9 +361,9 @@ mod tests {
     // === AVX-512: f32x16 ===
 
     /// Verify f32x16 type-checks and emits <16 x float> LLVM IR.
-    /// Marked ignore because the resulting binary requires AVX-512 hardware to run,
-    /// but IR generation works on any x86-64 host.
+    /// Requires x86-64 host (AVX-512 feature flag).
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_f32x16_ir_contains_16_float_vector() {
         use ea_compiler::{CompileOptions, OutputMode};
 
@@ -388,6 +397,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_f32x16_splat_typecheck() {
         // Verify f32x16 splat + element access type-checks (no AVX-512 needed for IR check)
         use ea_compiler::{CompileOptions, OutputMode};

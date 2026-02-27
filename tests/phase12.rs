@@ -141,9 +141,10 @@ mod tests {
         );
     }
 
-    // --- f32x8 ---
+    // --- f32x8 (x86-only: requires AVX2) ---
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_load_masked_f32x8_partial() {
         assert_c_interop(
             r#"
@@ -167,6 +168,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_store_masked_f32x8_partial() {
         assert_c_interop(
             r#"
@@ -263,6 +265,7 @@ mod tests {
     // --- Spec example: scale kernel with masked tail ---
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_scale_kernel_with_masked_tail() {
         assert_c_interop(
             r#"

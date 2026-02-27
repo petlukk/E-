@@ -5,9 +5,10 @@ mod common;
 mod tests {
     use super::common::*;
 
-    // --- Gather correctness: f32x4 ---
+    // --- Gather correctness: f32x4 (x86-only: uses AVX2 gather) ---
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_gather_f32x4() {
         assert_c_interop(
             r#"
@@ -32,6 +33,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_gather_f32x8() {
         assert_c_interop(
             r#"
@@ -57,6 +59,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_gather_i32x4() {
         assert_c_interop(
             r#"
@@ -81,6 +84,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_gather_out_of_order() {
         assert_c_interop(
             r#"
@@ -104,9 +108,10 @@ mod tests {
         );
     }
 
-    // --- Gather IR ---
+    // --- Gather IR (x86-only) ---
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_gather_ir() {
         let ir = compile_to_ir(
             r#"
@@ -123,9 +128,10 @@ mod tests {
         );
     }
 
-    // --- Scatter requires AVX-512 ---
+    // --- Scatter requires AVX-512 (x86-only) ---
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_scatter_requires_avx512() {
         let result = ea_compiler::compile_to_ir(
             r#"

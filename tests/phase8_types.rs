@@ -202,6 +202,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_i8x32_splat() {
         assert_output(
             r#"
@@ -264,6 +265,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_i8x32_c_interop() {
         assert_c_interop(
             r#"

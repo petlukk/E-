@@ -230,9 +230,10 @@ mod tests {
         assert!(result.is_err(), "fma on integer vectors should be rejected");
     }
 
-    // --- 256-bit vectors ---
+    // --- 256-bit vectors (x86-only: requires AVX2) ---
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_f32x8_literal() {
         assert_output(
             r#"
@@ -247,6 +248,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_f32x8_splat_and_add() {
         assert_output(
             r#"
@@ -263,6 +265,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_f32x8_reduce_add() {
         assert_output(
             r#"
@@ -277,6 +280,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_i32x8_literal() {
         assert_output(
             r#"
@@ -291,6 +295,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_arch = "x86_64")]
     fn test_f32x8_c_interop() {
         assert_c_interop(
             r#"
