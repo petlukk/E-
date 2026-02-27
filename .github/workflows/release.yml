@@ -44,9 +44,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install LLVM 18
+        id: install-llvm
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: "18"
+
+      - name: Debug LLVM install
+        shell: pwsh
+        run: |
+          Write-Host "LLVM_PATH env: $env:LLVM_PATH"
+          Write-Host "Action output: ${{ steps.install-llvm.outputs.LLVM_PATH }}"
+          if (Test-Path "$env:LLVM_PATH") { Get-ChildItem "$env:LLVM_PATH" } else { Write-Host "LLVM_PATH dir does not exist" }
+          Get-Command llvm-config -ErrorAction SilentlyContinue | Select-Object Source
 
       - uses: dtolnay/rust-toolchain@stable
 
