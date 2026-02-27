@@ -41,22 +41,15 @@ jobs:
   build-windows:
     runs-on: windows-latest
     env:
-      LLVM_VERSION: "18.1.8"
+      LLVM_SYS_180_PREFIX: ${{ runner.temp }}/llvm
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download LLVM 18
-        shell: pwsh
-        run: |
-          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/LLVM-${{ env.LLVM_VERSION }}-win64.exe"
-          Invoke-WebRequest -Uri $url -OutFile llvm-installer.exe
-          Start-Process -Wait -FilePath .\llvm-installer.exe -ArgumentList "/S","/D=C:\LLVM"
-
-      - name: Set LLVM environment
-        shell: pwsh
-        run: |
-          echo "LLVM_SYS_180_PREFIX=C:\LLVM" >> $env:GITHUB_ENV
-          echo "C:\LLVM\bin" >> $env:GITHUB_PATH
+      - name: Install LLVM 18
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18.1"
+          directory: ${{ runner.temp }}/llvm
 
       - uses: dtolnay/rust-toolchain@stable
 
