@@ -86,7 +86,8 @@ pub fn compile_with_options(
     check_types(&stmts)?;
 
     let context = inkwell::context::Context::create();
-    let mut gen = codegen::CodeGenerator::new(&context, "ea_module");
+    let avx512 = opts.extra_features.contains("avx512");
+    let mut gen = codegen::CodeGenerator::new(&context, "ea_module", avx512);
     gen.compile_program(&stmts)?;
 
     match mode {
@@ -199,7 +200,7 @@ pub fn compile_to_ir(source: &str) -> error::Result<String> {
     check_types(&stmts)?;
 
     let context = inkwell::context::Context::create();
-    let mut gen = codegen::CodeGenerator::new(&context, "ea_module");
+    let mut gen = codegen::CodeGenerator::new(&context, "ea_module", false);
     gen.compile_program(&stmts)?;
 
     Ok(gen.print_ir())

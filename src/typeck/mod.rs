@@ -1,6 +1,7 @@
 mod check;
 mod expr_check;
 mod intrinsics;
+mod intrinsics_conv;
 mod intrinsics_simd;
 pub mod types;
 

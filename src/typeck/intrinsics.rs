@@ -39,6 +39,8 @@ impl TypeChecker {
             "maddubs_i16" => Some(self.check_maddubs_i16(args, locals, span)),
             "maddubs_i32" => Some(self.check_maddubs_i32(args, locals, span)),
             "prefetch" => Some(self.check_prefetch(args, locals, span)),
+            "gather" => Some(self.check_gather(args, locals, span)),
+            "scatter" => Some(self.check_scatter(args, locals, span)),
             "load_masked" => Some(self.check_load_masked(args, locals, type_hint, span)),
             "store_masked" => Some(self.check_store_masked(args, locals, span)),
             _ => None,

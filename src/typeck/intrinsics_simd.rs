@@ -224,62 +224,7 @@ impl TypeChecker {
         }
     }
 
-    pub(super) fn check_widen_i8_f32x4(
-        &self,
-        name: &str,
-        args: &[Expr],
-        locals: &HashMap<String, (Type, bool)>,
-        span: &Span,
-    ) -> crate::error::Result<Type> {
-        if args.len() != 1 {
-            return Err(CompileError::type_error(
-                format!("{name} expects 1 argument (i8x16 vector)"),
-                span.clone(),
-            ));
-        }
-        let arg_type = self.check_expr(&args[0], locals)?;
-        match &arg_type {
-            Type::Vector { elem, width: 16 } if matches!(elem.as_ref(), Type::I8 | Type::U8) => {
-                Ok(Type::Vector {
-                    elem: Box::new(Type::F32),
-                    width: 4,
-                })
-            }
-            _ => Err(CompileError::type_error(
-                format!("{name} expects i8x16 or u8x16, got {arg_type}"),
-                args[0].span().clone(),
-            )),
-        }
-    }
-
-    pub(super) fn check_narrow_f32x4_i8(
-        &self,
-        args: &[Expr],
-        locals: &HashMap<String, (Type, bool)>,
-        span: &Span,
-    ) -> crate::error::Result<Type> {
-        if args.len() != 1 {
-            return Err(CompileError::type_error(
-                "narrow_f32x4_i8 expects 1 argument (f32x4 vector)",
-                span.clone(),
-            ));
-        }
-        let arg_type = self.check_expr(&args[0], locals)?;
-        match &arg_type {
-            Type::Vector { elem, width: 4 } if matches!(elem.as_ref(), Type::F32) => {
-                Ok(Type::Vector {
-                    elem: Box::new(Type::I8),
-                    width: 16,
-                })
-            }
-            _ => Err(CompileError::type_error(
-                format!("narrow_f32x4_i8 expects f32x4, got {arg_type}"),
-                args[0].span().clone(),
-            )),
-        }
-    }
-
-    pub(super) fn check_maddubs_i16(
+    pub(super) fn check_gather(
         &self,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
@@ -287,67 +232,86 @@ impl TypeChecker {
     ) -> crate::error::Result<Type> {
         if args.len() != 2 {
             return Err(CompileError::type_error(
-                "maddubs_i16 expects 2 arguments: (u8x16, i8x16)",
+                "gather expects 2 arguments (ptr, indices)",
                 span.clone(),
             ));
         }
-        let a = self.check_expr(&args[0], locals)?;
-        let b = self.check_expr(&args[1], locals)?;
-        match (&a, &b) {
-            (
-                Type::Vector {
-                    elem: ea,
-                    width: 16,
-                },
-                Type::Vector {
-                    elem: eb,
-                    width: 16,
-                },
-            ) if matches!(ea.as_ref(), Type::U8) && matches!(eb.as_ref(), Type::I8) => {
-                Ok(Type::Vector {
-                    elem: Box::new(Type::I16),
-                    width: 8,
-                })
+        let ptr_type = self.check_expr(&args[0], locals)?;
+        let idx_type = self.check_expr(&args[1], locals)?;
+        let inner = match &ptr_type {
+            Type::Pointer { inner, .. } if inner.is_numeric() => inner.clone(),
+            Type::Pointer { .. } => {
+                return Err(CompileError::type_error(
+                    "gather expects pointer to numeric type",
+                    args[0].span().clone(),
+                ))
             }
-            _ => Err(CompileError::type_error(
-                format!("maddubs_i16 expects (u8x16, i8x16), got ({a}, {b})"),
-                span.clone(),
-            )),
-        }
+            _ => {
+                return Err(CompileError::type_error(
+                    format!("gather expects a pointer, got {ptr_type}"),
+                    args[0].span().clone(),
+                ))
+            }
+        };
+        let width = match &idx_type {
+            Type::Vector { elem, width } if matches!(elem.as_ref(), Type::I32) => *width,
+            _ => {
+                return Err(CompileError::type_error(
+                    format!("gather indices must be i32 vector, got {idx_type}"),
+                    args[1].span().clone(),
+                ))
+            }
+        };
+        Ok(Type::Vector { elem: inner, width })
     }
 
-    pub(super) fn check_maddubs_i32(
+    pub(super) fn check_scatter(
         &self,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
         span: &Span,
     ) -> crate::error::Result<Type> {
-        if args.len() != 2 {
+        if args.len() != 3 {
             return Err(CompileError::type_error(
-                "maddubs_i32 expects 2 arguments: (u8x16, i8x16)",
+                "scatter expects 3 arguments (ptr, indices, values)",
                 span.clone(),
             ));
         }
-        let a = self.check_expr(&args[0], locals)?;
-        let b = self.check_expr(&args[1], locals)?;
-        match (&a, &b) {
-            (
-                Type::Vector {
-                    elem: ea,
-                    width: 16,
-                },
-                Type::Vector {
-                    elem: eb,
-                    width: 16,
-                },
-            ) if matches!(ea.as_ref(), Type::U8) && matches!(eb.as_ref(), Type::I8) => {
-                Ok(Type::Vector {
-                    elem: Box::new(Type::I32),
-                    width: 4,
-                })
+        let ptr_type = self.check_expr(&args[0], locals)?;
+        let idx_type = self.check_expr(&args[1], locals)?;
+        let val_type = self.check_expr(&args[2], locals)?;
+        match &idx_type {
+            Type::Vector { elem, .. } if matches!(elem.as_ref(), Type::I32) => {}
+            _ => {
+                return Err(CompileError::type_error(
+                    format!("scatter indices must be i32 vector, got {idx_type}"),
+                    args[1].span().clone(),
+                ))
             }
-            _ => Err(CompileError::type_error(
-                format!("maddubs_i32 expects (u8x16, i8x16), got ({a}, {b})"),
+        }
+        match (ptr_type, val_type) {
+            (
+                Type::Pointer {
+                    mutable: true,
+                    inner,
+                    ..
+                },
+                Type::Vector { elem, .. },
+            ) => {
+                if !types::types_compatible(&elem, &inner) {
+                    return Err(CompileError::type_error(
+                        format!("scatter mismatch: ptr to {inner}, val {elem}"),
+                        span.clone(),
+                    ));
+                }
+                Ok(Type::Void)
+            }
+            (Type::Pointer { mutable: false, .. }, _) => Err(CompileError::type_error(
+                "scatter requires mutable pointer. Declare as *mut to allow writes",
+                args[0].span().clone(),
+            )),
+            (_, _) => Err(CompileError::type_error(
+                "scatter expects (mut ptr, indices, values)",
                 span.clone(),
             )),
         }

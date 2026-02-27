@@ -24,6 +24,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             "splat"
                 | "load"
                 | "store"
+                | "gather"
+                | "scatter"
                 | "load_masked"
                 | "store_masked"
                 | "fma"
@@ -71,6 +73,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
             "load" => self.compile_load(args, type_hint, function),
             "store" => self.compile_store(args, function),
+            "gather" => self.compile_gather(args, type_hint, function),
+            "scatter" => self.compile_scatter(args, function),
             "load_masked" => self.compile_load_masked(args, type_hint, function),
             "store_masked" => self.compile_store_masked(args, function),
             "fma" => self.compile_fma(args, function),
@@ -216,7 +220,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     /// Returns `(width, elem_name)` for a vector type, e.g. `(8, "f32")`.
-    fn vector_type_parts(&self, vec_ty: VectorType<'ctx>) -> (u32, &'static str) {
+    pub(crate) fn vector_type_parts(&self, vec_ty: VectorType<'ctx>) -> (u32, &'static str) {
         let width = vec_ty.get_size();
         let elem = vec_ty.get_element_type();
         let elem_name = if elem.is_float_type() {
@@ -252,5 +256,105 @@ impl<'ctx> CodeGenerator<'ctx> {
     pub(crate) fn llvm_vector_type_suffix(&self, vec_ty: VectorType<'ctx>) -> String {
         let (width, elem_name) = self.vector_type_parts(vec_ty);
         format!("v{width}{elem_name}.p0")
+    }
+
+    pub(crate) fn compile_prefetch(
+        &mut self,
+        args: &[Expr],
+        function: FunctionValue<'ctx>,
+    ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        if args.len() != 2 {
+            return Err(CompileError::codegen_error(
+                "prefetch requires 2 arguments: (ptr, offset)",
+            ));
+        }
+        let ptr_val = self.compile_expr(&args[0], function)?.into_pointer_value();
+        let offset_val = self.compile_expr(&args[1], function)?.into_int_value();
+
+        let elem_llvm = if let Expr::Variable(name, _) = &args[0] {
+            if let Some((_, Type::Pointer { inner, .. })) = self.variables.get(name) {
+                self.llvm_type(inner)
+            } else {
+                self.context.i8_type().into()
+            }
+        } else {
+            self.context.i8_type().into()
+        };
+
+        let gep = unsafe {
+            self.builder
+                .build_gep(elem_llvm, ptr_val, &[offset_val], "prefetch_ptr")
+        }
+        .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+        let i32_type = self.context.i32_type();
+        let ptr_type = self.context.ptr_type(inkwell::AddressSpace::default());
+        let prefetch_type = self.context.void_type().fn_type(
+            &[
+                ptr_type.into(),
+                i32_type.into(),
+                i32_type.into(),
+                i32_type.into(),
+            ],
+            false,
+        );
+        let prefetch_fn = self
+            .module
+            .get_function("llvm.prefetch.p0")
+            .unwrap_or_else(|| {
+                self.module
+                    .add_function("llvm.prefetch.p0", prefetch_type, None)
+            });
+
+        self.builder
+            .build_call(
+                prefetch_fn,
+                &[
+                    gep.into(),
+                    i32_type.const_int(0, false).into(),
+                    i32_type.const_int(3, false).into(),
+                    i32_type.const_int(1, false).into(),
+                ],
+                "",
+            )
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+
+        Ok(BasicValueEnum::IntValue(
+            self.context.i32_type().const_int(0, false),
+        ))
+    }
+
+    pub(crate) fn compile_shuffle(
+        &mut self,
+        args: &[Expr],
+        function: FunctionValue<'ctx>,
+    ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        let vec = self.compile_expr(&args[0], function)?.into_vector_value();
+
+        let indices = match &args[1] {
+            Expr::ArrayLiteral(elems, _) => elems
+                .iter()
+                .map(|e| match e {
+                    Expr::Literal(crate::ast::Literal::Integer(n), _) => {
+                        Ok(self.context.i32_type().const_int(*n as u64, false))
+                    }
+                    _ => Err(CompileError::codegen_error(
+                        "shuffle mask must contain only integer literals",
+                    )),
+                })
+                .collect::<crate::error::Result<Vec<_>>>()?,
+            _ => {
+                return Err(CompileError::codegen_error(
+                    "shuffle requires array literal",
+                ))
+            }
+        };
+
+        let mask = VectorType::const_vector(&indices);
+        let result = self
+            .builder
+            .build_shuffle_vector(vec, vec, mask, "shuffle")
+            .map_err(|e| CompileError::codegen_error(e.to_string()))?;
+        Ok(BasicValueEnum::VectorValue(result))
     }
 }

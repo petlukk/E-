@@ -48,11 +48,12 @@ pub struct CodeGenerator<'ctx> {
     pub(crate) func_signatures: HashMap<String, (Vec<Type>, Option<Type>)>,
     pub(crate) struct_types: HashMap<String, inkwell::types::StructType<'ctx>>,
     pub(crate) struct_fields: HashMap<String, Vec<(String, u32, Type)>>,
+    pub(crate) avx512: bool,
 }
 
 #[cfg(feature = "llvm")]
 impl<'ctx> CodeGenerator<'ctx> {
-    pub fn new(context: &'ctx Context, module_name: &str) -> Self {
+    pub fn new(context: &'ctx Context, module_name: &str, avx512: bool) -> Self {
         let module = context.create_module(module_name);
         let builder = context.create_builder();
 
@@ -77,6 +78,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             func_signatures: HashMap::new(),
             struct_types: HashMap::new(),
             struct_fields: HashMap::new(),
+            avx512,
         }
     }
 
