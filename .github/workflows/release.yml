@@ -41,7 +41,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     env:
-      LLVM_SYS_180_PREFIX: ${{ runner.temp }}/llvm
+      LLVM_SYS_180_PREFIX: C:/llvm
     steps:
       - uses: actions/checkout@v4
 
@@ -49,7 +49,7 @@ jobs:
         uses: KyleMayes/install-llvm-action@v2
         with:
           version: "18.1"
-          directory: ${{ runner.temp }}/llvm
+          directory: C:/llvm
 
       - uses: dtolnay/rust-toolchain@stable
 
