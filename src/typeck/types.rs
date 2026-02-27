@@ -1,11 +1,19 @@
+use std::fmt;
+
 use crate::ast::TypeAnnotation;
 use crate::error::CompileError;
-use crate::lexer::Position;
+use crate::lexer::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
+    I8,
+    U8,
+    I16,
+    U16,
     I32,
+    U32,
     I64,
+    U64,
     F32,
     F64,
     Bool,
@@ -27,7 +35,22 @@ pub enum Type {
 
 impl Type {
     pub fn is_integer(&self) -> bool {
-        matches!(self, Type::I32 | Type::I64 | Type::IntLiteral)
+        matches!(
+            self,
+            Type::I8
+                | Type::U8
+                | Type::I16
+                | Type::U16
+                | Type::I32
+                | Type::U32
+                | Type::I64
+                | Type::U64
+                | Type::IntLiteral
+        )
+    }
+
+    pub fn is_unsigned_integer(&self) -> bool {
+        matches!(self, Type::U8 | Type::U16 | Type::U32 | Type::U64)
     }
 
     pub fn is_float(&self) -> bool {
@@ -54,6 +77,40 @@ impl Type {
         match self {
             Type::Pointer { inner, .. } => Some(inner),
             _ => None,
+        }
+    }
+}
+
+impl fmt::Display for Type {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Type::I8 => write!(f, "i8"),
+            Type::U8 => write!(f, "u8"),
+            Type::I16 => write!(f, "i16"),
+            Type::U16 => write!(f, "u16"),
+            Type::I32 => write!(f, "i32"),
+            Type::U32 => write!(f, "u32"),
+            Type::I64 => write!(f, "i64"),
+            Type::U64 => write!(f, "u64"),
+            Type::F32 => write!(f, "f32"),
+            Type::F64 => write!(f, "f64"),
+            Type::Bool => write!(f, "bool"),
+            Type::IntLiteral => write!(f, "integer literal"),
+            Type::FloatLiteral => write!(f, "float literal"),
+            Type::String => write!(f, "string"),
+            Type::Void => write!(f, "void"),
+            Type::Pointer {
+                mutable: true,
+                inner,
+                ..
+            } => write!(f, "*mut {inner}"),
+            Type::Pointer {
+                mutable: false,
+                inner,
+                ..
+            } => write!(f, "*{inner}"),
+            Type::Vector { elem, width } => write!(f, "{elem}x{width}"),
+            Type::Struct(name) => write!(f, "{name}"),
         }
     }
 }
@@ -92,7 +149,7 @@ pub fn types_compatible(actual: &Type, expected: &Type) -> bool {
     }
 }
 
-pub fn unify_vector(left: &Type, right: &Type) -> crate::error::Result<Type> {
+pub fn unify_vector(left: &Type, right: &Type, span: Span) -> crate::error::Result<Type> {
     match (left, right) {
         (
             Type::Vector {
@@ -107,35 +164,35 @@ pub fn unify_vector(left: &Type, right: &Type) -> crate::error::Result<Type> {
             if l_width != r_width {
                 return Err(CompileError::type_error(
                     format!("vector width mismatch: {l_width} vs {r_width}"),
-                    Position::default(),
+                    span,
                 ));
             }
             if !types_compatible(l_elem, r_elem) {
                 return Err(CompileError::type_error(
-                    format!("vector element type mismatch: {l_elem:?} vs {r_elem:?}"),
-                    Position::default(),
+                    format!("vector element type mismatch: {l_elem} vs {r_elem}"),
+                    span,
                 ));
             }
             Ok(left.clone())
         }
         _ => Err(CompileError::type_error(
-            format!("binary vector operations require vector operands, got {left:?} and {right:?}"),
-            Position::default(),
+            format!("binary vector operations require vector operands, got {left} and {right}"),
+            span,
         )),
     }
 }
 
-pub fn unify_numeric(left: &Type, right: &Type) -> crate::error::Result<Type> {
+pub fn unify_numeric(left: &Type, right: &Type, span: Span) -> crate::error::Result<Type> {
     if !left.is_numeric() || !right.is_numeric() {
         return Err(CompileError::type_error(
-            format!("binary operations require numeric operands, got {left:?} and {right:?}"),
-            Position::default(),
+            format!("binary operations require numeric operands, got {left} and {right}"),
+            span,
         ));
     }
     if left.is_integer() != right.is_integer() {
         return Err(CompileError::type_error(
-            format!("cannot mix integer and float in binary operation: {left:?} and {right:?}"),
-            Position::default(),
+            format!("cannot mix integer and float in binary operation: {left} and {right}"),
+            span,
         ));
     }
     match (left, right) {
@@ -145,17 +202,44 @@ pub fn unify_numeric(left: &Type, right: &Type) -> crate::error::Result<Type> {
         (Type::FloatLiteral, concrete) | (concrete, Type::FloatLiteral) => Ok(concrete.clone()),
         (a, b) if a == b => Ok(a.clone()),
         _ => Err(CompileError::type_error(
-            format!("mismatched types in binary operation: {left:?} and {right:?}"),
-            Position::default(),
+            format!("mismatched types in binary operation: {left} and {right}"),
+            span,
         )),
     }
 }
 
+/// Returns true if the type is an unsigned integer.
+pub fn is_unsigned(ty: &Type) -> bool {
+    matches!(ty, Type::U8 | Type::U16 | Type::U32 | Type::U64)
+}
+
+/// Returns a conversion hint like "Use to_i32() to convert" when a numeric type
+/// mismatch has an obvious fix via a built-in conversion function.
+pub fn conversion_hint(from: &Type, to: &Type) -> Option<String> {
+    if !from.is_numeric() || !to.is_numeric() {
+        return None;
+    }
+    let func = match to {
+        Type::I32 => "to_i32()",
+        Type::I64 => "to_i64()",
+        Type::F32 => "to_f32()",
+        Type::F64 => "to_f64()",
+        _ => return None,
+    };
+    Some(format!("Use {func} to convert"))
+}
+
 pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
     match ty {
-        TypeAnnotation::Named(name) => match name.as_str() {
+        TypeAnnotation::Named(name, _) => match name.as_str() {
+            "i8" => Ok(Type::I8),
+            "u8" => Ok(Type::U8),
+            "i16" => Ok(Type::I16),
+            "u16" => Ok(Type::U16),
             "i32" => Ok(Type::I32),
+            "u32" => Ok(Type::U32),
             "i64" => Ok(Type::I64),
+            "u64" => Ok(Type::U64),
             "f32" => Ok(Type::F32),
             "f64" => Ok(Type::F64),
             "bool" => Ok(Type::Bool),
@@ -165,6 +249,7 @@ pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
             mutable,
             restrict,
             inner,
+            ..
         } => {
             let inner_type = resolve_type(inner)?;
             Ok(Type::Pointer {
@@ -173,7 +258,7 @@ pub fn resolve_type(ty: &TypeAnnotation) -> crate::error::Result<Type> {
                 inner: Box::new(inner_type),
             })
         }
-        TypeAnnotation::Vector { elem, width } => {
+        TypeAnnotation::Vector { elem, width, .. } => {
             let elem_type = resolve_type(elem)?;
             Ok(Type::Vector {
                 elem: Box::new(elem_type),

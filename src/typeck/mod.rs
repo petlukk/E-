@@ -1,6 +1,8 @@
 mod check;
 mod expr_check;
 mod intrinsics;
+mod intrinsics_conv;
+mod intrinsics_simd;
 pub mod types;
 
 use std::collections::HashMap;
@@ -36,7 +38,7 @@ impl TypeChecker {
 
     pub fn check_program(&mut self, stmts: &[Stmt]) -> crate::error::Result<()> {
         for stmt in stmts {
-            if let Stmt::Struct { name, fields } = stmt {
+            if let Stmt::Struct { name, fields, .. } = stmt {
                 let typed_fields = fields
                     .iter()
                     .map(|f| {

@@ -17,7 +17,7 @@ export func kernel(input: *restrict f32, output: *mut f32, len: i32) { ... }
 Kernels are compiled to object files or shared libraries and called from C, Python,
 or any language with a C FFI.
 
-## The six kernel patterns
+## The seven kernel patterns
 
 Every compute workload is a combination of these patterns.
 
@@ -234,6 +234,18 @@ while i < len {
 
 This is explicit by design. No masked operations, no predication.
 The programmer sees exactly what runs.
+
+For element-wise work that doesn't need explicit SIMD width, `foreach` handles
+the loop structure automatically:
+
+```
+foreach (i in 0..len) {
+    out[i] = data[i] * factor
+}
+```
+
+`foreach` generates a scalar loop with phi nodes. LLVM may auto-vectorize at
+`-O2+`. For guaranteed SIMD width and tail handling, use the explicit pattern above.
 
 ## Design principles
 

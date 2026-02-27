@@ -1,0 +1,150 @@
+// Tokenizer prepass — unfused kernels (3 separate passes)
+//
+// classify_u8x16: text -> flags (bitflags per byte)
+// lowercase_u8x16: text -> lowered (upper -> lower via OR 0x20)
+// boundary_detect: flags -> boundaries (flag-change detection)
+
+export func classify_u8x16(text: *u8, flags: *mut u8, len: i32) {
+    // Splat constants for u8x16 comparisons
+    let v_space: u8x16 = splat(32)
+    let v_tab: u8x16 = splat(9)
+    let v_nl: u8x16 = splat(10)
+    let v_cr: u8x16 = splat(13)
+    let v_A: u8x16 = splat(65)
+    let v_Z: u8x16 = splat(90)
+    let v_a: u8x16 = splat(97)
+    let v_z: u8x16 = splat(122)
+    let v_0: u8x16 = splat(48)
+    let v_9: u8x16 = splat(57)
+    let v_127: u8x16 = splat(127)
+    let v_bang: u8x16 = splat(33)
+    let v_tilde: u8x16 = splat(126)
+    let v_zero: u8x16 = splat(0)
+    let v_ones: u8x16 = splat(255)
+    let v_ws_flag: u8x16 = splat(1)
+    let v_letter_flag: u8x16 = splat(2)
+    let v_digit_flag: u8x16 = splat(4)
+    let v_punct_flag: u8x16 = splat(8)
+    let v_nonascii_flag: u8x16 = splat(16)
+
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        let c: u8x16 = load(text, i)
+
+        // Whitespace: space(32), tab(9), newline(10), CR(13)
+        let ws1: u8x16 = select(c .== v_space, v_ws_flag, v_zero)
+        let ws2: u8x16 = select(c .== v_tab, v_ws_flag, v_zero)
+        let ws3: u8x16 = select(c .== v_nl, v_ws_flag, v_zero)
+        let ws4: u8x16 = select(c .== v_cr, v_ws_flag, v_zero)
+        let ws: u8x16 = ws1 .| ws2 .| ws3 .| ws4
+
+        // Letter: A-Z(65-90) — use select + .& on integer vectors
+        let ge_A: u8x16 = select(c .>= v_A, v_ones, v_zero)
+        let le_Z: u8x16 = select(c .<= v_Z, v_ones, v_zero)
+        let upper: u8x16 = (ge_A .& le_Z) .& v_letter_flag
+
+        // Letter: a-z(97-122)
+        let ge_a: u8x16 = select(c .>= v_a, v_ones, v_zero)
+        let le_z: u8x16 = select(c .<= v_z, v_ones, v_zero)
+        let lower_letter: u8x16 = (ge_a .& le_z) .& v_letter_flag
+
+        // Digit: 0-9 (48-57)
+        let ge_0: u8x16 = select(c .>= v_0, v_ones, v_zero)
+        let le_9: u8x16 = select(c .<= v_9, v_ones, v_zero)
+        let digit: u8x16 = (ge_0 .& le_9) .& v_digit_flag
+
+        // Non-ASCII: > 127
+        let nonascii: u8x16 = select(c .> v_127, v_nonascii_flag, v_zero)
+
+        // Punctuation: printable (33-126) AND NOT ws/letter/digit
+        let known: u8x16 = ws .| upper .| lower_letter .| digit
+        let ge_bang: u8x16 = select(c .>= v_bang, v_ones, v_zero)
+        let le_tilde: u8x16 = select(c .<= v_tilde, v_ones, v_zero)
+        let printable: u8x16 = (ge_bang .& le_tilde) .& v_punct_flag
+        let punct: u8x16 = select(known .== v_zero, printable, v_zero)
+
+        // Combine all flags
+        let f: u8x16 = ws .| upper .| lower_letter .| digit .| nonascii .| punct
+        store(flags, i, f)
+        i = i + 16
+    }
+    // Scalar tail
+    while i < len {
+        let b: u8 = text[i]
+        let mut f: u8 = 0
+        if b == 32 || b == 9 || b == 10 || b == 13 {
+            f = 1
+        } else {
+            if (b >= 65 && b <= 90) || (b >= 97 && b <= 122) {
+                f = 2
+            } else {
+                if b >= 48 && b <= 57 {
+                    f = 4
+                } else {
+                    if b > 127 {
+                        f = 16
+                    } else {
+                        if b >= 33 && b <= 126 {
+                            f = 8
+                        }
+                    }
+                }
+            }
+        }
+        flags[i] = f
+        i = i + 1
+    }
+}
+
+export func lowercase_u8x16(text: *u8, lower: *mut u8, len: i32) {
+    let v_A: u8x16 = splat(65)
+    let v_Z: u8x16 = splat(90)
+    let v_32: u8x16 = splat(32)
+    let v_zero: u8x16 = splat(0)
+    let v_ones: u8x16 = splat(255)
+
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        let c: u8x16 = load(text, i)
+        let ge_A: u8x16 = select(c .>= v_A, v_ones, v_zero)
+        let le_Z: u8x16 = select(c .<= v_Z, v_ones, v_zero)
+        let is_upper: u8x16 = (ge_A .& le_Z) .& v_32
+        store(lower, i, c .| is_upper)
+        i = i + 16
+    }
+    // Scalar tail
+    while i < len {
+        let b: u8 = text[i]
+        if b >= 65 && b <= 90 {
+            lower[i] = b + 32
+        } else {
+            lower[i] = b
+        }
+        i = i + 1
+    }
+}
+
+export func boundary_detect(flags: *u8, boundaries: *mut u8, len: i32) {
+    if len > 0 {
+        boundaries[0] = 1
+    }
+    let v_zero: u8x16 = splat(0)
+    let v_one: u8x16 = splat(1)
+
+    let mut i: i32 = 1
+    while i + 16 <= len {
+        let curr: u8x16 = load(flags, i)
+        let prev: u8x16 = load(flags, i - 1)
+        store(boundaries, i, select(curr .== prev, v_zero, v_one))
+        i = i + 16
+    }
+    // Scalar tail
+    while i < len {
+        if flags[i] != flags[i - 1] {
+            boundaries[i] = 1
+        } else {
+            boundaries[i] = 0
+        }
+        i = i + 1
+    }
+}

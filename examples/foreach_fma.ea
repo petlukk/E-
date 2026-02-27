@@ -1,0 +1,21 @@
+// foreach FMA: out[i] = a[i] * b[i] + c[i]
+// Uses foreach loop — LLVM auto-vectorizes at O2+.
+// Compare with explicit SIMD version in fma.ea.
+
+export func fma_foreach(
+    a: *restrict f32, b: *restrict f32, c: *restrict f32,
+    out: *restrict mut f32, len: i32
+) {
+    foreach (i in 0..len) {
+        out[i] = a[i] * b[i] + c[i]
+    }
+}
+
+export func fma_foreach_unroll(
+    a: *restrict f32, b: *restrict f32, c: *restrict f32,
+    out: *restrict mut f32, len: i32
+) {
+    unroll(4) foreach (i in 0..len) {
+        out[i] = a[i] * b[i] + c[i]
+    }
+}

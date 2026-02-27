@@ -1,5 +1,6 @@
 pub mod ast;
 pub mod error;
+pub mod header;
 pub mod lexer;
 pub mod parser;
 pub mod typeck;
@@ -32,6 +33,7 @@ pub enum OutputMode {
     Executable(String),
     SharedLib(String),
     LlvmIr,
+    Asm,
 }
 
 #[cfg(feature = "llvm")]
@@ -39,6 +41,8 @@ pub enum OutputMode {
 pub struct CompileOptions {
     pub opt_level: u8,
     pub target_cpu: Option<String>,
+    /// Extra target features, e.g. "+avx512f" for AVX-512.
+    pub extra_features: String,
 }
 
 #[cfg(feature = "llvm")]
@@ -47,6 +51,7 @@ impl Default for CompileOptions {
         Self {
             opt_level: 3,
             target_cpu: None, // native
+            extra_features: String::new(),
         }
     }
 }
@@ -81,7 +86,8 @@ pub fn compile_with_options(
     check_types(&stmts)?;
 
     let context = inkwell::context::Context::create();
-    let mut gen = codegen::CodeGenerator::new(&context, "ea_module");
+    let avx512 = opts.extra_features.contains("avx512");
+    let mut gen = codegen::CodeGenerator::new(&context, "ea_module", avx512);
     gen.compile_program(&stmts)?;
 
     match mode {
@@ -115,23 +121,60 @@ pub fn compile_with_options(
         OutputMode::SharedLib(ref lib_name) => {
             target::write_object_file(gen.module(), output_path, opts)?;
 
-            let status = std::process::Command::new("cc")
-                .arg("-shared")
-                .arg(output_path)
-                .arg("-o")
-                .arg(lib_name)
-                .arg("-lm")
-                .status()
-                .map_err(|e| {
-                    error::CompileError::codegen_error(format!("failed to invoke linker: {e}"))
-                })?;
+            #[cfg(target_os = "windows")]
+            {
+                // On Windows use lld-link.exe (ships with LLVM 18).
+                // lld-link handles /NODEFAULTLIB cleanly for pure SIMD kernels
+                // and provides __chkstk / compiler-rt intrinsics internally,
+                // so the resulting DLL has zero external dependencies.
+                let out_flag = format!("/OUT:{}", lib_name);
+                let output = std::process::Command::new("lld-link.exe")
+                    .arg("/DLL")
+                    .arg("/NOLOGO")
+                    .arg("/NODEFAULTLIB")
+                    .arg("/NOENTRY")
+                    .arg(&out_flag)
+                    .arg(output_path)
+                    .output()
+                    .map_err(|e| {
+                        error::CompileError::codegen_error(format!(
+                            "failed to invoke lld-link: {e}"
+                        ))
+                    })?;
 
-            let _ = std::fs::remove_file(output_path);
+                let _ = std::fs::remove_file(output_path);
 
-            if !status.success() {
-                return Err(error::CompileError::codegen_error(
-                    "shared library linking failed",
-                ));
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let detail = if !stderr.is_empty() { stderr } else { stdout };
+                    return Err(error::CompileError::codegen_error(format!(
+                        "lld-link failed:\n{}",
+                        detail.trim()
+                    )));
+                }
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let status = std::process::Command::new("cc")
+                    .arg("-shared")
+                    .arg(output_path)
+                    .arg("-o")
+                    .arg(lib_name)
+                    .arg("-lm")
+                    .status()
+                    .map_err(|e| {
+                        error::CompileError::codegen_error(format!("failed to invoke linker: {e}"))
+                    })?;
+
+                let _ = std::fs::remove_file(output_path);
+
+                if !status.success() {
+                    return Err(error::CompileError::codegen_error(
+                        "shared library linking failed",
+                    ));
+                }
             }
         }
         OutputMode::LlvmIr => {
@@ -139,6 +182,9 @@ pub fn compile_with_options(
             std::fs::write(output_path, ir).map_err(|e| {
                 error::CompileError::codegen_error(format!("failed to write IR: {e}"))
             })?;
+        }
+        OutputMode::Asm => {
+            target::write_asm_file(gen.module(), output_path, opts)?;
         }
     }
 
@@ -154,7 +200,7 @@ pub fn compile_to_ir(source: &str) -> error::Result<String> {
     check_types(&stmts)?;
 
     let context = inkwell::context::Context::create();
-    let mut gen = codegen::CodeGenerator::new(&context, "ea_module");
+    let mut gen = codegen::CodeGenerator::new(&context, "ea_module", false);
     gen.compile_program(&stmts)?;
 
     Ok(gen.print_ir())

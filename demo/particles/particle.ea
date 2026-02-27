@@ -1,0 +1,27 @@
+struct Particle {
+    x: f32,
+    y: f32,
+    vx: f32,
+    vy: f32,
+}
+
+export func update_particles(particles: *mut Particle, count: i32, dt: f32) {
+    let mut i: i32 = 0
+    while i < count {
+        particles[i].x = particles[i].x + particles[i].vx * dt
+        particles[i].y = particles[i].y + particles[i].vy * dt
+        i = i + 1
+    }
+}
+
+export func kinetic_energy(particles: *Particle, count: i32) -> f32 {
+    let mut total: f32 = 0.0
+    let mut i: i32 = 0
+    while i < count {
+        let vx: f32 = particles[i].vx
+        let vy: f32 = particles[i].vy
+        total = total + vx * vx + vy * vy
+        i = i + 1
+    }
+    return total * 0.5
+}

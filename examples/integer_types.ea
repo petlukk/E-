@@ -1,0 +1,33 @@
+// integer_types.ea — demonstrates u8/i8/u16/i16 scalar types
+
+export func clamp_u8(x: i32) -> i32 {
+    if x < 0 {
+        return 0
+    }
+    if x > 255 {
+        return 255
+    }
+    return x
+}
+
+func main() {
+    let a: i8 = -100
+    let b: i8 = 50
+    let c: i8 = a + b
+    println(c)
+
+    let x: u8 = 200
+    let y: u8 = 100
+    let z: u8 = x + y
+    println(z)
+
+    let p: i16 = -5000
+    let q: i16 = 2000
+    let r: i16 = p + q
+    println(r)
+
+    let s: u16 = 50000
+    let t: u16 = 10000
+    let u: u16 = s + t
+    println(u)
+}

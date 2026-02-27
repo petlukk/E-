@@ -1,0 +1,244 @@
+struct Vec3 {
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+struct HitInfo {
+    t: f32,
+    id: i32,
+}
+
+func v3(x: f32, y: f32, z: f32) -> Vec3 {
+    return Vec3 { x: x, y: y, z: z }
+}
+
+func v3_add(a: Vec3, b: Vec3) -> Vec3 {
+    return Vec3 { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z }
+}
+
+func v3_sub(a: Vec3, b: Vec3) -> Vec3 {
+    return Vec3 { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z }
+}
+
+func v3_scale(v: Vec3, s: f32) -> Vec3 {
+    return Vec3 { x: v.x * s, y: v.y * s, z: v.z * s }
+}
+
+func v3_dot(a: Vec3, b: Vec3) -> f32 {
+    return a.x * b.x + a.y * b.y + a.z * b.z
+}
+
+func v3_len(v: Vec3) -> f32 {
+    return sqrt(v3_dot(v, v))
+}
+
+func v3_normalize(v: Vec3) -> Vec3 {
+    let inv_len: f32 = rsqrt(v3_dot(v, v))
+    return v3_scale(v, inv_len)
+}
+
+func v3_reflect(d: Vec3, n: Vec3) -> Vec3 {
+    let dn: f32 = v3_dot(d, n)
+    return v3_sub(d, v3_scale(n, 2.0 * dn))
+}
+
+func hit_sphere(ro: Vec3, rd: Vec3, cx: f32, cy: f32, cz: f32, radius: f32) -> f32 {
+    let ocx: f32 = ro.x - cx
+    let ocy: f32 = ro.y - cy
+    let ocz: f32 = ro.z - cz
+    let a: f32 = rd.x * rd.x + rd.y * rd.y + rd.z * rd.z
+    let b: f32 = 2.0 * (ocx * rd.x + ocy * rd.y + ocz * rd.z)
+    let c: f32 = ocx * ocx + ocy * ocy + ocz * ocz - radius * radius
+    let disc: f32 = b * b - 4.0 * a * c
+    if disc < 0.0 {
+        return -1.0
+    }
+    let sqrt_disc: f32 = sqrt(disc)
+    let inv_2a: f32 = 1.0 / (2.0 * a)
+    let t1: f32 = (-b - sqrt_disc) * inv_2a
+    if t1 > 0.001 {
+        return t1
+    }
+    let t2: f32 = (-b + sqrt_disc) * inv_2a
+    if t2 > 0.001 {
+        return t2
+    }
+    return -1.0
+}
+
+func closest_hit(ro: Vec3, rd: Vec3) -> HitInfo {
+    let mut best_t: f32 = 99999.0
+    let mut best_id: i32 = 0
+
+    // Floor (y = 0, id = 1)
+    let t_floor: f32 = -ro.y / rd.y
+    if t_floor > 0.001 && t_floor < best_t {
+        let hx: f32 = ro.x + t_floor * rd.x
+        let hz: f32 = ro.z + t_floor * rd.z
+        if hx >= 0.0 && hx <= 1.0 {
+            if hz >= 0.0 && hz <= 1.0 {
+                best_t = t_floor
+                best_id = 1
+            }
+        }
+    }
+
+    // Ceiling (y = 1, id = 2)
+    let t_ceil: f32 = (1.0 - ro.y) / rd.y
+    if t_ceil > 0.001 && t_ceil < best_t {
+        let hx: f32 = ro.x + t_ceil * rd.x
+        let hz: f32 = ro.z + t_ceil * rd.z
+        if hx >= 0.0 && hx <= 1.0 {
+            if hz >= 0.0 && hz <= 1.0 {
+                best_t = t_ceil
+                best_id = 2
+            }
+        }
+    }
+
+    // Back wall (z = 1, id = 3)
+    let t_back: f32 = (1.0 - ro.z) / rd.z
+    if t_back > 0.001 && t_back < best_t {
+        let hx: f32 = ro.x + t_back * rd.x
+        let hy: f32 = ro.y + t_back * rd.y
+        if hx >= 0.0 && hx <= 1.0 {
+            if hy >= 0.0 && hy <= 1.0 {
+                best_t = t_back
+                best_id = 3
+            }
+        }
+    }
+
+    // Left wall (x = 0, id = 4)
+    let t_left: f32 = -ro.x / rd.x
+    if t_left > 0.001 && t_left < best_t {
+        let hy: f32 = ro.y + t_left * rd.y
+        let hz: f32 = ro.z + t_left * rd.z
+        if hy >= 0.0 && hy <= 1.0 {
+            if hz >= 0.0 && hz <= 1.0 {
+                best_t = t_left
+                best_id = 4
+            }
+        }
+    }
+
+    // Right wall (x = 1, id = 5)
+    let t_right: f32 = (1.0 - ro.x) / rd.x
+    if t_right > 0.001 && t_right < best_t {
+        let hy: f32 = ro.y + t_right * rd.y
+        let hz: f32 = ro.z + t_right * rd.z
+        if hy >= 0.0 && hy <= 1.0 {
+            if hz >= 0.0 && hz <= 1.0 {
+                best_t = t_right
+                best_id = 5
+            }
+        }
+    }
+
+    // Large diffuse sphere (center 0.65, 0.25, 0.55, radius 0.25, id = 6)
+    let t_s1: f32 = hit_sphere(ro, rd, 0.65, 0.25, 0.55, 0.25)
+    if t_s1 > 0.001 && t_s1 < best_t {
+        best_t = t_s1
+        best_id = 6
+    }
+
+    // Mirror sphere (center 0.3, 0.18, 0.35, radius 0.18, id = 7)
+    let t_s2: f32 = hit_sphere(ro, rd, 0.3, 0.18, 0.35, 0.18)
+    if t_s2 > 0.001 && t_s2 < best_t {
+        best_t = t_s2
+        best_id = 7
+    }
+
+    return HitInfo { t: best_t, id: best_id }
+}
+
+func get_normal(id: i32, pos: Vec3) -> Vec3 {
+    if id == 1 { return v3(0.0, 1.0, 0.0) }
+    if id == 2 { return v3(0.0, -1.0, 0.0) }
+    if id == 3 { return v3(0.0, 0.0, -1.0) }
+    if id == 4 { return v3(1.0, 0.0, 0.0) }
+    if id == 5 { return v3(-1.0, 0.0, 0.0) }
+    if id == 6 {
+        return v3_normalize(v3_sub(pos, v3(0.65, 0.25, 0.55)))
+    }
+    return v3_normalize(v3_sub(pos, v3(0.3, 0.18, 0.35)))
+}
+
+func get_color(id: i32) -> Vec3 {
+    if id == 4 { return v3(0.65, 0.05, 0.05) }
+    if id == 5 { return v3(0.12, 0.45, 0.15) }
+    return v3(0.73, 0.73, 0.73)
+}
+
+func shade_point(pos: Vec3, normal: Vec3, color: Vec3) -> Vec3 {
+    let light: Vec3 = v3(0.5, 0.95, 0.5)
+    let to_light: Vec3 = v3_sub(light, pos)
+    let light_dist: f32 = v3_len(to_light)
+    let light_dir: Vec3 = v3_scale(to_light, 1.0 / light_dist)
+
+    let mut ndotl: f32 = v3_dot(normal, light_dir)
+    if ndotl < 0.0 {
+        ndotl = 0.0
+    }
+
+    let shadow_origin: Vec3 = v3_add(pos, v3_scale(normal, 0.002))
+    let shadow_hit: HitInfo = closest_hit(shadow_origin, light_dir)
+    let mut shadow: f32 = 1.0
+    if shadow_hit.id > 0 {
+        if shadow_hit.t < light_dist {
+            shadow = 0.0
+        }
+    }
+
+    let brightness: f32 = 0.15 + ndotl * 0.85 * shadow
+    return Vec3 { x: color.x * brightness, y: color.y * brightness, z: color.z * brightness }
+}
+
+func trace(ro: Vec3, rd: Vec3, depth: i32) -> Vec3 {
+    if depth > 1 {
+        return v3(0.0, 0.0, 0.0)
+    }
+
+    let hit: HitInfo = closest_hit(ro, rd)
+    if hit.id == 0 {
+        return v3(0.0, 0.0, 0.0)
+    }
+
+    let pos: Vec3 = v3_add(ro, v3_scale(rd, hit.t))
+    let normal: Vec3 = get_normal(hit.id, pos)
+
+    if hit.id == 7 {
+        let refl_dir: Vec3 = v3_reflect(rd, normal)
+        let refl_origin: Vec3 = v3_add(pos, v3_scale(normal, 0.002))
+        return trace(refl_origin, refl_dir, depth + 1)
+    }
+
+    let color: Vec3 = get_color(hit.id)
+    return shade_point(pos, normal, color)
+}
+
+export func render(out: *mut f32, width: i32, height: i32) {
+    let cam: Vec3 = v3(0.5, 0.5, -1.0)
+    let fh: f32 = to_f32(height)
+
+    let mut py: i32 = 0
+    while py < height {
+        let mut px: i32 = 0
+        while px < width {
+            let u: f32 = (to_f32(px) + 0.5 - to_f32(width) * 0.5) / fh
+            let v: f32 = -(to_f32(py) + 0.5 - fh * 0.5) / fh
+            let rd: Vec3 = v3_normalize(v3(u, v, 1.0))
+
+            let color: Vec3 = trace(cam, rd, 0)
+
+            let idx: i32 = (py * width + px) * 3
+            out[idx] = color.x
+            out[idx + 1] = color.y
+            out[idx + 2] = color.z
+
+            px = px + 1
+        }
+        py = py + 1
+    }
+}

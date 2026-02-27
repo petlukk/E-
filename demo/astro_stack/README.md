@@ -1,6 +1,10 @@
 # Astronomy Frame Stacking — Eä Demo
 
-This demo stacks N noisy exposures of a synthetic star field to reduce noise.
+This demo stacks N noisy exposures to reduce noise using real telescope data
+from NASA SkyView (M31 / Andromeda galaxy). On first run, it auto-downloads
+a DSS survey image and generates noisy exposures from it.
+Falls back to synthetic starfield if download fails.
+
 Signal reinforces linearly; noise cancels by sqrt(N). Compares two implementations:
 
 - **NumPy** — idiomatic Python, `np.mean` over an array of frames
@@ -100,8 +104,10 @@ python demo/astro_stack/run.py
 
 ## How it works
 
-Python generates a synthetic star field, adds Gaussian noise to produce N frames,
-and measures timing. Eä does the compute.
+On first run, the script downloads a real DSS telescope image of M31 (Andromeda)
+from NASA SkyView, normalizes it, and generates N noisy exposures by adding
+Gaussian noise. Falls back to a synthetic starfield if the download fails.
+Eä does the compute.
 
 The kernel compiles to a `.so` and is called via `ctypes`. Python calls
 `accumulate_f32x8` once per frame to sum into an accumulator buffer,

@@ -1,4 +1,9 @@
+use ea_compiler::error::{format_with_source, CompileError};
 use std::process;
+
+fn print_error(e: &CompileError, filename: &str, source: &str) {
+    eprintln!("{}", format_with_source(e, filename, source));
+}
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -14,7 +19,7 @@ fn main() {
             return;
         }
         "--version" | "-V" => {
-            println!("ea 0.1.0");
+            println!("ea {}", env!("CARGO_PKG_VERSION"));
             return;
         }
         _ => {}
@@ -32,10 +37,13 @@ fn main() {
     let mut output_exe: Option<String> = None;
     let mut lib_mode = false;
     let mut emit_llvm = false;
+    let mut emit_asm = false;
+    let mut emit_header = false;
     let mut emit_ast = false;
     let mut emit_tokens = false;
     let mut opt_level: u8 = 3;
     let mut target_cpu: Option<String> = None;
+    let mut extra_features = String::new();
 
     let mut i = 1;
     while i < args.len() {
@@ -50,6 +58,8 @@ fn main() {
             }
             "--lib" => lib_mode = true,
             "--emit-llvm" => emit_llvm = true,
+            "--emit-asm" => emit_asm = true,
+            "--header" => emit_header = true,
             "--emit-ast" => emit_ast = true,
             "--emit-tokens" => emit_tokens = true,
             s if s.starts_with("--opt-level=") => {
@@ -70,6 +80,9 @@ fn main() {
                     target_cpu = Some(val.to_string());
                 }
             }
+            "--avx512" => {
+                extra_features = "+avx512f,+avx512vl,+avx512bw".to_string();
+            }
             other => {
                 eprintln!("error: unknown option '{other}'");
                 process::exit(1);
@@ -86,7 +99,7 @@ fn main() {
                 }
             }
             Err(e) => {
-                eprintln!("{e}");
+                print_error(&e, input_file, &source);
                 process::exit(1);
             }
         }
@@ -101,7 +114,7 @@ fn main() {
                 }
             }
             Err(e) => {
-                eprintln!("{e}");
+                print_error(&e, input_file, &source);
                 process::exit(1);
             }
         }
@@ -116,6 +129,7 @@ fn main() {
         let opts = CompileOptions {
             opt_level,
             target_cpu,
+            extra_features,
         };
 
         let stem = std::path::Path::new(input_file)
@@ -131,11 +145,53 @@ fn main() {
                     print!("{ir}");
                 }
                 Err(e) => {
-                    eprintln!("{e}");
+                    print_error(&e, input_file, &source);
                     process::exit(1);
                 }
             }
             return;
+        }
+
+        if emit_asm {
+            let asm_path = PathBuf::from(format!("{stem}.s"));
+            match ea_compiler::compile_with_options(&source, &asm_path, OutputMode::Asm, &opts) {
+                Ok(()) => {
+                    eprintln!("wrote {}", asm_path.display());
+                }
+                Err(e) => {
+                    print_error(&e, input_file, &source);
+                    process::exit(1);
+                }
+            }
+            return;
+        }
+
+        if emit_header {
+            let tokens = match ea_compiler::tokenize(&source) {
+                Ok(t) => t,
+                Err(e) => {
+                    print_error(&e, input_file, &source);
+                    process::exit(1);
+                }
+            };
+            let stmts = match ea_compiler::parse(tokens) {
+                Ok(s) => s,
+                Err(e) => {
+                    print_error(&e, input_file, &source);
+                    process::exit(1);
+                }
+            };
+            if let Err(e) = ea_compiler::check_types(&stmts) {
+                print_error(&e, input_file, &source);
+                process::exit(1);
+            }
+            let header = ea_compiler::header::generate(&stmts, stem);
+            let header_path = PathBuf::from(format!("{stem}.h"));
+            if let Err(e) = std::fs::write(&header_path, header) {
+                eprintln!("error: cannot write '{}': {e}", header_path.display());
+                process::exit(1);
+            }
+            eprintln!("wrote {}", header_path.display());
         }
 
         let (output_path, mode) = if lib_mode {
@@ -159,10 +215,40 @@ fn main() {
             (obj_path, OutputMode::ObjectFile)
         };
 
+        let mode_desc = match &mode {
+            OutputMode::ObjectFile => "object",
+            OutputMode::Executable(_) => "executable",
+            OutputMode::SharedLib(_) => "shared library",
+            OutputMode::LlvmIr => "llvm-ir",
+            OutputMode::Asm => "assembly",
+        };
+        let output_display = match &mode {
+            OutputMode::Executable(ref name) | OutputMode::SharedLib(ref name) => name.clone(),
+            _ => output_path.display().to_string(),
+        };
+
         match ea_compiler::compile_with_options(&source, &output_path, mode, &opts) {
-            Ok(()) => {}
+            Ok(()) => {
+                let stmts = ea_compiler::parse(ea_compiler::tokenize(&source).unwrap()).unwrap();
+                let exports = ea_compiler::ast::exported_function_names(&stmts);
+                if exports.is_empty() {
+                    eprintln!(
+                        "compiled {} -> {} ({})",
+                        input_file, output_display, mode_desc
+                    );
+                } else {
+                    eprintln!(
+                        "compiled {} -> {} ({}, {} exported: {})",
+                        input_file,
+                        output_display,
+                        mode_desc,
+                        exports.len(),
+                        exports.join(", ")
+                    );
+                }
+            }
             Err(e) => {
-                eprintln!("{e}");
+                print_error(&e, input_file, &source);
                 process::exit(1);
             }
         }
@@ -182,8 +268,13 @@ fn print_usage() {
     eprintln!("  -o <name>          Compile and link to executable");
     eprintln!("  --lib              Produce shared library (.so/.dll)");
     eprintln!("  --opt-level=N      Optimization level 0-3 (default: 3)");
-    eprintln!("  --target=CPU       Target CPU (default: native)");
+    eprintln!(
+        "  --target=CPU       Target CPU (default: native)
+  --avx512           Enable AVX-512 (f32x16) — requires AVX-512 capable CPU"
+    );
     eprintln!("  --emit-llvm        Print LLVM IR");
+    eprintln!("  --emit-asm         Emit assembly (.s file)");
+    eprintln!("  --header           Generate C header file (.h)");
     eprintln!("  --emit-ast         Print parsed AST");
     eprintln!("  --emit-tokens      Print lexer tokens");
     eprintln!("  --help, -h         Show this message");

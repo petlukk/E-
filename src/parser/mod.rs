@@ -3,7 +3,7 @@ mod statements;
 
 use crate::ast::{Param, Stmt, TypeAnnotation};
 use crate::error::CompileError;
-use crate::lexer::{Position, Token, TokenKind};
+use crate::lexer::{Position, Span, Token, TokenKind};
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -25,17 +25,20 @@ impl Parser {
 
     fn declaration(&mut self) -> crate::error::Result<Stmt> {
         if self.check(TokenKind::Export) {
+            let start = self.current_position();
             self.advance();
             self.expect_kind(TokenKind::Func, "expected 'func' after 'export'")?;
-            return self.function(true);
+            return self.function(true, start);
         }
         if self.check(TokenKind::Func) {
+            let start = self.current_position();
             self.advance();
-            return self.function(false);
+            return self.function(false, start);
         }
         if self.check(TokenKind::Struct) {
+            let start = self.current_position();
             self.advance();
-            return self.parse_struct();
+            return self.parse_struct(start);
         }
         Err(CompileError::parse_error(
             format!("expected declaration, found {:?}", self.peek_kind()),
@@ -43,7 +46,7 @@ impl Parser {
         ))
     }
 
-    fn function(&mut self, export: bool) -> crate::error::Result<Stmt> {
+    fn function(&mut self, export: bool, start: Position) -> crate::error::Result<Stmt> {
         let name_token = self.expect_kind(TokenKind::Identifier, "expected function name")?;
         let name = name_token.lexeme.clone();
 
@@ -61,6 +64,7 @@ impl Parser {
         self.expect_kind(TokenKind::LeftBrace, "expected '{' before function body")?;
         let body = self.parse_block()?;
         self.expect_kind(TokenKind::RightBrace, "expected '}' after function body")?;
+        let end = self.previous_position();
 
         Ok(Stmt::Function {
             name,
@@ -68,10 +72,11 @@ impl Parser {
             return_type,
             body,
             export,
+            span: Span::new(start, end),
         })
     }
 
-    fn parse_struct(&mut self) -> crate::error::Result<Stmt> {
+    fn parse_struct(&mut self, start: Position) -> crate::error::Result<Stmt> {
         let name_token =
             self.expect_kind(TokenKind::Identifier, "expected struct name after 'struct'")?;
         let name = name_token.lexeme.clone();
@@ -91,7 +96,12 @@ impl Parser {
             }
         }
         self.expect_kind(TokenKind::RightBrace, "expected '}' after struct fields")?;
-        Ok(Stmt::Struct { name, fields })
+        let end = self.previous_position();
+        Ok(Stmt::Struct {
+            name,
+            fields,
+            span: Span::new(start, end),
+        })
     }
 
     fn parse_params(&mut self) -> crate::error::Result<Vec<Param>> {
@@ -100,11 +110,17 @@ impl Parser {
             return Ok(params);
         }
         loop {
+            let start = self.current_position();
             let name_token = self.expect_kind(TokenKind::Identifier, "expected parameter name")?;
             let name = name_token.lexeme.clone();
             self.expect_kind(TokenKind::Colon, "expected ':' after parameter name")?;
             let ty = self.parse_type()?;
-            params.push(Param { name, ty });
+            let end = ty.span().end.clone();
+            params.push(Param {
+                name,
+                ty,
+                span: Span::new(start, end),
+            });
             if !self.check(TokenKind::Comma) {
                 break;
             }
@@ -116,6 +132,7 @@ impl Parser {
     pub(super) fn parse_type(&mut self) -> crate::error::Result<TypeAnnotation> {
         // Pointer types: *T, *mut T, *restrict T, *restrict mut T
         if self.check(TokenKind::Star) {
+            let start = self.current_position();
             self.advance(); // consume *
             let restrict = if self.check(TokenKind::Restrict) {
                 self.advance();
@@ -130,14 +147,20 @@ impl Parser {
                 false
             };
             let inner = self.parse_type()?;
+            let end = inner.span().end.clone();
             return Ok(TypeAnnotation::Pointer {
                 mutable,
                 restrict,
                 inner: Box::new(inner),
+                span: Span::new(start, end),
             });
         }
 
         let type_tokens = [
+            TokenKind::I8,
+            TokenKind::U8,
+            TokenKind::I16,
+            TokenKind::U16,
             TokenKind::I32,
             TokenKind::I64,
             TokenKind::F32,
@@ -145,44 +168,43 @@ impl Parser {
             TokenKind::Bool,
         ];
 
-        if self.check(TokenKind::F32x4) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("f32".to_string())),
-                width: 4,
-            });
-        }
-        if self.check(TokenKind::I32x4) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("i32".to_string())),
-                width: 4,
-            });
-        }
-        if self.check(TokenKind::F32x8) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("f32".to_string())),
-                width: 8,
-            });
-        }
-        if self.check(TokenKind::I32x8) {
-            self.advance();
-            return Ok(TypeAnnotation::Vector {
-                elem: Box::new(TypeAnnotation::Named("i32".to_string())),
-                width: 8,
-            });
+        // Vector type tokens — single token like f32x4 gets one span
+        let vec_types: &[(TokenKind, &str, usize)] = &[
+            (TokenKind::I8x16, "i8", 16),
+            (TokenKind::I8x32, "i8", 32),
+            (TokenKind::U8x16, "u8", 16),
+            (TokenKind::I16x8, "i16", 8),
+            (TokenKind::I16x16, "i16", 16),
+            (TokenKind::F32x4, "f32", 4),
+            (TokenKind::I32x4, "i32", 4),
+            (TokenKind::F32x8, "f32", 8),
+            (TokenKind::I32x8, "i32", 8),
+            (TokenKind::F32x16, "f32", 16),
+        ];
+        for (tk, elem_name, width) in vec_types {
+            if self.check(tk.clone()) {
+                let pos = self.current_position();
+                self.advance();
+                let span = Span::new(pos.clone(), pos.clone());
+                return Ok(TypeAnnotation::Vector {
+                    elem: Box::new(TypeAnnotation::Named(elem_name.to_string(), span.clone())),
+                    width: *width,
+                    span,
+                });
+            }
         }
 
         for tk in &type_tokens {
             if self.check(tk.clone()) {
                 let token = self.advance().clone();
-                return Ok(TypeAnnotation::Named(token.lexeme.clone()));
+                let span = Span::new(token.position.clone(), token.position);
+                return Ok(TypeAnnotation::Named(token.lexeme.clone(), span));
             }
         }
         if self.check(TokenKind::Identifier) {
             let token = self.advance().clone();
-            return Ok(TypeAnnotation::Named(token.lexeme.clone()));
+            let span = Span::new(token.position.clone(), token.position);
+            return Ok(TypeAnnotation::Named(token.lexeme.clone(), span));
         }
         Err(CompileError::parse_error(
             format!("expected type, found {:?}", self.peek_kind()),
@@ -223,6 +245,10 @@ impl Parser {
         self.tokens.get(self.current + 1).map(|t| &t.kind)
     }
 
+    pub(super) fn peek_at(&self, offset: usize) -> Option<&TokenKind> {
+        self.tokens.get(self.current + offset).map(|t| &t.kind)
+    }
+
     pub(super) fn check(&self, kind: TokenKind) -> bool {
         self.peek_kind() == Some(&kind)
     }
@@ -259,5 +285,13 @@ impl Parser {
                     .map(|t| t.position.clone())
                     .unwrap_or_default()
             })
+    }
+
+    pub(super) fn previous_position(&self) -> Position {
+        if self.current > 0 {
+            self.tokens[self.current - 1].position.clone()
+        } else {
+            Position { line: 1, column: 1, offset: 0 }
+        }
     }
 }

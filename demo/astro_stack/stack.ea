@@ -17,6 +17,13 @@ export func accumulate_f32x8(acc: *mut f32, frame: *restrict f32, len: i32) {
     }
 }
 
+// foreach accumulation variant (relies on LLVM auto-vectorization at O2+)
+export func accumulate_foreach(acc: *mut f32, frame: *restrict f32, len: i32) {
+    foreach (i in 0..len) {
+        acc[i] = acc[i] + frame[i]
+    }
+}
+
 // Scale: out[i] = data[i] * factor
 // Called with factor = 1.0 / N to compute mean.
 export func scale_f32x8(data: *restrict f32, out: *mut f32, len: i32, factor: f32) {

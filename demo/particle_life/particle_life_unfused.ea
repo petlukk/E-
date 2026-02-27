@@ -1,0 +1,67 @@
+export func compute_forces(
+    px: *f32, py: *f32,
+    types: *i32, matrix: *f32,
+    fx: *mut f32, fy: *mut f32,
+    n: i32, num_types: i32, r_max: f32
+) {
+    let r_max2: f32 = r_max * r_max
+    let mut i: i32 = 0
+    while i < n {
+        let xi: f32 = px[i]
+        let yi: f32 = py[i]
+        let ti: i32 = types[i]
+        let mut fxi: f32 = 0.0
+        let mut fyi: f32 = 0.0
+
+        let mut j: i32 = 0
+        while j < n {
+            let dx: f32 = px[j] - xi
+            let dy: f32 = py[j] - yi
+            let dist2: f32 = dx * dx + dy * dy
+            if dist2 > 0.0 && dist2 < r_max2 {
+                let dist: f32 = sqrt(dist2)
+                let strength: f32 = matrix[ti * num_types + types[j]]
+                let force: f32 = strength * (1.0 - dist / r_max)
+                fxi = fxi + force * dx / dist
+                fyi = fyi + force * dy / dist
+            }
+            j = j + 1
+        }
+
+        fx[i] = fxi
+        fy[i] = fyi
+        i = i + 1
+    }
+}
+
+export func update_velocities(
+    vx: *mut f32, vy: *mut f32,
+    fx: *f32, fy: *f32,
+    n: i32, dt: f32, friction: f32
+) {
+    let mut i: i32 = 0
+    while i < n {
+        vx[i] = (vx[i] + fx[i] * dt) * friction
+        vy[i] = (vy[i] + fy[i] * dt) * friction
+        i = i + 1
+    }
+}
+
+export func update_positions(
+    px: *mut f32, py: *mut f32,
+    vx: *f32, vy: *f32,
+    n: i32, dt: f32, size: f32
+) {
+    let mut i: i32 = 0
+    while i < n {
+        px[i] = px[i] + vx[i]
+        py[i] = py[i] + vy[i]
+        let cur_px: f32 = px[i]
+        let cur_py: f32 = py[i]
+        if cur_px < 0.0 { px[i] = cur_px + size }
+        if cur_px >= size { px[i] = cur_px - size }
+        if cur_py < 0.0 { py[i] = cur_py + size }
+        if cur_py >= size { py[i] = cur_py - size }
+        i = i + 1
+    }
+}

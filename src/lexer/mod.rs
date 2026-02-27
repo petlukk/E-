@@ -32,6 +32,18 @@ impl Default for Position {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Span {
+    pub start: Position,
+    pub end: Position,
+}
+
+impl Span {
+    pub fn new(start: Position, end: Position) -> Self {
+        Self { start, end }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
@@ -86,7 +98,21 @@ pub enum TokenKind {
     Struct,
     #[token("restrict")]
     Restrict,
+    #[token("unroll")]
+    Unroll,
+    #[token("foreach")]
+    ForEach,
+    #[token("in")]
+    In,
 
+    #[token("i8")]
+    I8,
+    #[token("u8")]
+    U8,
+    #[token("i16")]
+    I16,
+    #[token("u16")]
+    U16,
     #[token("i32")]
     I32,
     #[token("i64")]
@@ -97,6 +123,16 @@ pub enum TokenKind {
     F64,
     #[token("bool")]
     Bool,
+    #[token("i8x16")]
+    I8x16,
+    #[token("i8x32")]
+    I8x32,
+    #[token("u8x16")]
+    U8x16,
+    #[token("i16x8")]
+    I16x8,
+    #[token("i16x16")]
+    I16x16,
     #[token("f32x4")]
     F32x4,
     #[token("i32x4")]
@@ -105,12 +141,18 @@ pub enum TokenKind {
     F32x8,
     #[token("i32x8")]
     I32x8,
+    #[token("f32x16")]
+    F32x16,
     #[token("splat")]
     Splat,
 
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier,
-    #[regex("[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+")]
+    #[regex("0x[0-9a-fA-F]+")]
+    HexLiteral,
+    #[regex("0b[01]+")]
+    BinLiteral,
+    #[regex("[0-9]+\\.[0-9]+|[0-9]*\\.[0-9]+")]
     FloatLiteral,
     #[regex("[0-9]+")]
     IntLiteral,
@@ -175,6 +217,14 @@ pub enum TokenKind {
     LessDot,
     #[token(".>")]
     GreaterDot,
+    #[token(".&")]
+    AmpDot,
+    #[token(".|")]
+    PipeDot,
+    #[token(".^")]
+    CaretDot,
+    #[token("..")]
+    DotDot,
     #[token(".")]
     Dot,
     #[token("&&")]

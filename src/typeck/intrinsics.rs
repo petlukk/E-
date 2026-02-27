@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::ast::Expr;
 use crate::error::CompileError;
-use crate::lexer::Position;
+use crate::lexer::Span;
 
 use super::types::{self, Type};
 use super::TypeChecker;
@@ -15,18 +15,34 @@ impl TypeChecker {
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
         type_hint: Option<&Type>,
+        span: &Span,
     ) -> Option<crate::error::Result<Type>> {
         match name {
-            "println" => Some(self.check_println(args, locals)),
-            "splat" => Some(self.check_splat(args, locals, type_hint)),
-            "load" => Some(self.check_load(args, locals, type_hint)),
-            "store" => Some(self.check_store(args, locals)),
-            "fma" => Some(self.check_fma(args, locals)),
-            "reduce_add" | "reduce_max" | "reduce_min" => {
-                Some(self.check_reduction(name, args, locals))
+            "println" => Some(self.check_println(args, locals, span)),
+            "splat" => Some(self.check_splat(args, locals, type_hint, span)),
+            "load" => Some(self.check_load(args, locals, type_hint, span)),
+            "store" => Some(self.check_store(args, locals, span)),
+            "fma" => Some(self.check_fma(args, locals, span)),
+            "sqrt" | "rsqrt" => Some(self.check_sqrt(name, args, locals, span)),
+            "to_f32" | "to_f64" | "to_i32" | "to_i64" => {
+                Some(self.check_conversion(name, args, locals, span))
             }
-            "shuffle" => Some(self.check_shuffle(args, locals)),
-            "select" => Some(self.check_select(args, locals)),
+            "reduce_add" | "reduce_max" | "reduce_min" => {
+                Some(self.check_reduction(name, args, locals, span))
+            }
+            "shuffle" => Some(self.check_shuffle(args, locals, span)),
+            "select" => Some(self.check_select(args, locals, span)),
+            "widen_i8_f32x4" | "widen_u8_f32x4" => {
+                Some(self.check_widen_i8_f32x4(name, args, locals, span))
+            }
+            "narrow_f32x4_i8" => Some(self.check_narrow_f32x4_i8(args, locals, span)),
+            "maddubs_i16" => Some(self.check_maddubs_i16(args, locals, span)),
+            "maddubs_i32" => Some(self.check_maddubs_i32(args, locals, span)),
+            "prefetch" => Some(self.check_prefetch(args, locals, span)),
+            "gather" => Some(self.check_gather(args, locals, span)),
+            "scatter" => Some(self.check_scatter(args, locals, span)),
+            "load_masked" => Some(self.check_load_masked(args, locals, type_hint, span)),
+            "store_masked" => Some(self.check_store_masked(args, locals, span)),
             _ => None,
         }
     }
@@ -35,18 +51,19 @@ impl TypeChecker {
         &self,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 "println expects exactly 1 argument",
-                Position::default(),
+                span.clone(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
         if !arg_type.is_numeric() && arg_type != Type::String && !arg_type.is_vector() {
             return Err(CompileError::type_error(
-                format!("println expects numeric, string, or vector result, got {arg_type:?}"),
-                Position::default(),
+                format!("println expects numeric, string, or vector argument, got {arg_type}"),
+                args[0].span().clone(),
             ));
         }
         Ok(Type::Void)
@@ -57,124 +74,47 @@ impl TypeChecker {
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
         type_hint: Option<&Type>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 "splat expects 1 argument",
-                Position::default(),
+                span.clone(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
-        let width = match type_hint {
-            Some(Type::Vector { width, .. }) => *width,
-            _ => 4,
+        let (width, hint_elem) = match type_hint {
+            Some(Type::Vector { width, elem }) => (*width, Some(elem.as_ref())),
+            _ => (4, None),
         };
         match arg_type {
-            Type::F32 | Type::FloatLiteral => Ok(Type::Vector {
-                elem: Box::new(Type::F32),
-                width,
-            }),
-            Type::I32 | Type::IntLiteral => Ok(Type::Vector {
-                elem: Box::new(Type::I32),
+            Type::FloatLiteral => {
+                let elem = hint_elem
+                    .filter(|e| e.is_float())
+                    .cloned()
+                    .unwrap_or(Type::F32);
+                Ok(Type::Vector {
+                    elem: Box::new(elem),
+                    width,
+                })
+            }
+            Type::IntLiteral => {
+                let elem = hint_elem
+                    .filter(|e| e.is_integer())
+                    .cloned()
+                    .unwrap_or(Type::I32);
+                Ok(Type::Vector {
+                    elem: Box::new(elem),
+                    width,
+                })
+            }
+            concrete if concrete.is_numeric() => Ok(Type::Vector {
+                elem: Box::new(concrete),
                 width,
             }),
             _ => Err(CompileError::type_error(
-                format!("splat expects numeric, got {arg_type:?}"),
-                Position::default(),
-            )),
-        }
-    }
-
-    fn check_load(
-        &self,
-        args: &[Expr],
-        locals: &HashMap<String, (Type, bool)>,
-        type_hint: Option<&Type>,
-    ) -> crate::error::Result<Type> {
-        if args.len() != 2 {
-            return Err(CompileError::type_error(
-                "load expects 2 arguments (ptr, index)",
-                Position::default(),
-            ));
-        }
-        let ptr_type = self.check_expr(&args[0], locals)?;
-        let idx_type = self.check_expr(&args[1], locals)?;
-
-        if !idx_type.is_integer() {
-            return Err(CompileError::type_error(
-                "load index must be integer",
-                Position::default(),
-            ));
-        }
-
-        let width = match type_hint {
-            Some(Type::Vector { width, .. }) => *width,
-            _ => 4,
-        };
-
-        match ptr_type {
-            Type::Pointer { inner, .. } => {
-                if inner.is_numeric() {
-                    Ok(Type::Vector { elem: inner, width })
-                } else {
-                    Err(CompileError::type_error(
-                        "load expects pointer to numeric type",
-                        Position::default(),
-                    ))
-                }
-            }
-            _ => Err(CompileError::type_error(
-                "load expects pointer",
-                Position::default(),
-            )),
-        }
-    }
-
-    fn check_store(
-        &self,
-        args: &[Expr],
-        locals: &HashMap<String, (Type, bool)>,
-    ) -> crate::error::Result<Type> {
-        if args.len() != 3 {
-            return Err(CompileError::type_error(
-                "store expects 3 arguments",
-                Position::default(),
-            ));
-        }
-        let ptr_type = self.check_expr(&args[0], locals)?;
-        let idx_type = self.check_expr(&args[1], locals)?;
-        let val_type = self.check_expr(&args[2], locals)?;
-
-        if !idx_type.is_integer() {
-            return Err(CompileError::type_error(
-                "store index must be integer",
-                Position::default(),
-            ));
-        }
-        match (ptr_type, val_type) {
-            (
-                Type::Pointer {
-                    mutable: true,
-                    inner,
-                    ..
-                },
-                Type::Vector { elem, .. },
-            ) => {
-                if !types::types_compatible(&elem, &inner) {
-                    return Err(CompileError::type_error(
-                        format!("store mismatch: ptr to {inner:?}, val {elem:?}"),
-                        Position::default(),
-                    ));
-                }
-                Ok(Type::Void)
-            }
-            (Type::Pointer { mutable: false, .. }, _) => Err(CompileError::type_error(
-                "store requires mutable pointer",
-                Position::default(),
-            )),
-            (_, _) => Err(CompileError::type_error(
-                "store expects (mut ptr, index, vector)",
-                Position::default(),
+                format!("splat expects numeric argument, got {arg_type}"),
+                args[0].span().clone(),
             )),
         }
     }
@@ -183,11 +123,12 @@ impl TypeChecker {
         &self,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 3 {
             return Err(CompileError::type_error(
                 "fma expects 3 arguments",
-                Position::default(),
+                span.clone(),
             ));
         }
         let t1 = self.check_expr(&args[0], locals)?;
@@ -195,129 +136,104 @@ impl TypeChecker {
         let t3 = self.check_expr(&args[2], locals)?;
         if !t1.is_vector() || !t2.is_vector() || !t3.is_vector() {
             return Err(CompileError::type_error(
-                format!("fma expects vector arguments, got {t1:?}, {t2:?}, {t3:?}"),
-                Position::default(),
+                format!("fma expects vector arguments, got {t1}, {t2}, {t3}"),
+                span.clone(),
             ));
         }
-        types::unify_vector(&t1, &t2)?;
-        types::unify_vector(&t1, &t3)?;
+        types::unify_vector(&t1, &t2, span.clone())?;
+        types::unify_vector(&t1, &t3, span.clone())?;
+        match &t1 {
+            Type::Vector { elem, .. } if !elem.is_float() => {
+                return Err(CompileError::type_error(
+                    "fma requires float vector arguments. fma only works on f32 or f64 vectors",
+                    span.clone(),
+                ));
+            }
+            _ => {}
+        }
         Ok(t1)
     }
 
-    fn check_reduction(
+    fn check_sqrt(
         &self,
         name: &str,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 1 {
             return Err(CompileError::type_error(
                 format!("{name} expects 1 argument"),
-                Position::default(),
+                span.clone(),
             ));
         }
         let arg_type = self.check_expr(&args[0], locals)?;
         match &arg_type {
-            Type::Vector { elem, .. } => Ok(*elem.clone()),
+            Type::F32 | Type::F64 | Type::FloatLiteral => Ok(arg_type),
+            Type::Vector { elem, .. } if elem.is_float() => Ok(arg_type),
             _ => Err(CompileError::type_error(
-                format!("{name} expects vector argument, got {arg_type:?}"),
-                Position::default(),
+                format!("{name} expects float or float vector argument, got {arg_type}"),
+                args[0].span().clone(),
             )),
         }
     }
 
-    fn check_shuffle(
+    fn check_prefetch(
         &self,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
         if args.len() != 2 {
             return Err(CompileError::type_error(
-                "shuffle expects 2 arguments (vector, indices)",
-                Position::default(),
+                "prefetch expects 2 arguments: (ptr, offset)",
+                span.clone(),
             ));
         }
-        let vec_type = self.check_expr(&args[0], locals)?;
-        let width = match &vec_type {
-            Type::Vector { width, .. } => *width,
-            _ => {
-                return Err(CompileError::type_error(
-                    format!("shuffle first argument must be vector, got {vec_type:?}"),
-                    Position::default(),
-                ))
-            }
-        };
-
-        match &args[1] {
-            Expr::ArrayLiteral(indices) => {
-                if indices.len() != width {
-                    return Err(CompileError::type_error(
-                        format!(
-                            "shuffle indices length {} != vector width {width}",
-                            indices.len()
-                        ),
-                        Position::default(),
-                    ));
-                }
-                for (i, idx) in indices.iter().enumerate() {
-                    match idx {
-                        Expr::Literal(crate::ast::Literal::Integer(n)) => {
-                            if *n < 0 || *n >= width as i64 {
-                                return Err(CompileError::type_error(
-                                    format!("shuffle index {i} out of range: {n} (width {width})"),
-                                    Position::default(),
-                                ));
-                            }
-                        }
-                        _ => {
-                            return Err(CompileError::type_error(
-                                format!("shuffle index {i} must be integer literal"),
-                                Position::default(),
-                            ))
-                        }
-                    }
-                }
-            }
-            _ => {
-                return Err(CompileError::type_error(
-                    "shuffle second argument must be [index, ...] array literal",
-                    Position::default(),
-                ))
-            }
+        let ptr_type = self.check_expr(&args[0], locals)?;
+        if !matches!(ptr_type, Type::Pointer { .. }) {
+            return Err(CompileError::type_error(
+                format!("prefetch first argument must be a pointer, got {ptr_type}"),
+                args[0].span().clone(),
+            ));
         }
-        Ok(vec_type)
+        let offset_type = self.check_expr(&args[1], locals)?;
+        if !offset_type.is_integer() {
+            return Err(CompileError::type_error(
+                format!("prefetch offset must be integer, got {offset_type}"),
+                args[1].span().clone(),
+            ));
+        }
+        Ok(Type::Void)
     }
 
-    fn check_select(
+    fn check_conversion(
         &self,
+        name: &str,
         args: &[Expr],
         locals: &HashMap<String, (Type, bool)>,
+        span: &Span,
     ) -> crate::error::Result<Type> {
-        if args.len() != 3 {
+        if args.len() != 1 {
             return Err(CompileError::type_error(
-                "select expects 3 arguments (mask, a, b)",
-                Position::default(),
+                format!("{name} expects 1 argument"),
+                span.clone(),
             ));
         }
-        let mask_type = self.check_expr(&args[0], locals)?;
-        let a_type = self.check_expr(&args[1], locals)?;
-        let b_type = self.check_expr(&args[2], locals)?;
-        types::unify_vector(&a_type, &b_type)?;
-
-        match (&mask_type, &a_type) {
-            (
-                Type::Vector {
-                    elem: mask_elem,
-                    width: mask_w,
-                },
-                Type::Vector { width: val_w, .. },
-            ) if mask_elem.is_bool() && mask_w == val_w => Ok(a_type),
-            _ => Err(CompileError::type_error(
-                format!(
-                    "select mask must be bool vector matching operand width, got {mask_type:?}"
-                ),
-                Position::default(),
-            )),
+        let arg_type = self.check_expr(&args[0], locals)?;
+        if !arg_type.is_numeric() {
+            return Err(CompileError::type_error(
+                format!("{name} expects numeric argument, got {arg_type}"),
+                args[0].span().clone(),
+            ));
         }
+        let target = match name {
+            "to_f32" => Type::F32,
+            "to_f64" => Type::F64,
+            "to_i32" => Type::I32,
+            "to_i64" => Type::I64,
+            _ => unreachable!(),
+        };
+        Ok(target)
     }
 }

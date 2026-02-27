@@ -214,6 +214,22 @@ mod tests {
         assert!(ir.contains("select"), "IR must contain select instruction");
     }
 
+    #[test]
+    fn test_fma_rejects_integer_vectors() {
+        let result = ea_compiler::compile_to_ir(
+            r#"
+            func main() {
+                let a: i32x4 = [1, 2, 3, 4]i32x4
+                let b: i32x4 = [5, 6, 7, 8]i32x4
+                let c: i32x4 = [9, 10, 11, 12]i32x4
+                let r: i32x4 = fma(a, b, c)
+                println(r[0])
+            }
+        "#,
+        );
+        assert!(result.is_err(), "fma on integer vectors should be rejected");
+    }
+
     // --- 256-bit vectors ---
 
     #[test]

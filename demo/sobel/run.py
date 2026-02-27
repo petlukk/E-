@@ -8,18 +8,39 @@ compares correctness and performance.
 Usage:
     python run.py [image_path]
 
-If no image is given, generates a 1920x1080 synthetic test image.
+If no image is given, downloads a Kodak benchmark image (or generates synthetic).
 """
 
 import sys
 import time
 import ctypes
 import subprocess
+import urllib.request
 from pathlib import Path
 import numpy as np
 
 DEMO_DIR = Path(__file__).parent
 EA_ROOT = DEMO_DIR / ".." / ".."
+
+KODAK_URL = "https://r0k.us/graphics/kodak/kodak/kodim23.png"
+
+
+def download_test_image():
+    """Download a Kodak benchmark image if no input image exists."""
+    dest = DEMO_DIR / "input.png"
+    if dest.exists():
+        return dest
+    print(f"Downloading Kodak benchmark image...")
+    print(f"  Source: {KODAK_URL}")
+    try:
+        urllib.request.urlretrieve(KODAK_URL, str(dest))
+        print(f"  Saved: {dest}")
+        return dest
+    except Exception as e:
+        print(f"  Download failed: {e}")
+        print(f"  Falling back to synthetic image")
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Image loading
@@ -122,8 +143,9 @@ def sobel_numpy(img):
 
 
 def sobel_opencv(img):
-    """OpenCV Sobel. L1 norm for fair comparison."""
+    """OpenCV Sobel. L1 norm for fair comparison. Single-threaded for fairness."""
     import cv2
+    cv2.setNumThreads(1)
     gx = cv2.Sobel(img, cv2.CV_32F, 1, 0, ksize=3)
     gy = cv2.Sobel(img, cv2.CV_32F, 0, 1, ksize=3)
     return np.abs(gx) + np.abs(gy)
@@ -198,7 +220,8 @@ def benchmark(func, *args, warmup=5, runs=50):
         times.append((t1 - t0) * 1000)
 
     times.sort()
-    return times[len(times) // 2]  # median
+    median = times[len(times) // 2]
+    return median, float(np.std(times))
 
 
 # ---------------------------------------------------------------------------
@@ -212,9 +235,14 @@ def main():
         print(f"Loading: {img_path}")
         img = load_image(img_path)
     else:
-        print("No image provided, generating 1920x1080 test image")
-        img = generate_test_image()
-        save_image(img, DEMO_DIR / "input.png")
+        img_path = download_test_image()
+        if img_path is not None:
+            print(f"Using Kodak benchmark image: {img_path.name}")
+            img = load_image(img_path)
+        else:
+            print("Generating 1920x1080 synthetic test image")
+            img = generate_test_image()
+            save_image(img, DEMO_DIR / "input.png")
 
     h, w = img.shape
     print(f"Image: {w}x{h} ({w*h:,} pixels)\n")
@@ -261,22 +289,22 @@ def main():
     print("=== Performance ===")
     print(f"  {w}x{h} image, 50 runs, median time\n")
 
-    t_numpy = benchmark(sobel_numpy, img)
-    print(f"  NumPy          : {t_numpy:8.2f} ms")
+    t_numpy, s_numpy = benchmark(sobel_numpy, img)
+    print(f"  NumPy          : {t_numpy:8.2f} ms  ±{s_numpy:.2f}")
 
-    t_ea = benchmark(sobel_ea, img, so_path)
-    print(f"  Eä (sobel.so)  : {t_ea:8.2f} ms")
+    t_ea, s_ea = benchmark(sobel_ea, img, so_path)
+    print(f"  Eä (sobel.so)  : {t_ea:8.2f} ms  ±{s_ea:.2f}")
 
     if has_opencv:
-        t_cv = benchmark(sobel_opencv, img)
-        print(f"  OpenCV         : {t_cv:8.2f} ms")
+        t_cv, s_cv = benchmark(sobel_opencv, img)
+        print(f"  OpenCV         : {t_cv:8.2f} ms  ±{s_cv:.2f}")
 
     print()
     print("=== Summary ===")
     print(f"  Eä vs NumPy  : {t_numpy / t_ea:.1f}x {'faster' if t_ea < t_numpy else 'slower'}")
     if has_opencv:
         print(f"  Eä vs OpenCV : {t_cv / t_ea:.1f}x {'faster' if t_ea < t_cv else 'slower'}")
-        print(f"  Note: OpenCV uses optimized C++ with possible multithreading")
+        print(f"  Note: OpenCV pinned to 1 thread (cv2.setNumThreads(1)) for fair comparison")
 
     print()
     print("Output images saved to demo/sobel/")

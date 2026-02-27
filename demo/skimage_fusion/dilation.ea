@@ -1,0 +1,52 @@
+// Binary dilation: 3x3 max-of-neighbors.
+// For binary input (0.0 or 1.0), if any neighbor is 1.0, output is 1.0.
+// Equivalent to logical OR over the 3x3 neighborhood.
+
+export func dilate_3x3(
+    input: *restrict f32,
+    out: *mut f32,
+    width: i32,
+    height: i32
+) {
+    let vzero: f32x4 = splat(0.0)
+    let vone: f32x4 = splat(1.0)
+
+    let mut y: i32 = 1
+    while y < height - 1 {
+        let ra: i32 = (y - 1) * width
+        let rc: i32 = y * width
+        let rb: i32 = (y + 1) * width
+        let mut x: i32 = 1
+
+        while x + 4 <= width - 1 {
+            let r0a: f32x4 = load(input, ra + x - 1)
+            let r0b: f32x4 = load(input, ra + x)
+            let r0c: f32x4 = load(input, ra + x + 1)
+            let r1a: f32x4 = load(input, rc + x - 1)
+            let r1b: f32x4 = load(input, rc + x)
+            let r1c: f32x4 = load(input, rc + x + 1)
+            let r2a: f32x4 = load(input, rb + x - 1)
+            let r2b: f32x4 = load(input, rb + x)
+            let r2c: f32x4 = load(input, rb + x + 1)
+
+            let sum: f32x4 = r0a .+ r0b .+ r0c .+ r1a .+ r1b .+ r1c .+ r2a .+ r2b .+ r2c
+            store(out, rc + x, select(sum .> vzero, vone, vzero))
+            x = x + 4
+        }
+
+        while x < width - 1 {
+            let top: f32 = input[ra + x - 1] + input[ra + x] + input[ra + x + 1]
+            let mid: f32 = input[rc + x - 1] + input[rc + x] + input[rc + x + 1]
+            let bot: f32 = input[rb + x - 1] + input[rb + x] + input[rb + x + 1]
+            let total: f32 = top + mid + bot
+            if total > 0.0 {
+                out[rc + x] = 1.0
+            } else {
+                out[rc + x] = 0.0
+            }
+            x = x + 1
+        }
+
+        y = y + 1
+    }
+}

@@ -136,7 +136,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         function: FunctionValue<'ctx>,
     ) -> crate::error::Result<(PointerValue<'ctx>, String)> {
         match object {
-            Expr::Variable(name) => {
+            Expr::Variable(name, _) => {
                 let (alloca, ty) = self.variables.get(name).ok_or_else(|| {
                     CompileError::codegen_error(format!("undefined variable '{name}'"))
                 })?;
@@ -161,7 +161,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                     ))),
                 }
             }
-            Expr::Index { object: arr, index } => {
+            Expr::Index {
+                object: arr, index, ..
+            } => {
                 let arr_val = self.compile_expr(arr, function)?;
                 let idx = self.compile_expr(index, function)?.into_int_value();
                 let ptr = arr_val.into_pointer_value();
@@ -175,6 +177,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Ok((elem_ptr, struct_name))
             }
             Expr::FieldAccess { .. } => Err(CompileError::codegen_error(
+                // span absorbed by ..
                 "nested struct field access not supported",
             )),
             _ => Err(CompileError::codegen_error(
@@ -185,7 +188,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     fn resolve_struct_name_from_expr(&self, expr: &Expr) -> crate::error::Result<String> {
         match expr {
-            Expr::Variable(name) => {
+            Expr::Variable(name, _) => {
                 let (_, ty) = self.variables.get(name).ok_or_else(|| {
                     CompileError::codegen_error(format!("undefined variable '{name}'"))
                 })?;

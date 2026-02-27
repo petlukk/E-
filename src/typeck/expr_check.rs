@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::ast::{BinaryOp, Expr, Literal};
 use crate::error::CompileError;
-use crate::lexer::Position;
 
 use super::types::{self, Type};
 use super::TypeChecker;
@@ -14,33 +13,47 @@ impl TypeChecker {
         locals: &HashMap<String, (Type, bool)>,
     ) -> crate::error::Result<Type> {
         match expr {
-            Expr::Literal(Literal::Integer(_)) => Ok(Type::IntLiteral),
-            Expr::Literal(Literal::Float(_)) => Ok(Type::FloatLiteral),
-            Expr::Literal(Literal::Bool(_)) => Ok(Type::Bool),
-            Expr::Literal(Literal::StringLit(_)) => Ok(Type::String),
-            Expr::Variable(name) => locals.get(name).map(|(ty, _)| ty.clone()).ok_or_else(|| {
-                CompileError::type_error(
-                    format!("undefined variable '{name}'"),
-                    Position::default(),
-                )
-            }),
-            Expr::Not(inner) => {
+            Expr::Literal(Literal::Integer(_), _) => Ok(Type::IntLiteral),
+            Expr::Literal(Literal::Float(_), _) => Ok(Type::FloatLiteral),
+            Expr::Literal(Literal::Bool(_), _) => Ok(Type::Bool),
+            Expr::Literal(Literal::StringLit(_), _) => Ok(Type::String),
+            Expr::Variable(name, span) => {
+                locals.get(name).map(|(ty, _)| ty.clone()).ok_or_else(|| {
+                    CompileError::type_error(format!("undefined variable '{name}'"), span.clone())
+                })
+            }
+            Expr::Not(inner, span) => {
                 let inner_type = self.check_expr(inner, locals)?;
                 if !inner_type.is_bool() {
                     return Err(CompileError::type_error(
-                        format!("'!' requires bool operand, got {inner_type:?}"),
-                        Position::default(),
+                        format!("'!' requires bool operand, got {inner_type}"),
+                        span.clone(),
                     ));
                 }
                 Ok(Type::Bool)
             }
-            Expr::Index { object, index } => {
+            Expr::Negate(inner, span) => {
+                let inner_type = self.check_expr(inner, locals)?;
+                if inner_type.is_numeric() || inner_type.is_vector() {
+                    Ok(inner_type)
+                } else {
+                    Err(CompileError::type_error(
+                        format!("unary '-' requires numeric or vector operand, got {inner_type}"),
+                        span.clone(),
+                    ))
+                }
+            }
+            Expr::Index {
+                object,
+                index,
+                span,
+            } => {
                 let obj_type = self.check_expr(object, locals)?;
                 let idx_type = self.check_expr(index, locals)?;
                 if !idx_type.is_integer() {
                     return Err(CompileError::type_error(
-                        format!("index must be integer, got {idx_type:?}"),
-                        Position::default(),
+                        format!("index must be integer, got {idx_type}"),
+                        index.span().clone(),
                     ));
                 }
                 if let Type::Vector { elem, .. } = &obj_type {
@@ -49,12 +62,12 @@ impl TypeChecker {
                 match obj_type.pointee() {
                     Some(inner) => Ok(inner.clone()),
                     None => Err(CompileError::type_error(
-                        format!("cannot index type {obj_type:?}"),
-                        Position::default(),
+                        format!("cannot index type {obj_type}. Only pointers and vectors support indexing"),
+                        span.clone(),
                     )),
                 }
             }
-            Expr::Binary(lhs, op, rhs) => {
+            Expr::Binary(lhs, op, rhs, span) => {
                 let lt = self.check_expr(lhs, locals)?;
                 let rt = self.check_expr(rhs, locals)?;
                 match op {
@@ -62,33 +75,51 @@ impl TypeChecker {
                     | BinaryOp::Subtract
                     | BinaryOp::Multiply
                     | BinaryOp::Divide
-                    | BinaryOp::Modulo => types::unify_numeric(&lt, &rt),
+                    | BinaryOp::Modulo => types::unify_numeric(&lt, &rt, span.clone()),
                     BinaryOp::Less
                     | BinaryOp::Greater
                     | BinaryOp::LessEqual
                     | BinaryOp::GreaterEqual => {
-                        types::unify_numeric(&lt, &rt)?;
+                        types::unify_numeric(&lt, &rt, span.clone())?;
                         Ok(Type::Bool)
                     }
                     BinaryOp::Equal | BinaryOp::NotEqual => {
                         if lt.is_bool() && rt.is_bool() {
                             Ok(Type::Bool)
                         } else {
-                            types::unify_numeric(&lt, &rt)?;
+                            types::unify_numeric(&lt, &rt, span.clone())?;
                             Ok(Type::Bool)
                         }
                     }
                     BinaryOp::And | BinaryOp::Or => {
                         if !lt.is_bool() || !rt.is_bool() {
                             return Err(CompileError::type_error(
-                                format!("logical operators require bool operands, got {lt:?} and {rt:?}"),
-                                Position::default(),
+                                format!(
+                                    "logical operators require bool operands, got {lt} and {rt}"
+                                ),
+                                span.clone(),
                             ));
                         }
                         Ok(Type::Bool)
                     }
                     BinaryOp::AddDot | BinaryOp::SubDot | BinaryOp::MulDot | BinaryOp::DivDot => {
-                        types::unify_vector(&lt, &rt)
+                        types::unify_vector(&lt, &rt, span.clone())
+                    }
+                    BinaryOp::AndDot | BinaryOp::OrDot | BinaryOp::XorDot => {
+                        let result = types::unify_vector(&lt, &rt, span.clone())?;
+                        match &result {
+                            Type::Vector { elem, .. } if elem.is_integer() => Ok(result),
+                            Type::Vector { elem, .. } => Err(CompileError::type_error(
+                                format!(
+                                    "bitwise vector ops require integer element type, got {elem}"
+                                ),
+                                span.clone(),
+                            )),
+                            _ => Err(CompileError::type_error(
+                                format!("bitwise vector ops require vector operands, got {result}"),
+                                span.clone(),
+                            )),
+                        }
                     }
                     BinaryOp::LessDot
                     | BinaryOp::GreaterDot
@@ -96,29 +127,29 @@ impl TypeChecker {
                     | BinaryOp::GreaterEqualDot
                     | BinaryOp::EqualDot
                     | BinaryOp::NotEqualDot => {
-                        types::unify_vector(&lt, &rt)?;
+                        types::unify_vector(&lt, &rt, span.clone())?;
                         match &lt {
                             Type::Vector { width, .. } => Ok(Type::Vector {
                                 elem: Box::new(Type::Bool),
                                 width: *width,
                             }),
                             _ => Err(CompileError::type_error(
-                                format!("dotted comparison requires vectors, got {lt:?}"),
-                                Position::default(),
+                                format!("dotted comparison requires vectors, got {lt}"),
+                                span.clone(),
                             )),
                         }
                     }
                 }
             }
 
-            Expr::Vector { elements, ty } => {
+            Expr::Vector { elements, ty, span } => {
                 let vec_type = types::resolve_type(ty)?;
                 let (elem_type, width) = match &vec_type {
                     Type::Vector { elem, width } => (elem.as_ref(), *width),
                     _ => {
                         return Err(CompileError::type_error(
-                            format!("expected vector type, got {vec_type:?}"),
-                            Position::default(),
+                            format!("expected vector type, got {vec_type}"),
+                            span.clone(),
                         ))
                     }
                 };
@@ -126,7 +157,7 @@ impl TypeChecker {
                 if elements.len() != width {
                     return Err(CompileError::type_error(
                         format!("vector expects {width} elements, got {}", elements.len()),
-                        Position::default(),
+                        span.clone(),
                     ));
                 }
 
@@ -134,18 +165,22 @@ impl TypeChecker {
                     let actual = self.check_expr(el, locals)?;
                     if !types::types_compatible(&actual, elem_type) {
                         return Err(CompileError::type_error(
-                            format!("vector element {i} expected {elem_type:?}, got {actual:?}"),
-                            Position::default(),
+                            format!("vector element {i} expected {elem_type}, got {actual}"),
+                            el.span().clone(),
                         ));
                     }
                 }
                 Ok(vec_type)
             }
-            Expr::ArrayLiteral(_) => Err(CompileError::type_error(
+            Expr::ArrayLiteral(_, span) => Err(CompileError::type_error(
                 "array literals can only be used as shuffle indices",
-                Position::default(),
+                span.clone(),
             )),
-            Expr::FieldAccess { object, field } => {
+            Expr::FieldAccess {
+                object,
+                field,
+                span,
+            } => {
                 let obj_type = self.check_expr(object, locals)?;
                 let struct_name = match &obj_type {
                     Type::Struct(name) => name.clone(),
@@ -153,22 +188,22 @@ impl TypeChecker {
                         Type::Struct(name) => name.clone(),
                         _ => {
                             return Err(CompileError::type_error(
-                                format!("field access on non-struct pointer type {obj_type:?}"),
-                                Position::default(),
+                                format!("field access on non-struct pointer type {obj_type}"),
+                                span.clone(),
                             ))
                         }
                     },
                     _ => {
                         return Err(CompileError::type_error(
-                            format!("field access on non-struct type {obj_type:?}"),
-                            Position::default(),
+                            format!("field access on non-struct type {obj_type}"),
+                            span.clone(),
                         ))
                     }
                 };
                 let fields = self.structs.get(&struct_name).ok_or_else(|| {
                     CompileError::type_error(
                         format!("unknown struct '{struct_name}'"),
-                        Position::default(),
+                        span.clone(),
                     )
                 })?;
                 fields
@@ -178,16 +213,13 @@ impl TypeChecker {
                     .ok_or_else(|| {
                         CompileError::type_error(
                             format!("struct '{struct_name}' has no field '{field}'"),
-                            Position::default(),
+                            span.clone(),
                         )
                     })
             }
-            Expr::StructLiteral { name, fields } => {
+            Expr::StructLiteral { name, fields, span } => {
                 let def_fields = self.structs.get(name).ok_or_else(|| {
-                    CompileError::type_error(
-                        format!("unknown struct '{name}'"),
-                        Position::default(),
-                    )
+                    CompileError::type_error(format!("unknown struct '{name}'"), span.clone())
                 })?;
                 if fields.len() != def_fields.len() {
                     return Err(CompileError::type_error(
@@ -196,7 +228,7 @@ impl TypeChecker {
                             def_fields.len(),
                             fields.len()
                         ),
-                        Position::default(),
+                        span.clone(),
                     ));
                 }
                 for (field_name, field_val) in fields {
@@ -207,28 +239,25 @@ impl TypeChecker {
                         .ok_or_else(|| {
                             CompileError::type_error(
                                 format!("struct '{name}' has no field '{field_name}'"),
-                                Position::default(),
+                                field_val.span().clone(),
                             )
                         })?;
                     let actual = self.check_expr(field_val, locals)?;
                     if !types::types_compatible(&actual, &expected) {
                         return Err(CompileError::type_error(
-                            format!("field '{field_name}': expected {expected:?}, got {actual:?}"),
-                            Position::default(),
+                            format!("field '{field_name}': expected {expected}, got {actual}"),
+                            field_val.span().clone(),
                         ));
                     }
                 }
                 Ok(Type::Struct(name.clone()))
             }
-            Expr::Call { name, args } => {
-                if let Some(result) = self.check_intrinsic_call(name, args, locals, None) {
+            Expr::Call { name, args, span } => {
+                if let Some(result) = self.check_intrinsic_call(name, args, locals, None, span) {
                     return result;
                 }
                 let sig = self.functions.get(name).ok_or_else(|| {
-                    CompileError::type_error(
-                        format!("undefined function '{name}'"),
-                        Position::default(),
-                    )
+                    CompileError::type_error(format!("undefined function '{name}'"), span.clone())
                 })?;
                 if args.len() != sig.params.len() {
                     return Err(CompileError::type_error(
@@ -238,7 +267,7 @@ impl TypeChecker {
                             sig.params.len(),
                             args.len()
                         ),
-                        Position::default(),
+                        span.clone(),
                     ));
                 }
                 for (i, (arg, expected)) in args.iter().zip(&sig.params).enumerate() {
@@ -246,13 +275,13 @@ impl TypeChecker {
                     if !types::types_compatible(&actual, expected) {
                         return Err(CompileError::type_error(
                             format!(
-                                "argument {} of '{}': expected {:?}, got {:?}",
+                                "argument {} of '{}': expected {}, got {}",
                                 i + 1,
                                 name,
                                 expected,
                                 actual
                             ),
-                            Position::default(),
+                            arg.span().clone(),
                         ));
                     }
                 }
@@ -267,8 +296,8 @@ impl TypeChecker {
         locals: &HashMap<String, (Type, bool)>,
         type_hint: Option<&Type>,
     ) -> crate::error::Result<Type> {
-        if let Expr::Call { name, args } = expr {
-            if let Some(result) = self.check_intrinsic_call(name, args, locals, type_hint) {
+        if let Expr::Call { name, args, span } = expr {
+            if let Some(result) = self.check_intrinsic_call(name, args, locals, type_hint, span) {
                 return result;
             }
         }

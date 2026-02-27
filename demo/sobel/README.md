@@ -1,7 +1,7 @@
 # Sobel Edge Detection — Eä Demo
 
-This demo compares three implementations of Sobel edge detection
-on a 1920x1080 grayscale image:
+Tested on the Kodak image processing benchmark dataset.
+This demo compares three implementations of Sobel edge detection:
 
 - **NumPy** — idiomatic Python, array slicing
 - **OpenCV** — industry-standard optimized C++
@@ -112,8 +112,8 @@ export func sobel(
 # Build compiler (once)
 cargo build --features=llvm --release
 
-# Run demo
-python demo/sobel/run.py                    # synthetic test image
+# Run demo (auto-downloads Kodak benchmark image on first run)
+python demo/sobel/run.py                    # Kodak benchmark image (auto-download)
 python demo/sobel/run.py path/to/photo.jpg  # your own image
 ```
 

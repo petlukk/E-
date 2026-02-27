@@ -1,0 +1,26 @@
+// MNIST pixel normalization: uint8 [0,255] → float32 [0,1]
+// Input is pre-cast to f32 by Python. Kernel scales by caller-provided factor.
+//
+// This is the simplest useful ML preprocessing kernel:
+// one streaming pass, no dependencies, no intermediate arrays.
+
+// foreach variant (relies on LLVM auto-vectorization at O2+)
+export func normalize_foreach(input: *restrict f32, out: *mut f32, len: i32, scale: f32) {
+    foreach (i in 0..len) {
+        out[i] = input[i] * scale
+    }
+}
+
+export func normalize_f32x8(input: *restrict f32, out: *mut f32, len: i32, scale: f32) {
+    let vscale: f32x8 = splat(scale)
+    let mut i: i32 = 0
+    while i + 8 <= len {
+        let v: f32x8 = load(input, i)
+        store(out, i, v .* vscale)
+        i = i + 8
+    }
+    while i < len {
+        out[i] = input[i] * scale
+        i = i + 1
+    }
+}

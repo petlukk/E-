@@ -1,0 +1,15 @@
+// byte_ops.ea — SIMD byte vector operations demo
+// threshold_u8x16: applies a pixel threshold using u8x16 SIMD
+
+export func threshold_u8x16(src: *u8, dst: *mut u8, n: i32, thresh: u8) {
+    let mut i: i32 = 0
+    let t: u8x16 = splat(thresh)
+    let ff: u8x16 = splat(255)
+    let zero: u8x16 = splat(0)
+    while i < n {
+        let chunk: u8x16 = load(src, i)
+        let result: u8x16 = select(chunk .> t, ff, zero)
+        store(dst, i, result)
+        i = i + 16
+    }
+}

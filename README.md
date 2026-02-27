@@ -1,9 +1,11 @@
-# Ea
+# Eä
 
 **SIMD kernel language for C and Python.**
 
-Write readable SIMD code. Compile to `.o` or `.so`. Call from C, Rust, Python via C ABI.
-No runtime. No garbage collector. Explicit memory control. Just kernels.
+Write SIMD kernels in clean, minimal syntax. Compile to `.o` or `.so`. Call from C, Rust, Python via C ABI.
+No runtime. No garbage collector. No hidden performance cliffs.
+
+> **[Ea Showcase](https://github.com/petlukk/Ea_showcase)** — visual demo application showing Ea kernels running live.
 
 ## Example
 
@@ -34,181 +36,164 @@ extern void fma_kernel(const float*, const float*, const float*, float*, int);
 fma_kernel(a, b, c, result, n);  // that's it
 ```
 
-## Benchmark
+## Design Principles
 
-Measured on AMD Ryzen 7 1700 (Zen 1, AVX2/FMA), GCC 11.4, LLVM 18, Linux (WSL2).
-1M elements, 100-200 runs, averaged. Full methodology and scripts in `benchmarks/`.
+- **Explicit over implicit** — SIMD width, loop stepping, and memory access are programmer-controlled
+- **Predictable performance over abstraction** — no hidden allocations, no auto-vectorizer surprises
+- **Kernel isolation over language integration** — compute kernels are compiled separately, called via C ABI
+- **Zero runtime cost** — no garbage collector, no runtime, no hidden checks
 
-**Ea uses strict IEEE floating point -- no fast-math flags.** The C reference was
-compiled with `gcc -O3 -march=native -ffast-math`. Ea matching this baseline
-without fast-math is the stronger claim.
+## Non-goals
 
-### FMA Kernel (result[i] = a[i] \* b[i] + c[i])
-
-| Implementation   | Avg (us) | vs Fastest C |
-| ---------------- | -------- | ------------ |
-| GCC f32x8 (AVX2) | 887      | 1.03x        |
-| **Ea f32x4**     | **885**  | **1.03x**    |
-| Clang-14 f32x8   | 859      | 1.00x        |
-| ISPC             | 828      | 0.96x        |
-| Rust std::simd   | 1001     | 1.17x        |
-
-### Sum Reduction
-
-| Implementation   | Avg (us) | vs Fastest C |
-| ---------------- | -------- | ------------ |
-| C f32x8 (AVX2)   | 110      | 1.00x        |
-| **Ea f32x8**     | **105**  | **0.96x**    |
-| Clang-14 f32x8   | 130      | 1.18x        |
-| ISPC             | 105      | 0.95x        |
-| Rust f32x8       | 111      | 1.01x        |
-
-### Max Reduction (multi-accumulator)
-
-| Implementation  | Avg (us) | vs Fastest C |
-| --------------- | -------- | ------------ |
-| C f32x4 (SSE)   | 100      | 1.00x        |
-| **Ea f32x4**    | **78**   | **0.83x**    |
-| Clang-14 f32x4  | 89       | 0.95x        |
-| ISPC            | 71       | 0.76x        |
-| Rust f32x4      | 180      | 1.93x        |
-
-### Min Reduction (multi-accumulator)
-
-| Implementation  | Avg (us) | vs Fastest C |
-| --------------- | -------- | ------------ |
-| C f32x4 (SSE)   | 80       | 1.00x        |
-| **Ea f32x4**    | **78**   | **0.97x**    |
-| Clang-14 f32x4  | 88       | 1.10x        |
-| ISPC            | 73       | 0.91x        |
-| Rust f32x4      | 220      | 2.77x        |
-
-Ea's reduction kernels use explicit multi-accumulator patterns to break dependency
-chains -- see `examples/reduction_multi_acc.ea`. This is faster than relying on
-compiler auto-unrolling and stable across LLVM versions.
-
-Competitors are optional -- benchmarks run with whatever toolchains are installed.
-GCC is required; Clang, ISPC, and Rust nightly are detected and included automatically.
-
----
-
-## Additional Benchmark Results (Intel i7-1260P, WSL2)
-
-Measured on Intel i7-1260P (Alder Lake, AVX2/FMA), LLVM 18, Linux (WSL2).
-1M elements, 100–200 runs, **minimum** time reported.
-
-### Key Finding: `restrict` produces identical machine code
-
-The `noalias` attribute is correctly emitted in LLVM IR, but it has no measurable impact on these benchmarks because:
-
-- The generated assembly is byte-identical with and without `restrict` (confirmed via `objdump -d` + MD5 comparison)
-- Ea's explicit SIMD intrinsics (`load` / `store` / `fma`) already use distinct base pointers, so LLVM's alias analysis does not require `noalias` hints
-- Ea's explicit SIMD means the loop vectorizer and SLP passes have little to contribute beyond what is already expressed
-- Reduction kernels have a single pointer parameter, making `noalias` vacuous
-
-The implementation is correct and complete — it is simply not performance-relevant for these specific kernels. The feature is positioned for value when the optimizer pipeline grows (auto-tiling, software pipelining, prefetching) or when users write more complex aliasing patterns.
-
-### FMA Kernel (1M f32, 100 runs, min time)
-
-| Implementation       | Min (us) |
-| -------------------- | -------- |
-| GCC f32x8 (AVX2)     | ~395     |
-| Clang-14 f32x8       | ~396     |
-| **Ea f32x4**         | **~326** |
-| Clang-14 f32x4       | ~376     |
-| Rust std::simd f32x4 | ~365     |
-| ISPC                 | ~656     |
-
-### Sum Reduction (1M f32, 200 runs, min time)
-
-| Implementation | Min (us) |
-| -------------- | -------- |
-| ISPC           | ~62      |
-| **Ea f32x8**   | **~65**  |
-| Rust f32x8     | ~66      |
-| C f32x8 (AVX2) | ~68      |
-
-### Notes
-
-- ISPC compilation flag fixed (`--PIC` → `--pic`) in `bench_common.py`
-- Benchmarks confirm that explicit SIMD already provides sufficient aliasing information to LLVM
-- `restrict` becomes valuable when introducing auto-optimization features or more complex aliasing scenarios
-
-## Performance Principle
-
-LLVM optimizes instructions. Ea lets you optimize dependency structure.
-
-A single-accumulator reduction creates a serial chain -- each iteration waits for
-the previous one. On a superscalar CPU, this wastes execution units:
-
-```
-// Single accumulator: serial dependency, ~0.25 IPC on Zen 1
-acc = max(acc, load(data, i))   // must wait for previous acc
-```
-
-Express the parallelism explicitly with multiple accumulators:
-
-```
-// Two accumulators: independent chains, ~1.0 IPC on Zen 1
-acc0 = max(acc0, load(data, i))      // independent
-acc1 = max(acc1, load(data, i + 4))  // independent
-```
-
-Result: 2x throughput from a source-level change, stable across LLVM versions,
-no compiler flags or optimizer tuning required.
-
-See `examples/reduction_single.ea` and `examples/reduction_multi_acc.ea`.
+- Not a general-purpose language — no strings, collections, or modules
+- No safety guarantees — correctness is the programmer's responsibility
+- No auto-vectorization in the default path — SIMD width is always explicit (`foreach` relies on LLVM, but explicit vector types are the primary path)
+- Not intended to replace Rust, C++, or any host language
 
 ## Compute Model
 
-Ea defines six kernel patterns that cover most compute workloads:
+Seven kernel patterns — streaming, reduction, stencil, streaming dataset, fused
+pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) for
+the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
+of when each pattern wins and when it doesn't.
 
-| Pattern | What it does | Example |
-|---------|-------------|---------|
-| Streaming | Element-wise transform | `fma.ea` |
-| Reduction | Array → scalar with multi-acc ILP | `reduction.ea` |
-| Branchless | Conditional logic via `select` | `threshold.ea` |
-| Multi-pass | Reduction then streaming | `normalize.ea` |
-| Stencil | Neighborhood access (convolution) | `conv2d.ea` |
-| Pipeline | Multiple kernels composed | `sobel.ea` |
+## v1.0 — error diagnostics, masked ops, scatter/gather
 
-The full compute model — dependency structure, memory patterns, vector width
-selection, and design principles — is documented in [`COMPUTE.md`](COMPUTE.md).
+**`foreach`** — auto-vectorized element-wise loops with phi-node codegen:
 
-For a deeper analysis of when each pattern wins and when it doesn't, with
-measured results and memory models, see [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md).
+```
+export func scale(data: *f32, out: *mut f32, n: i32, factor: f32) {
+    foreach (i in 0..n) {
+        out[i] = data[i] * factor
+    }
+}
+```
+
+`foreach` generates a scalar loop with phi nodes. LLVM may auto-vectorize at `-O2+`.
+For guaranteed SIMD width, use explicit `load`/`store` with `f32x4`/`f32x8`.
+
+**`unroll(N)`** — hint to unroll the following loop:
+
+```
+unroll(4) foreach (i in 0..n) { out[i] = data[i] * factor }
+unroll(4) while i < n { ... }
+```
+
+Relies on LLVM unrolling heuristics. Not a hard guarantee.
+
+**`prefetch(ptr, offset)`** — software prefetch hint for large-array streaming:
+
+```
+prefetch(data, i + 16)
+```
+
+**`--header`** — generate a C header alongside the object file:
+
+```bash
+ea kernel.ea --header    # produces kernel.o + kernel.h
+```
+
+```c
+// kernel.h (generated)
+#ifndef KERNEL_H
+#define KERNEL_H
+#include <stdint.h>
+void scale(const float* data, float* out, int32_t n, float factor);
+#endif
+```
+
+**`--emit-asm`** — emit assembly for inspection:
+
+```bash
+ea kernel.ea --emit-asm  # produces kernel.s
+```
 
 ## Demos
 
 Real workloads. Real data. Verified against established tools.
 
-| Demo | Domain | Patterns | Result |
-|------|--------|----------|--------|
-| [Sobel edge detection](demo/sobel/) | Image processing | Stencil, pipeline | 2.7x faster than OpenCV, 9.3x faster than NumPy |
-| [Video anomaly detection](demo/video_anomaly/) | Video analysis | Streaming, branchless, reduction | ~1.2x vs NumPy (NumPy is already good here) |
-| [Astronomy stacking](demo/astro_stack/) | Scientific computing | Streaming dataset | 6.3x faster, 16x less memory than NumPy |
+| Demo                                           | Domain               | Patterns                                        | Result                                                                     |
+| ---------------------------------------------- | -------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
+| [Sobel edge detection](demo/sobel/)            | Image processing     | Stencil, pipeline                               | 9.3x faster than NumPy, 2.7x faster than OpenCV                            |
+| [Video anomaly detection](demo/video_anomaly/) | Video analysis       | Streaming, fused pipeline                       | 3 kernels: **0.98x (slower)**. Fused: **13x faster**                       |
+| [Astronomy stacking](demo/astro_stack/)        | Scientific computing | Streaming dataset                               | 6.4x faster, 16x less memory than NumPy                                    |
+| [MNIST preprocessing](demo/mnist_normalize/)   | ML preprocessing     | Streaming, fused pipeline                       | Single op: **0.9x (slower)**. Fused pipeline: **2.6x faster**              |
+| [Pixel pipeline](demo/pixel_pipeline/)         | Image processing     | u8x16 threshold, u8→f32 widen                   | threshold: **22x**, normalize: **2.1x** vs NumPy                           |
+| [Conv2d (dot/1d)](demo/conv2d/)                | Integer SIMD         | maddubs_i16, u8×i8                              | dot: **5.9x**, conv1d: **3.0x** vs NumPy                                   |
+| [Conv2d 3×3 NHWC](demo/conv2d_3x3/)            | Quantized inference  | maddubs_i16 dual-acc / maddubs_i32 safe variant | **48x vs NumPy**, 38 GMACs/s on 56×56×64                                   |
+| [Pipeline fusion](demo/skimage_fusion/)        | Image processing     | Stencil fusion, algebraic optimization          | 6.2x vs NumPy, **1.3x fusion at 4K**, 7x memory reduction                  |
+| [Tokenizer prepass](demo/tokenizer_prepass/)   | Text/NLP             | Structural scan, bitwise ops                    | unfused: **78.7x**, fused: **58.1x** vs NumPy (fusion: 0.74x — see README) |
+| [Particle update](demo/particles/)             | Struct FFI           | C-compatible structs over FFI                   | Correctness demo — proves struct layout matches C exactly                  |
+| [Cornell Box ray tracer](demo/cornell_box/)    | Graphics             | Struct return, recursion, scalar math           | First non-SIMD demo: full ray tracer in 245 lines of Eä                    |
+| [Particle life](demo/particle_life/)           | Simulation           | N-body scalar, fused vs unfused                 | Matches hand-written C at -O2. Interactive pygame UI                       |
 
 Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
 
-The video anomaly result is intentionally modest. For simple element-wise operations,
-NumPy is already close to optimal. Ea's advantage shows in dependency structure
-(reductions), spatial access (stencils), and memory model (streaming datasets).
-See [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for the full analysis.
+**Methodology:** all speedup numbers are warm-cache medians (50 runs after 5 warmup).
+Where cold-cache numbers differ materially they are noted. See [`AUDIT_v0.3.0.md`](AUDIT_v0.3.0.md)
+for the full integrity audit: assembly verification, cold-cache analysis, honest loss
+accounting, i16 overflow constraint, and cross-machine results.
 
-## Why not...
+### Kernel fusion
 
-**C with intrinsics?**
-Works, but `_mm256_fmadd_ps(_mm256_loadu_ps(&a[i]), ...)` is unreadable and error-prone.
-Ea compiles `fma(load(a, i), load(b, i), load(c, i))` to the same instructions.
+**Streaming fusion** — the video anomaly demo ships both unfused (3-kernel) and
+fused (1-kernel) implementations. Same language. Same compiler. Same data.
 
-**Rust with `std::simd`?**
+```
+Ea (3 kernels)      :  1.12 ms   (0.98x — slightly slower due to FFI + memory overhead)
+Ea fused (1 kernel) :  0.08 ms   (13x faster than NumPy, 12x faster than OpenCV)
+```
+
+The MNIST scaling experiment confirms this scales linearly with pipeline depth:
+
+```
+1 op  →   2.0x    Ea time: 39 ms (constant)
+2 ops →   4.0x    NumPy time: scales linearly
+4 ops →  12.0x    Each extra NumPy op = +125 ms (full RAM roundtrip)
+8 ops →  25.2x    Each extra Ea op = ~0 ms (SIMD register instruction)
+```
+
+**Stencil fusion** — the pipeline fusion demo fuses Gaussian blur + Sobel +
+threshold into a single 5x5 stencil. The first attempt was _slower_ than
+unfused — naive composition computed 8 redundant Gaussian blurs per output
+pixel. Algebraic reformulation (precomputing the combined convolution as a
+separable 5x5 kernel) reduced ops from ~120 to ~50 and made fusion win:
+
+```
+  768x512   →  1.02x fusion speedup   (fits in L3 cache)
+ 3840x2160  →  1.33x fusion speedup   (intermediates spill to DRAM)
+```
+
+Same language. Same compiler. The compute formulation changed.
+
+> **If data leaves registers, you probably ended a kernel too early.**
+
+> **Fusion does not make bad kernels fast. Fusion amplifies good kernel design.**
+
+See [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for the full analysis of all
+compute classes, including when Ea wins, when it doesn't, and when fusion hurts.
+
+## Benchmarks
+
+In tested kernels, Ea reaches performance comparable to hand-written C intrinsics
+on FMA and reduction workloads, using strict IEEE floating point (no fast-math).
+See [`BENCHMARKS.md`](BENCHMARKS.md) for full tables (AMD Ryzen 7, Intel i7),
+restrict analysis, and ILP methodology.
+
+## Relation to existing approaches
+
+**C with intrinsics** —
+Works, but `_mm256_fmadd_ps(_mm256_loadu_ps(&a[i]), ...)` is noisy and error-prone.
+Ea compiles `fma(load(a, i), load(b, i), load(c, i))` to the same instructions — no casts, no prefixes, no headers.
+
+**Rust with `std::simd`** —
 `std::simd` is nightly-only and Rust's type system adds friction for kernel code.
-Ea is purpose-built: no lifetimes, no borrows, no generics. Just SIMD.
+Ea is purpose-built: no lifetimes, no borrows, no generics.
 
-**ISPC?**
-ISPC auto-vectorizes scalar code. Ea gives you explicit control over vector width and operations.
-Different philosophy -- Ea is closer to "portable intrinsics" than an auto-vectorizer.
+**ISPC** —
+ISPC auto-vectorizes scalar code. Ea gives explicit control over vector width and operations.
+Different philosophy — Ea is closer to portable intrinsics than an auto-vectorizer.
 
 ## Safety Model
 
@@ -219,13 +204,29 @@ kernel code needs predictable performance without hidden checks.
 
 ## Features
 
-- **SIMD**: `f32x4`, `f32x8`, `i32x4`, `i32x8` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
+- **SIMD**: `f32x4`, `f32x8`, `f32x16`, `i32x4`, `i32x8`, `i8x16`, `i8x32`, `u8x16`, `i16x8`, `i16x16` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
+- **Vector bitwise**: `.&` (AND), `.|` (OR), `.^` (XOR) on integer vector types
 - **Reductions**: `reduce_add`, `reduce_max`, `reduce_min`
+- **Integer SIMD**: `maddubs_i16(u8x16, i8x16) -> i16x8` (SSSE3 pmaddubsw — 16 pairs/cycle, fast/wrapping); `maddubs_i32(u8x16, i8x16) -> i32x4` (pmaddubsw+pmaddwd — safe i32 accumulation)
+- **Widening/narrowing**: `widen_u8_f32x4`, `widen_i8_f32x4`, `narrow_f32x4_i8`
+- **Math**: `sqrt(x)`, `rsqrt(x)` for scalar and vector float types
+- **Type conversions**: `to_f32(x)`, `to_f64(x)`, `to_i32(x)`, `to_i64(x)`
+- **Unary negation**: `-x` on numeric types and vectors
 - **Structs**: C-compatible layout, pointer-to-struct, array-of-structs
 - **Pointers**: `*T`, `*mut T`, pointer indexing (`arr[i]`)
-- **Types**: `i8`-`i64`, `u8`-`u64`, `f32`, `f64`, `bool`
+- **Literals**: decimal (`255`), hex (`0xFF`), binary (`0b11110000`)
+- **Control flow**: `if`/`else if`/`else`, `while`, short-circuit `&&`/`||`
+- **Types**: `i8`, `u8`, `i16`, `u16`, `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`
+- **foreach**: `foreach (i in 0..n) { ... }` — element-wise loops (LLVM may auto-vectorize at O2+)
+- **unroll(N)**: loop unrolling hint for `while` and `foreach`
+- **prefetch**: `prefetch(ptr, offset)` — software prefetch for large-array streaming
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
 - **C ABI**: every `export func` is callable from any language
+- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output)
+- **Masked memory**: `load_masked`, `store_masked` for safe SIMD tail handling
+- **Scatter/Gather**: `gather(ptr, indices)`, `scatter(ptr, indices, values)` (scatter requires `--avx512`)
+- **Restrict pointers**: `*restrict T`, `*mut restrict T` for alias-free optimization
+- **AVX-512**: `f32x16` via `--avx512` flag
 
 Currently tested on x86-64 with AVX2. Other architectures depend on LLVM backend support.
 
@@ -247,7 +248,7 @@ ea kernel.ea --lib        # -> kernel.so
 # Compile standalone executable
 ea app.ea -o app          # -> app
 
-# Run tests (109 passing)
+# Run tests (247 passing)
 cargo test --features=llvm
 ```
 
@@ -287,8 +288,8 @@ lib.fma_kernel(
 Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
 ```
 
-~4,600 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-109 tests covering C interop, SIMD operations, structs, and shared library output.
+~7,300 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
+247 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, error diagnostics, masked operations, scatter/gather, and compiler flags.
 
 ## License
 

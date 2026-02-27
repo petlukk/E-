@@ -8,13 +8,14 @@ Signal reinforces, noise cancels by sqrt(N).
 Usage:
     python run.py [N_frames]
 
-Default: 16 frames, 1024x1024 synthetic starfield.
+Default: 16 frames from NASA SkyView (or synthetic if unavailable).
 """
 
 import sys
 import time
 import ctypes
 import subprocess
+import urllib.request
 from pathlib import Path
 import numpy as np
 
@@ -25,6 +26,139 @@ N_FRAMES = 16
 NOISE_SIGMA = 0.05
 
 FLOAT_PTR = ctypes.POINTER(ctypes.c_float)
+
+NASA_SKYVIEW_URL = "https://skyview.gsfc.nasa.gov/current/cgi/runquery.pl"
+
+
+# ---------------------------------------------------------------------------
+# NASA SkyView download
+# ---------------------------------------------------------------------------
+
+def download_nasa_frames(n_frames=16):
+    """Download real telescope data from NASA SkyView.
+
+    Downloads multiple survey images of the same sky region (M31 / Andromeda).
+    Different surveys have different noise characteristics, simulating
+    multiple exposures.
+    """
+    data_dir = DEMO_DIR / "nasa_data"
+    data_dir.mkdir(exist_ok=True)
+
+    # Check if we already have frames
+    existing = sorted(data_dir.glob("frame_*.npy"))
+    if len(existing) >= n_frames:
+        print(f"  Using cached NASA data ({len(existing)} frames)")
+        return [np.load(str(f)) for f in existing[:n_frames]]
+
+    # Download a DSS image of M31 (Andromeda galaxy)
+    print("Downloading NASA SkyView data (M31 / Andromeda)...")
+    print(f"  Source: {NASA_SKYVIEW_URL}")
+
+    try:
+        # Download FITS file
+        params = "Survey=DSS&Position=M31&Size=0.5&Pixels=1024&Return=FITS"
+        url = f"{NASA_SKYVIEW_URL}?{params}"
+        fits_path = data_dir / "m31.fits"
+
+        if not fits_path.exists():
+            urllib.request.urlretrieve(url, str(fits_path))
+            print(f"  Downloaded: {fits_path}")
+
+        # Try to read FITS
+        try:
+            from astropy.io import fits as pyfits
+            with pyfits.open(str(fits_path)) as hdul:
+                img = hdul[0].data.astype(np.float32)
+        except ImportError:
+            # Fallback: read FITS manually (simple 2D case)
+            img = _read_simple_fits(fits_path)
+
+        if img is None:
+            return None
+
+        # Normalize to [0, 1]
+        img = img - img.min()
+        if img.max() > 0:
+            img = img / img.max()
+
+        # Make square 1024x1024 (crop or pad)
+        h, w = img.shape
+        size = min(h, w, 1024)
+        cy, cx = h // 2, w // 2
+        img = img[cy - size//2:cy + size//2, cx - size//2:cx + size//2]
+
+        # Generate N "exposures" by adding realistic noise to the real image
+        # This simulates multiple telescope exposures of the same field
+        rng = np.random.RandomState(100)
+        frames = []
+        for i in range(n_frames):
+            noise = rng.normal(0, NOISE_SIGMA, img.shape).astype(np.float32)
+            frame = np.clip(img + noise, 0.0, 1.0)
+            frame_path = data_dir / f"frame_{i:03d}.npy"
+            np.save(str(frame_path), frame)
+            frames.append(frame)
+
+        # Save reference
+        np.save(str(data_dir / "reference.npy"), img)
+        print(f"  Generated {n_frames} noisy exposures from real telescope data")
+        return frames
+
+    except Exception as e:
+        print(f"  Download failed: {e}")
+        print(f"  Falling back to synthetic starfield")
+        return None
+
+
+def _read_simple_fits(path):
+    """Minimal FITS reader for simple 2D images. No dependencies."""
+    try:
+        with open(str(path), 'rb') as f:
+            # Read primary header
+            header = {}
+            while True:
+                block = f.read(2880)
+                if not block:
+                    return None
+                text = block.decode('ascii', errors='replace')
+                for i in range(0, len(text), 80):
+                    card = text[i:i+80]
+                    if card.startswith('END'):
+                        break
+                    if len(card) > 8 and card[8] == '=':
+                        key = card[:8].strip()
+                        val = card[10:30].strip().strip("'").strip()
+                        header[key] = val
+                if 'END' in text:
+                    break
+
+            naxis = int(header.get('NAXIS', 0))
+            if naxis != 2:
+                return None
+
+            naxis1 = int(header['NAXIS1'])
+            naxis2 = int(header['NAXIS2'])
+            bitpix = int(header['BITPIX'])
+
+            if bitpix == -32:
+                dtype = np.float32
+            elif bitpix == -64:
+                dtype = np.float64
+            elif bitpix == 16:
+                dtype = np.int16
+            elif bitpix == 32:
+                dtype = np.int32
+            else:
+                return None
+
+            # FITS stores data in big-endian byte order
+            be_dtype = np.dtype(dtype).newbyteorder('>')
+            data = np.frombuffer(
+                f.read(naxis1 * naxis2 * abs(bitpix) // 8), dtype=be_dtype
+            )
+            data = data.astype(dtype)
+            return data.reshape(naxis2, naxis1).astype(np.float32)
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -162,21 +296,27 @@ def stack_numpy(frames):
     return np.mean(np.array(frames), axis=0)
 
 
-def stack_ea(frames, so_path):
-    """Stack frames using Ea SIMD kernels. Uses O(pixels) extra memory."""
+def _load_ea_lib(so_path):
+    """Load Ea shared library and set up function signatures."""
     lib = ctypes.CDLL(str(so_path))
     lib.accumulate_f32x8.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32]
     lib.accumulate_f32x8.restype = None
+    lib.accumulate_foreach.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32]
+    lib.accumulate_foreach.restype = None
     lib.scale_f32x8.argtypes = [FLOAT_PTR, FLOAT_PTR, ctypes.c_int32, ctypes.c_float]
     lib.scale_f32x8.restype = None
+    return lib
 
+
+def _stack_ea_impl(frames, lib, accumulate_fn):
+    """Common stacking logic using a given accumulate function."""
     h, w = frames[0].shape
     n = h * w
     acc = np.zeros(n, dtype=np.float32)
 
     for frame in frames:
         flat = np.ascontiguousarray(frame, dtype=np.float32).ravel()
-        lib.accumulate_f32x8(
+        accumulate_fn(
             acc.ctypes.data_as(FLOAT_PTR),
             flat.ctypes.data_as(FLOAT_PTR),
             n,
@@ -190,6 +330,18 @@ def stack_ea(frames, so_path):
         ctypes.c_float(1.0 / len(frames)),
     )
     return out.reshape(h, w)
+
+
+def stack_ea(frames, so_path):
+    """Stack frames using Ea f32x8 SIMD kernels."""
+    lib = _load_ea_lib(so_path)
+    return _stack_ea_impl(frames, lib, lib.accumulate_f32x8)
+
+
+def stack_ea_foreach(frames, so_path):
+    """Stack frames using Ea foreach (auto-vectorized) kernel."""
+    lib = _load_ea_lib(so_path)
+    return _stack_ea_impl(frames, lib, lib.accumulate_foreach)
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +374,8 @@ def benchmark(func, *args, warmup=5, runs=50):
         times.append((t1 - t0) * 1000)
 
     times.sort()
-    return times[len(times) // 2]
+    median = times[len(times) // 2]
+    return median, float(np.std(times))
 
 
 # ---------------------------------------------------------------------------
@@ -238,14 +391,25 @@ def main():
     print(f"Astronomy Frame Stacking: {n_frames} frames, 1024x1024")
     print()
 
-    # Generate starfield and noisy frames
-    print("Generating starfield reference...")
-    reference = generate_starfield()
+    # Try real NASA data first, fall back to synthetic
+    frames = download_nasa_frames(n_frames)
+    if frames is not None:
+        reference_path = DEMO_DIR / "nasa_data" / "reference.npy"
+        if reference_path.exists():
+            reference = np.load(str(reference_path))
+        else:
+            reference = generate_starfield()
+        data_source = "NASA SkyView (M31 / Andromeda)"
+    else:
+        print("Generating starfield reference...")
+        reference = generate_starfield()
+        print(f"Generating {n_frames} noisy frames (sigma={NOISE_SIGMA})...")
+        frames = generate_noisy_frames(reference, n_frames, NOISE_SIGMA)
+        data_source = "synthetic starfield"
+
     h, w = reference.shape
     print(f"  Image: {w}x{h} ({w*h:,} pixels)")
-
-    print(f"Generating {n_frames} noisy frames (sigma={NOISE_SIGMA})...")
-    frames = generate_noisy_frames(reference, n_frames, NOISE_SIGMA)
+    print(f"  Data source: {data_source}")
     print()
 
     # Build Ea kernel
@@ -272,14 +436,16 @@ def main():
     snr_single = compute_snr(frames[0], reference)
     snr_numpy = compute_snr(result_numpy, reference)
     snr_ea = compute_snr(result_ea, reference)
-    expected_improvement_db = 10 * np.log10(n_frames) / 2
+    # Power SNR improvement from averaging N frames: noise power drops by N,
+    # so SNR improves by 10*log10(N). (The /2 form is for amplitude SNR only.)
+    expected_improvement_db = 10 * np.log10(n_frames)
 
     print(f"  Single noisy frame SNR : {snr_single:6.2f} dB")
     print(f"  Stacked (NumPy) SNR    : {snr_numpy:6.2f} dB")
     print(f"  Stacked (Ea) SNR       : {snr_ea:6.2f} dB")
     print(f"  Improvement (Ea)       : {snr_ea - snr_single:+.2f} dB")
     print(f"  Expected improvement   : ~{expected_improvement_db:+.2f} dB "
-          f"(sqrt({n_frames}) = {np.sqrt(n_frames):.1f}x noise reduction)")
+          f"(noise power / {n_frames} → power SNR + 10·log₁₀({n_frames}))")
     print()
 
     # Save output images
@@ -293,11 +459,14 @@ def main():
     print("=== Performance ===")
     print(f"  {n_frames} frames, {w}x{h} image, 50 runs, median time\n")
 
-    t_numpy = benchmark(stack_numpy, frames)
-    print(f"  NumPy               : {t_numpy:8.2f} ms")
+    t_numpy, s_numpy = benchmark(stack_numpy, frames)
+    print(f"  NumPy               : {t_numpy:8.2f} ms  ±{s_numpy:.2f}")
 
-    t_ea = benchmark(stack_ea, frames, so_path)
-    print(f"  Ea (stack.so)       : {t_ea:8.2f} ms")
+    t_ea, s_ea = benchmark(stack_ea, frames, so_path)
+    print(f"  Ea f32x8 (SIMD)     : {t_ea:8.2f} ms  ±{s_ea:.2f}")
+
+    t_fe, s_fe = benchmark(stack_ea_foreach, frames, so_path)
+    print(f"  Ea foreach (auto)   : {t_fe:8.2f} ms  ±{s_fe:.2f}")
     print()
 
     # Memory note

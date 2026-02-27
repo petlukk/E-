@@ -120,7 +120,8 @@ def load_libraries():
     ea_lib = ctypes.CDLL(str(BENCH_DIR / "kernel.so"))
     c_lib = ctypes.CDLL(str(BENCH_DIR / "reference.so"))
 
-    for name in ["sum_f32x4", "sum_f32x8", "max_f32x4", "min_f32x4"]:
+    for name in ["sum_f32x4", "sum_f32x8", "max_f32x4", "min_f32x4",
+                  "sum_foreach", "sum_unroll"]:
         _setup_reduce_fn(ea_lib, name)
 
     for name in [
@@ -321,6 +322,8 @@ def main():
         ("C scalar",         c_lib.sum_scalar_c),
         ("Ea f32x8",         ea_lib.sum_f32x8),
         ("Ea f32x4",         ea_lib.sum_f32x4),
+        ("Ea foreach",       ea_lib.sum_foreach),
+        ("Ea unroll(4)",     ea_lib.sum_unroll),
     ]
     sum_variants.extend(comp["sum"])
     sum_results = run_benchmark_group(

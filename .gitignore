@@ -14,6 +14,9 @@ benchmarks/rust_competitors/target/
 # Backups
 backups/
 
+# Cargo local config
+.cargo/
+
 # Editor/IDE files
 .vscode/
 .idea/
@@ -29,7 +32,50 @@ tmp/
 
 # Non-essential documentation
 docs/plans/
+plans/
+EA_V2_SPECIFICATION.md
+Specification.md
+CLAUDE.md
+
+# Demo auto-downloaded data (created on first run)
+demo/astro_stack/nasa_data/
+demo/video_anomaly/vtest.avi
+demo/sobel/input.png
+demo/mnist_normalize/mnist_data/
+demo/cornell_box/output.png
+
+# Python caches
+**/__pycache__/
+
+# Downloaded toolchains
+ispc-v*-linux/
+ispc-v*-linux.tar.gz
+
+# Git worktrees
+.worktrees/
 
 # Session notes (not part of the release)
 Session_summary*.md
 before_phase*.md
+0.3_roadmap.md
+LLVM18-unroll.md
+demo_api.md
+docs/
+
+# Stale audit scripts
+audit_losses.py
+
+# Scratch test files
+test_*_exe
+test_*.ea
+gigabench.sh
+
+# Compiled test binaries
+tests/simd_test
+
+# Demo generated output
+demo/skimage_fusion/compare.png
+demo/skimage_fusion/diff_heatmap.png
+demo/skimage_fusion/input.png
+demo/skimage_fusion/output_*.png
+demo/tokenizer_prepass/test_text.txt
