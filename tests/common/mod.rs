@@ -32,8 +32,8 @@ pub fn compile_and_run(source: &str) -> TestOutput {
         .output()
         .expect("failed to execute binary");
     TestOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        stdout: String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        stderr: String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
         exit_code: output.status.code().unwrap_or(-1),
     }
 }
@@ -64,8 +64,8 @@ pub fn compile_and_link_with_c(ea_source: &str, c_source: &str) -> TestOutput {
         .output()
         .expect("failed to execute binary");
     TestOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        stdout: String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        stderr: String::from_utf8_lossy(&output.stderr).replace("\r\n", "\n"),
         exit_code: output.status.code().unwrap_or(-1),
     }
 }
@@ -122,7 +122,7 @@ pub fn assert_shared_lib_interop(ea_source: &str, c_source: &str, expected: &str
     let output = Command::new(&bin_path)
         .output()
         .expect("failed to execute binary");
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stdout = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
     assert_eq!(stdout.trim(), expected);
 }
 
