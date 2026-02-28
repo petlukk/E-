@@ -5,6 +5,7 @@ pub mod bind_cpp;
 pub mod bind_python;
 pub mod bind_pytorch;
 pub mod bind_rust;
+pub mod desugar;
 pub mod error;
 pub mod header;
 pub mod lexer;
@@ -28,6 +29,10 @@ pub fn tokenize(source: &str) -> error::Result<Vec<Token>> {
 
 pub fn parse(tokens: Vec<Token>) -> error::Result<Vec<Stmt>> {
     Parser::new(tokens).parse_program()
+}
+
+pub fn desugar(stmts: Vec<Stmt>) -> error::Result<Vec<Stmt>> {
+    desugar::desugar_kernels(stmts)
 }
 
 pub fn check_types(stmts: &[Stmt]) -> error::Result<()> {
@@ -103,6 +108,7 @@ pub fn compile_with_options(
 
     let tokens = tokenize(source)?;
     let stmts = parse(tokens)?;
+    let stmts = desugar(stmts)?;
     check_types(&stmts)?;
 
     let context = inkwell::context::Context::create();
@@ -216,6 +222,7 @@ pub fn compile_to_ir(source: &str) -> error::Result<String> {
 
     let tokens = tokenize(source)?;
     let stmts = parse(tokens)?;
+    let stmts = desugar(stmts)?;
     check_types(&stmts)?;
 
     let context = inkwell::context::Context::create();

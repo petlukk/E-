@@ -367,6 +367,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                 // Registered in compile_program
                 Ok(false)
             }
+            Stmt::Kernel { .. } => Err(CompileError::codegen_error(
+                "kernel should have been desugared before codegen",
+            )),
         }
     }
 

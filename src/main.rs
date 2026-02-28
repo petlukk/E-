@@ -195,6 +195,13 @@ fn main() {
                     process::exit(1);
                 }
             };
+            let stmts = match ea_compiler::desugar(stmts) {
+                Ok(s) => s,
+                Err(e) => {
+                    print_error(&e, input_file, &source);
+                    process::exit(1);
+                }
+            };
             if let Err(e) = ea_compiler::check_types(&stmts) {
                 print_error(&e, input_file, &source);
                 process::exit(1);
@@ -243,7 +250,10 @@ fn main() {
 
         match ea_compiler::compile_with_options(&source, &output_path, mode, &opts) {
             Ok(()) => {
-                let stmts = ea_compiler::parse(ea_compiler::tokenize(&source).unwrap()).unwrap();
+                let stmts = ea_compiler::desugar(
+                    ea_compiler::parse(ea_compiler::tokenize(&source).unwrap()).unwrap(),
+                )
+                .unwrap();
                 let exports = ea_compiler::ast::exported_function_names(&stmts);
                 if exports.is_empty() {
                     eprintln!("compiled {input_file} -> {output_display} ({mode_desc})");

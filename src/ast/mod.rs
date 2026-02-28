@@ -337,6 +337,25 @@ pub enum Stmt {
         value: Literal,
         span: Span,
     },
+    Kernel {
+        name: String,
+        params: Vec<Param>,
+        range_var: String,
+        range_bound: String,
+        step: u32,
+        tail: Option<TailStrategy>,
+        tail_body: Option<Vec<Stmt>>,
+        body: Vec<Stmt>,
+        export: bool,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TailStrategy {
+    Scalar,
+    Mask,
+    Pad,
 }
 
 impl Stmt {
@@ -355,6 +374,7 @@ impl Stmt {
             Stmt::Struct { span, .. } => span,
             Stmt::FieldAssign { span, .. } => span,
             Stmt::Const { span, .. } => span,
+            Stmt::Kernel { span, .. } => span,
         }
     }
 }
@@ -423,6 +443,16 @@ impl fmt::Display for Stmt {
             Stmt::Const {
                 name, ty, value, ..
             } => write!(f, "const {name}: {ty} = {value}"),
+            Stmt::Kernel {
+                name,
+                range_var,
+                range_bound,
+                step,
+                ..
+            } => write!(
+                f,
+                "kernel {name}(...) over {range_var} in {range_bound} step {step}"
+            ),
         }
     }
 }

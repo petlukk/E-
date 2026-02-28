@@ -27,13 +27,25 @@ impl Parser {
         if self.check(TokenKind::Export) {
             let start = self.current_position();
             self.advance();
-            self.expect_kind(TokenKind::Func, "expected 'func' after 'export'")?;
+            if self.check_identifier("kernel") {
+                self.advance();
+                return self.parse_kernel(true, start);
+            }
+            self.expect_kind(
+                TokenKind::Func,
+                "expected 'func' or 'kernel' after 'export'",
+            )?;
             return self.function(true, start);
         }
         if self.check(TokenKind::Func) {
             let start = self.current_position();
             self.advance();
             return self.function(false, start);
+        }
+        if self.check_identifier("kernel") {
+            let start = self.current_position();
+            self.advance();
+            return self.parse_kernel(false, start);
         }
         if self.check(TokenKind::Struct) {
             let start = self.current_position();
@@ -177,6 +189,97 @@ impl Parser {
             name,
             ty,
             value,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_kernel(&mut self, export: bool, start: Position) -> crate::error::Result<Stmt> {
+        let name_token = self.expect_kind(TokenKind::Identifier, "expected kernel name")?;
+        let name = name_token.lexeme.clone();
+
+        self.expect_kind(TokenKind::LeftParen, "expected '(' after kernel name")?;
+        let params = self.parse_params()?;
+        self.expect_kind(TokenKind::RightParen, "expected ')' after parameters")?;
+
+        // Parse: over VAR in RANGE step STEP
+        self.expect_identifier("over", "expected 'over' after kernel parameters")?;
+        let var_token =
+            self.expect_kind(TokenKind::Identifier, "expected loop variable after 'over'")?;
+        let range_var = var_token.lexeme.clone();
+        self.expect_kind(TokenKind::In, "expected 'in' after loop variable")?;
+        let bound_token =
+            self.expect_kind(TokenKind::Identifier, "expected range bound after 'in'")?;
+        let range_bound = bound_token.lexeme.clone();
+        self.expect_identifier("step", "expected 'step' after range bound")?;
+
+        let step = if self.check(TokenKind::IntLiteral) {
+            let tok = self.advance().clone();
+            let n: u32 = tok.lexeme.parse().map_err(|_| {
+                CompileError::parse_error("invalid step value", tok.position.clone())
+            })?;
+            if n == 0 {
+                return Err(CompileError::parse_error(
+                    "step must be a positive integer",
+                    tok.position,
+                ));
+            }
+            n
+        } else {
+            return Err(CompileError::parse_error(
+                "step must be a positive integer literal",
+                self.current_position(),
+            ));
+        };
+
+        // Parse optional tail clause
+        let (tail, tail_body) = if self.check_identifier("tail") {
+            self.advance();
+            let strategy = if self.check_identifier("scalar") {
+                self.advance();
+                crate::ast::TailStrategy::Scalar
+            } else if self.check_identifier("mask") {
+                self.advance();
+                crate::ast::TailStrategy::Mask
+            } else if self.check_identifier("pad") {
+                self.advance();
+                crate::ast::TailStrategy::Pad
+            } else {
+                return Err(CompileError::parse_error(
+                    "expected tail strategy: 'scalar', 'mask', or 'pad'",
+                    self.current_position(),
+                ));
+            };
+
+            let tb = match strategy {
+                crate::ast::TailStrategy::Scalar | crate::ast::TailStrategy::Mask => {
+                    self.expect_kind(TokenKind::LeftBrace, "expected '{' for tail body")?;
+                    let body = self.parse_block()?;
+                    self.expect_kind(TokenKind::RightBrace, "expected '}' after tail body")?;
+                    Some(body)
+                }
+                crate::ast::TailStrategy::Pad => None,
+            };
+            (Some(strategy), tb)
+        } else {
+            (None, None)
+        };
+
+        // Parse main body
+        self.expect_kind(TokenKind::LeftBrace, "expected '{' before kernel body")?;
+        let body = self.parse_block()?;
+        self.expect_kind(TokenKind::RightBrace, "expected '}' after kernel body")?;
+        let end = self.previous_position();
+
+        Ok(Stmt::Kernel {
+            name,
+            params,
+            range_var,
+            range_bound,
+            step,
+            tail,
+            tail_body,
+            body,
+            export,
             span: Span::new(start, end),
         })
     }
@@ -328,6 +431,19 @@ impl Parser {
 
     pub(super) fn check(&self, kind: TokenKind) -> bool {
         self.peek_kind() == Some(&kind)
+    }
+
+    fn check_identifier(&self, name: &str) -> bool {
+        self.peek_kind() == Some(&TokenKind::Identifier)
+            && self.tokens.get(self.current).map(|t| t.lexeme.as_str()) == Some(name)
+    }
+
+    fn expect_identifier(&mut self, name: &str, msg: &str) -> crate::error::Result<&Token> {
+        if self.check_identifier(name) {
+            Ok(self.advance())
+        } else {
+            Err(CompileError::parse_error(msg, self.current_position()))
+        }
     }
 
     pub(super) fn advance(&mut self) -> &Token {

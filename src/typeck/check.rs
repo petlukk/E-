@@ -234,6 +234,12 @@ impl TypeChecker {
                 Stmt::Const { .. } => {
                     // Registered in check_program first pass
                 }
+                Stmt::Kernel { span, .. } => {
+                    return Err(CompileError::type_error(
+                        "kernel should have been desugared before type checking",
+                        span.clone(),
+                    ));
+                }
                 Stmt::FieldAssign {
                     object,
                     field,
