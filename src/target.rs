@@ -99,7 +99,7 @@ pub fn write_asm_file(
 }
 
 #[cfg(feature = "llvm")]
-fn optimize_module(
+pub fn optimize_module(
     module: &Module,
     machine: &TargetMachine,
     opt_level: u8,

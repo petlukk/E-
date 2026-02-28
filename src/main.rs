@@ -26,6 +26,10 @@ fn main() {
             handle_bind(&args[1..]);
             return;
         }
+        "inspect" => {
+            handle_inspect(&args[1..]);
+            return;
+        }
         _ => {}
     }
 
@@ -289,19 +293,78 @@ fn main() {
     }
 }
 
+fn handle_inspect(args: &[String]) {
+    if args.is_empty() {
+        eprintln!("Usage: ea inspect <file.ea> [--avx512] [--target=CPU] [--opt-level=N]");
+        process::exit(1);
+    }
+    let input_file = &args[0];
+    let source = match std::fs::read_to_string(input_file) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot read '{input_file}': {e}");
+            process::exit(1);
+        }
+    };
+    let mut opt_level: u8 = 3;
+    let mut target_cpu: Option<String> = None;
+    let mut extra_features = String::new();
+    let mut target_triple: Option<String> = None;
+    for arg in &args[1..] {
+        if let Some(val) = arg.strip_prefix("--opt-level=") {
+            match val.parse::<u8>() {
+                Ok(v) if v <= 3 => opt_level = v,
+                _ => {
+                    eprintln!("error: --opt-level must be 0, 1, 2, or 3");
+                    process::exit(1);
+                }
+            }
+        } else if let Some(val) = arg.strip_prefix("--target=") {
+            target_cpu = (val != "native").then(|| val.to_string());
+        } else if let Some(val) = arg.strip_prefix("--target-triple=") {
+            target_triple = Some(val.to_string());
+        } else if arg == "--avx512" {
+            extra_features = "+avx512f,+avx512vl,+avx512bw".to_string();
+        } else {
+            eprintln!("error: unknown inspect option '{arg}'");
+            process::exit(1);
+        }
+    }
+    #[cfg(feature = "llvm")]
+    {
+        let opts = ea_compiler::CompileOptions {
+            opt_level,
+            target_cpu,
+            extra_features,
+            target_triple,
+        };
+        match ea_compiler::inspect_source(&source, &opts) {
+            Ok(report) => print!("{report}"),
+            Err(e) => {
+                print_error(&e, input_file, &source);
+                process::exit(1);
+            }
+        }
+    }
+    #[cfg(not(feature = "llvm"))]
+    {
+        let _ = (opt_level, target_cpu, extra_features, target_triple);
+        eprintln!("error: inspect requires the 'llvm' feature");
+        process::exit(1);
+    }
+}
+
 fn handle_bind(args: &[String]) {
     if args.is_empty() {
         eprintln!("Usage: ea bind <file.ea> --python [--rust] [--pytorch] [--cmake] [--cpp]");
         process::exit(1);
     }
-
     let input_file = &args[0];
     let mut python = false;
     let mut rust = false;
     let mut pytorch = false;
     let mut cmake = false;
     let mut cpp = false;
-
     for arg in &args[1..] {
         match arg.as_str() {
             "--python" => python = true,
@@ -315,7 +378,6 @@ fn handle_bind(args: &[String]) {
             }
         }
     }
-
     if !python && !rust && !pytorch && !cmake && !cpp {
         eprintln!(
             "error: ea bind requires at least one of --python, --rust, --pytorch, --cmake, --cpp"
@@ -407,28 +469,32 @@ fn write_or_exit(path: &str, content: &str) {
 }
 
 fn print_usage() {
-    eprintln!("Usage: ea <file.ea> [options]");
-    eprintln!("       ea bind <file.ea> --python [--rust] [--pytorch] [--cmake] [--cpp]");
-    eprintln!();
-    eprintln!("Options:");
-    eprintln!("  -o <name>          Compile and link to executable");
-    eprintln!("  --lib              Produce shared library (.so/.dll) + JSON metadata");
-    eprintln!("  --opt-level=N      Optimization level 0-3 (default: 3)");
-    eprintln!("  --target=CPU       Target CPU (default: native)");
-    eprintln!("  --target-triple=T  Cross-compile target (e.g. aarch64-unknown-linux-gnu)");
-    eprintln!("  --avx512           Enable AVX-512 (f32x16) — requires AVX-512 capable CPU");
-    eprintln!("  --emit-llvm        Print LLVM IR");
-    eprintln!("  --emit-asm         Emit assembly (.s file)");
-    eprintln!("  --header           Generate C header file (.h)");
-    eprintln!("  --emit-ast         Print parsed AST");
-    eprintln!("  --emit-tokens      Print lexer tokens");
-    eprintln!("  --help, -h         Show this message");
-    eprintln!("  --version, -V      Show version");
-    eprintln!();
-    eprintln!("Subcommands:");
-    eprintln!("  bind <file.ea> --python    Generate Python/NumPy bindings");
-    eprintln!("  bind <file.ea> --rust      Generate Rust FFI + safe wrappers");
-    eprintln!("  bind <file.ea> --pytorch   Generate PyTorch autograd wrappers");
-    eprintln!("  bind <file.ea> --cmake     Generate CMakeLists.txt + EaCompiler.cmake");
-    eprintln!("  bind <file.ea> --cpp       Generate C++ header with std::span");
+    eprint!(
+        "\
+Usage: ea <file.ea> [options]
+       ea bind <file.ea> --python [--rust] [--pytorch] [--cmake] [--cpp]
+       ea inspect <file.ea> [--avx512] [--target=CPU]
+
+Options:
+  -o <name>          Compile and link to executable
+  --lib              Produce shared library (.so/.dll) + JSON metadata
+  --opt-level=N      Optimization level 0-3 (default: 3)
+  --target=CPU       Target CPU (default: native)
+  --target-triple=T  Cross-compile target (e.g. aarch64-unknown-linux-gnu)
+  --avx512           Enable AVX-512 (f32x16)
+  --emit-llvm        Print LLVM IR
+  --emit-asm         Emit assembly (.s file)
+  --header           Generate C header (.h)
+  --emit-ast/--emit-tokens  Print AST or lexer tokens
+  --help, -h / --version, -V
+
+Subcommands:
+  inspect <file.ea>        Analyze kernel: instruction mix, loops, registers
+  bind <file.ea> --python  Generate Python/NumPy bindings
+  bind <file.ea> --rust    Generate Rust FFI + safe wrappers
+  bind <file.ea> --pytorch Generate PyTorch autograd wrappers
+  bind <file.ea> --cmake   Generate CMakeLists.txt + EaCompiler.cmake
+  bind <file.ea> --cpp     Generate C++ header with std::span
+"
+    );
 }

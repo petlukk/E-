@@ -80,6 +80,46 @@ pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) f
 the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
 of when each pattern wins and when it doesn't.
 
+## v1.5 — Multi-kernel files, `static_assert`, `ea inspect`
+
+**Multi-kernel files** — multiple structs, constants, helper functions, and exported kernels in a single `.ea` file. The full pipeline (parser, desugarer, type checker, codegen, metadata, header, all five binding generators) handles everything seamlessly. No special syntax needed — just write multiple exports.
+
+```
+struct Vec2 { x: f32, y: f32 }
+const SCALE: f32 = 2.0
+
+export kernel add(a: *f32, b: *f32, out: *mut f32) over i in n step 8 { ... }
+export kernel mul(a: *f32, b: *f32, out: *mut f32) over i in n step 8 { ... }
+export func dot(a: *f32, b: *f32, n: i32) -> f32 { ... }
+```
+
+**`static_assert`** — compile-time assertions evaluated during type checking. No code emitted.
+
+```
+const STEP: i32 = 8
+static_assert(STEP % 4 == 0, "STEP must be SIMD-aligned")
+static_assert(STEP > 0 && STEP <= 16, "STEP must be in range 1..16")
+```
+
+Supports arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons (`==`, `!=`, `<`, `>`, `<=`, `>=`), and boolean logic (`&&`, `||`, `!`) on compile-time constants. Non-constant references produce clear errors.
+
+**`ea inspect`** — analyze post-optimization instruction mix, loops, vector width, and register usage.
+
+```bash
+ea inspect kernel.ea                  # all exports, native target
+ea inspect kernel.ea --avx512         # with AVX-512
+ea inspect kernel.ea --target=skylake # specific CPU
+```
+
+```
+=== vscale (exported) ===
+  vector instructions:  12
+  scalar instructions:   4
+  vector width:         256-bit (f32x8)
+  loops:                2 (1 main, 1 tail)
+  vector registers:     ymm0, ymm1, ymm2, ymm3 (4 used)
+```
+
 ## v1.4 — Output annotations
 
 Mark `*mut` pointer parameters as outputs with buffer sizing hints. Binding generators auto-allocate and return buffers, eliminating the allocate-call-unpack pattern from host code.
@@ -352,12 +392,14 @@ kernel code needs predictable performance without hidden checks.
 - **Tail strategies**: `tail scalar { ... }`, `tail mask { ... }`, `tail pad` — handle SIMD remainder elements
 - **Output annotations**: `out name: *mut T [cap: expr]` — mark output params for auto-allocation in bindings
 - **Compile-time constants**: `const NAME: TYPE = LITERAL` — inlined at every use site
+- **Static assertions**: `static_assert(condition, "message")` — compile-time validation of constants
+- **Multi-kernel files**: multiple exports, shared structs, shared constants in one `.ea` file
 - **foreach**: `foreach (i in 0..n) { ... }` — element-wise loops (LLVM may auto-vectorize at O2+)
 - **unroll(N)**: loop unrolling hint for `while` and `foreach`
 - **prefetch**: `prefetch(ptr, offset)` — software prefetch for large-array streaming
 - **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
 - **C ABI**: every `export func` is callable from any language
-- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output)
+- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output), `ea inspect` (post-optimization analysis)
 - **`ea bind`**: auto-generated bindings for Python/NumPy, Rust, C++/std::span, PyTorch/autograd, CMake
 - **Masked memory**: `load_masked`, `store_masked` for safe SIMD tail handling
 - **Scatter/Gather**: `gather(ptr, indices)`, `scatter(ptr, indices, values)` (scatter requires `--avx512`)

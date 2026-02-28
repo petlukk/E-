@@ -360,6 +360,11 @@ pub enum Stmt {
         export: bool,
         span: Span,
     },
+    StaticAssert {
+        condition: Expr,
+        message: String,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -386,6 +391,7 @@ impl Stmt {
             Stmt::FieldAssign { span, .. } => span,
             Stmt::Const { span, .. } => span,
             Stmt::Kernel { span, .. } => span,
+            Stmt::StaticAssert { span, .. } => span,
         }
     }
 }
@@ -464,6 +470,9 @@ impl fmt::Display for Stmt {
                 f,
                 "kernel {name}(...) over {range_var} in {range_bound} step {step}"
             ),
+            Stmt::StaticAssert { message, .. } => {
+                write!(f, "static_assert(..., \"{message}\")")
+            }
         }
     }
 }

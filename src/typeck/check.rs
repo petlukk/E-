@@ -240,6 +240,9 @@ impl TypeChecker {
                         span.clone(),
                     ));
                 }
+                Stmt::StaticAssert { .. } => {
+                    // Evaluated in check_program, not inside function bodies
+                }
                 Stmt::FieldAssign {
                     object,
                     field,

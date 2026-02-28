@@ -1,4 +1,5 @@
 mod check;
+pub mod const_eval;
 mod expr_check;
 mod intrinsics;
 mod intrinsics_conv;
@@ -98,6 +99,33 @@ impl TypeChecker {
                 }
                 self.constants
                     .insert(name.clone(), (declared, value.clone()));
+            }
+        }
+
+        // Evaluate static assertions after constants are registered
+        for stmt in stmts {
+            if let Stmt::StaticAssert {
+                condition,
+                message,
+                span,
+            } = stmt
+            {
+                let val = self.eval_const_expr(condition)?;
+                match val {
+                    const_eval::ConstValue::Bool(true) => {}
+                    const_eval::ConstValue::Bool(false) => {
+                        return Err(crate::error::CompileError::type_error(
+                            format!("static assertion failed: {message}"),
+                            span.clone(),
+                        ));
+                    }
+                    _ => {
+                        return Err(crate::error::CompileError::type_error(
+                            "static_assert condition must evaluate to a boolean",
+                            span.clone(),
+                        ));
+                    }
+                }
             }
         }
 

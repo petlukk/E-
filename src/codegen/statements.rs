@@ -370,6 +370,10 @@ impl<'ctx> CodeGenerator<'ctx> {
             Stmt::Kernel { .. } => Err(CompileError::codegen_error(
                 "kernel should have been desugared before codegen",
             )),
+            Stmt::StaticAssert { .. } => {
+                // Already validated at type-check time — no code to emit
+                Ok(false)
+            }
         }
     }
 

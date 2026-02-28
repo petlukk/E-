@@ -16,6 +16,8 @@ pub mod typeck;
 #[cfg(feature = "llvm")]
 pub mod codegen;
 #[cfg(feature = "llvm")]
+pub mod inspect;
+#[cfg(feature = "llvm")]
 pub mod target;
 
 use ast::Stmt;
@@ -230,4 +232,29 @@ pub fn compile_to_ir(source: &str) -> error::Result<String> {
     gen.compile_program(&stmts)?;
 
     Ok(gen.print_ir())
+}
+
+#[cfg(feature = "llvm")]
+pub fn inspect_source(
+    source: &str,
+    opts: &CompileOptions,
+) -> error::Result<inspect::InspectReport> {
+    init_llvm();
+
+    let tokens = tokenize(source)?;
+    let stmts = parse(tokens)?;
+    let stmts = desugar(stmts)?;
+    check_types(&stmts)?;
+
+    let context = inkwell::context::Context::create();
+    let mut gen = codegen::CodeGenerator::new(&context, "ea_module", opts);
+    gen.compile_program(&stmts)?;
+
+    let machine = target::create_target_machine(opts)?;
+
+    if opts.opt_level > 0 {
+        target::optimize_module(gen.module(), &machine, opts.opt_level)?;
+    }
+
+    inspect::analyze_module(gen.module(), &machine)
 }
