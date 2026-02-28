@@ -9,13 +9,12 @@ Write a kernel once in clean, explicit syntax. `ea bind` generates native bindin
 ## Example
 
 ```
-export func scale(data: *mut f32, len: i32, alpha: f32) {
-    let mut i: i32 = 0
-    while i + 8 <= len {
-        let v: f32x8 = load(data, i)
-        store(data, i, v * splat(alpha))
-        i = i + 8
-    }
+export kernel vscale(data: *f32, out result: *mut f32 [cap: n], factor: f32)
+    over i in n step 8
+    tail scalar { result[i] = data[i] * factor }
+{
+    let v: f32x8 = load(data, i)
+    store(result, i, v .* splat(factor))
 }
 ```
 
@@ -29,17 +28,17 @@ ea bind kernel.ea --python --rust --cpp     # -> kernel.py, kernel.rs, kernel.hp
 ```python
 import numpy as np, kernel
 data = np.random.rand(1_000_000).astype(np.float32)
-kernel.scale(data, 2.0)        # len auto-filled, dtype checked
+result = kernel.vscale(data, 2.0)  # output auto-allocated, len auto-filled, dtype checked
 ```
 
 ```rust
 // kernel.rs (generated)
-kernel::scale(&mut data, 2.0); // length from slice, unsafe hidden
+let result = kernel::vscale(&data, 2.0); // Vec<f32> returned, length from slice
 ```
 
 ```cpp
 // kernel.hpp (generated)
-ea::scale(data_span, 2.0f);   // std::span, length from .size()
+auto result = ea::vscale(data_span, 2.0f);  // std::vector returned
 ```
 
 The kernel is the same. The language boundary disappears.
@@ -80,6 +79,75 @@ Seven kernel patterns — streaming, reduction, stencil, streaming dataset, fuse
 pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) for
 the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
 of when each pattern wins and when it doesn't.
+
+## v1.4 — Output annotations
+
+Mark `*mut` pointer parameters as outputs with buffer sizing hints. Binding generators auto-allocate and return buffers, eliminating the allocate-call-unpack pattern from host code.
+
+```
+export func transform(data: *f32, out result: *mut f32 [cap: n], n: i32) {
+    let mut i: i32 = 0
+    while i < n {
+        result[i] = data[i] * 2.0
+        i = i + 1
+    }
+}
+```
+
+Three forms:
+
+| Syntax | Behavior |
+|--------|----------|
+| `out result: *mut f32 [cap: n]` | Auto-allocated by binding, returned to caller |
+| `out result: *mut f32 [cap: n, count: actual]` | Auto-allocated with separate actual-length path |
+| `out result: *mut f32` | Caller provides buffer (stays in signature) |
+
+Generated bindings handle allocation per target:
+
+| Target | Auto-allocation | Return type |
+|--------|----------------|-------------|
+| Python | `np.empty(n, dtype=np.float32)` | `np.ndarray` |
+| Rust | `vec![Default::default(); n]` | `Vec<f32>` |
+| C++ | `std::vector<float>(n)` | `std::vector<float>` |
+| PyTorch | `torch.empty(n, dtype=torch.float32)` | `Tensor` |
+
+Type checker validates: `out` requires `*mut` pointer type, cap identifiers must reference preceding input params or constants. Metadata JSON emits `direction`, `cap`, and `count` fields per arg. Backward-compatible: old JSON without these fields works unchanged.
+
+## v1.3 — Kernel construct, compile-time constants, tail strategies
+
+**`kernel`** — declarative loop construct for data-parallel operations:
+
+```
+export kernel double_it(data: *i32, out: *mut i32)
+    over i in n step 1
+{
+    out[i] = data[i] * 2
+}
+```
+
+Desugars to a function with a generated loop. The range bound (`n`) becomes the last parameter automatically. SIMD kernels use `step 4`/`step 8` for explicit vectorization.
+
+**`tail`** — handle remainder elements when array length isn't a multiple of step:
+
+```
+export kernel vscale(data: *f32, out: *mut f32, factor: f32)
+    over i in n step 8
+    tail scalar { out[i] = data[i] * factor }
+{
+    store(out, i, load(data, i) .* splat(factor))
+}
+```
+
+Three strategies: `tail scalar { ... }` (element-wise loop), `tail mask { ... }` (single masked iteration), `tail pad` (skip remainder).
+
+**`const`** — compile-time constants inlined at every use site:
+
+```
+const BLOCK_SIZE: i32 = 64
+const PI: f64 = 3.14159265358979
+```
+
+Supports integer and float types. Constants are validated at type-check time and referenced in kernel bodies, cap expressions, and function parameters.
 
 ## v1.2 — `ea bind` multi-language bindings
 
@@ -280,6 +348,10 @@ kernel code needs predictable performance without hidden checks.
 - **Literals**: decimal (`255`), hex (`0xFF`), binary (`0b11110000`)
 - **Control flow**: `if`/`else if`/`else`, `while`, short-circuit `&&`/`||`
 - **Types**: `i8`, `u8`, `i16`, `u16`, `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`
+- **Kernels**: `export kernel name(...) over i in n step N { ... }` — declarative data-parallel loops with automatic range bound parameter
+- **Tail strategies**: `tail scalar { ... }`, `tail mask { ... }`, `tail pad` — handle SIMD remainder elements
+- **Output annotations**: `out name: *mut T [cap: expr]` — mark output params for auto-allocation in bindings
+- **Compile-time constants**: `const NAME: TYPE = LITERAL` — inlined at every use site
 - **foreach**: `foreach (i in 0..n) { ... }` — element-wise loops (LLVM may auto-vectorize at O2+)
 - **unroll(N)**: loop unrolling hint for `while` and `foreach`
 - **prefetch**: `prefetch(ptr, offset)` — software prefetch for large-array streaming
@@ -291,7 +363,6 @@ kernel code needs predictable performance without hidden checks.
 - **Scatter/Gather**: `gather(ptr, indices)`, `scatter(ptr, indices, values)` (scatter requires `--avx512`)
 - **Restrict pointers**: `*restrict T`, `*mut restrict T` for alias-free optimization
 - **AVX-512**: `f32x16` via `--avx512` flag
-
 - **ARM/NEON**: Cross-compile to AArch64 with `--target=aarch64` (128-bit NEON SIMD: f32x4, i32x4, u8x16, i8x16, i16x8)
 
 Tested on x86-64 (AVX2) and AArch64 (NEON). CI runs on both architectures plus Windows.
@@ -320,7 +391,7 @@ ea bind kernel.ea --python --rust --cpp # -> all three at once
 ea kernel.ea              # -> kernel.o
 ea app.ea -o app          # -> app
 
-# Run tests (306 passing)
+# Run tests (356 passing)
 cargo test --features=llvm
 ```
 
@@ -338,9 +409,13 @@ import numpy as np, kernel
 a = np.random.rand(1_000_000).astype(np.float32)
 b = np.random.rand(1_000_000).astype(np.float32)
 c = np.random.rand(1_000_000).astype(np.float32)
-out = np.zeros(1_000_000, dtype=np.float32)
 
-kernel.fma_kernel(a, b, c, out)  # len auto-filled from array size
+# With output annotations: result auto-allocated and returned
+result = kernel.fma_kernel(a, b, c)  # len auto-filled, dtype checked, output returned
+
+# Without output annotations: caller provides buffer
+out = np.zeros(1_000_000, dtype=np.float32)
+kernel.fma_kernel(a, b, c, out)      # len auto-filled from array size
 ```
 
 ### PyTorch (auto-generated)
@@ -409,12 +484,12 @@ lib.fma_kernel(
 ## Architecture
 
 ```
-Source (.ea) -> Lexer -> Parser -> Type Check -> Codegen (LLVM 18) -> .o / .so
-                                                                   -> .ea.json -> ea bind -> .py / .rs / .hpp / _torch.py / CMakeLists.txt
+Source (.ea) -> Lexer -> Parser -> Desugar (kernel→func) -> Type Check -> Codegen (LLVM 18) -> .o / .so
+                                                                                             -> .ea.json -> ea bind -> .py / .rs / .hpp / _torch.py / CMakeLists.txt
 ```
 
-~8,700 lines of Rust. No file exceeds 500 lines. Every feature proven by end-to-end test.
-306 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, error diagnostics, masked operations, scatter/gather, ARM target validation, compiler flags, and binding generation for all five targets.
+~9,700 lines of Rust. Every feature proven by end-to-end test.
+356 tests covering C interop, SIMD operations, structs, integer types, shared library output, foreach loops, short-circuit evaluation, error diagnostics, masked operations, scatter/gather, ARM target validation, compiler flags, kernel construct, tail strategies, compile-time constants, output annotations, and binding generation for all five targets.
 
 ## License
 
