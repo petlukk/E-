@@ -25,25 +25,24 @@ Same SIMD kernels as [simdstat](https://github.com/petlukk/simdstat), rewritten 
 
 ```
 eastat breakdown:
-  scan  (structural extraction):    X ms   <- Ea kernel
-  layout (row/delim index):         X ms   <- Ea kernel
-  stats  (parse + reduce):          X ms   <- Ea kernel
-  total:                            X ms
+  scan  (structural extraction):   2091.9 ms   <- Ea kernel
+  layout (row/delim index):          22.3 ms   <- Ea kernel
+  stats  (parse + reduce):           82.6 ms   <- Ea kernel
+  total:                           2199.0 ms
 
 pandas breakdown:
-  read_csv (parse -> DataFrame):    X ms
-  .describe() full:                 X ms
-    of which percentiles alone:     X ms   <- work eastat doesn't do
-  total (full):                     X ms
-  total (no percentiles):           X ms
+  read_csv (parse -> DataFrame):    897.7 ms
+  .describe() full:                 170.9 ms
+  total (full):                    1068.6 ms
+  total (no percentiles):          1040.9 ms
 ```
 
 ### Speedup (honest accounting)
 
 | Comparison | Speedup |
 |------------|---------|
-| eastat vs pandas (comparable work — no percentiles) | ~2x |
-| eastat vs pandas (full `.describe()` including percentiles) | ~2.5x |
+| eastat vs pandas (comparable work — no percentiles) | 0.5x |
+| eastat vs pandas (full `.describe()` including percentiles) | 0.5x |
 
 The "comparable work" number is the honest one: it compares equivalent operations (count, mean, std, min, max) while excluding percentile computation that eastat doesn't perform.
 

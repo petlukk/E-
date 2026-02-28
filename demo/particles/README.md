@@ -45,5 +45,12 @@ reference computation. If any field offset or alignment were wrong, the
 positions and energies would be garbage.
 
 The performance section compares Ea (AoS structs) against NumPy (SoA arrays).
-NumPy may be faster because SoA has better cache behavior for this workload.
+100,000 particles, median of 50 runs:
+
+```
+Ea (AoS struct)  :    0.233 ms
+NumPy (SoA)      :    0.061 ms
+```
+
+NumPy is 3.8x faster (SoA vs AoS layout difference, expected).
 The point is correctness, not speed.

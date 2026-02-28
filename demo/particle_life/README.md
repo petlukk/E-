@@ -9,9 +9,9 @@ Emergent structures form from simple math running live from a single Eä kernel.
 AMD Ryzen 7 1700 (Zen 1, AVX2). 50 runs, median time.
 
 ```
-            N=1000    N=2000    N=4000    N=8000
-Eä         1.23 ms   4.32 ms  16.75 ms  140.75 ms
-C (-O2)    1.21 ms   4.54 ms  18.87 ms  158.01 ms
+Particle Life Benchmark (N=2000)
+  Fused   (1 kernel) :    7.395 ms
+  Unfused (3 kernels):    7.251 ms
 ```
 
 Eä matches hand-written C compiled with `clang-18 -O2`. Both go through the

@@ -1,7 +1,7 @@
 # Conv2d 3×3 NHWC — Eä Demo
 
 Full 3×3 integer convolution in NHWC layout using dual-accumulator `maddubs`.
-**47.7× faster than NumPy. 38.5 GMACs/s on 56×56×64 input.**
+**57.3× faster than NumPy. 44.6 GMACs/s on 56×56×64 input.**
 
 ## Kernel
 
@@ -17,10 +17,11 @@ Full 3×3 integer convolution in NHWC layout using dual-accumulator `maddubs`.
 AMD Ryzen 7 1700 (Zen 1, SSSE3/AVX2). 56×56×64 input. 50 runs, median time.
 
 ```
-NumPy   (float32)            :  ~870 ms
-Eä      (maddubs dual-acc)   :  ~18 ms   47.7x faster
+NumPy   (float32)            :  4.642 ms ± 0.291
+Eä      (maddubs dual-acc)   :  0.081 ms ± 0.005   57.3x faster
 
-Throughput: 38.5 GMACs/s
+Throughput: 44.6 GMACs/s
+MACs: 3,612,672
 ```
 
 Correctness: verified against NumPy integer reference (exact match).

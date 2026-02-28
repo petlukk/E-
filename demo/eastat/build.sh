@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-EA_ROOT="/root/dev/E-"
+EA_ROOT="$SCRIPT_DIR/../.."
 KERNEL_DIR="$SCRIPT_DIR/kernels"
 
 if [ ! -d "$EA_ROOT" ]; then

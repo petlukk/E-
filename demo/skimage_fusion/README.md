@@ -15,12 +15,12 @@ same data — only the kernel boundary changes.
 768x512 Kodak benchmark image. 50 runs, median.
 
 ```
-NumPy (4 stages)     :   9.75 ms
-Ea unfused (4 calls) :   1.57 ms   (6.2x vs NumPy)
-Ea fused (2 calls)   :   1.65 ms   (5.9x vs NumPy)
+NumPy (4 stages)     :  10.14 ms   +/-0.85
+Ea unfused (4 calls) :   1.89 ms   +/-0.31  (5.4x vs NumPy)
+Ea fused (2 calls)   :   1.95 ms   +/-0.24  (5.2x vs NumPy)
 ```
 
-Memory: NumPy 20.9 MB → Ea fused 3.0 MB (**7x reduction**).
+Memory: NumPy 20.9 MB → Ea fused 3.0 MB (**7.0x reduction**).
 Correctness: 99.92% pixel match (0.08% differ at threshold boundary from FP rounding).
 
 ### Fusion speedup grows with image size
@@ -30,11 +30,11 @@ even without fusion. As image size grows and intermediates spill to DRAM,
 fusion eliminates those misses:
 
 ```
-       Size      Pixels   Unfused   Fused    Fusion speedup
-  768x512       393,216    1.83 ms   1.81 ms   1.02x
- 1920x1080    2,073,600   11.20 ms  10.23 ms   1.10x
- 3840x2160    8,294,400   73.61 ms  55.49 ms   1.33x
- 4096x4096   16,777,216  149.30 ms 114.65 ms   1.30x
+       Size      Pixels   Unfused    Fused     Fusion speedup
+  768x512       393,216     1.58 ms    1.64 ms   0.97x
+ 1920x1080    2,073,600    11.87 ms   10.68 ms   1.11x
+ 3840x2160    8,294,400    74.53 ms   58.07 ms   1.28x
+ 4096x4096   16,777,216   147.73 ms  115.10 ms   1.28x
 ```
 
 This is cache-theory confirmation: fusion's value is proportional to
@@ -49,7 +49,7 @@ textbooks: for each output pixel, compute 8 Gaussian-blurred neighbor
 values, then apply Sobel to those 8 values.
 
 ```
-Ea unfused (4 calls) :  1.64 ms
+Ea unfused (4 calls) :  1.89 ms
 Ea fused (naive)     :  2.25 ms   ← 0.7x — SLOWER
 ```
 
@@ -76,9 +76,9 @@ This reduces to ~50 ops and 24 loads per 4 pixels. The center pixel (p22)
 has zero weight in both kernels and is skipped entirely.
 
 ```
-Ea unfused (4 calls) :  1.57 ms
-Ea fused (optimized) :  1.65 ms   ← on par at 768x512
-                                     1.33x faster at 3840x2160
+Ea unfused (4 calls) :  1.89 ms
+Ea fused (optimized) :  1.95 ms   ← on par at 768x512
+                                     1.28x faster at 3840x2160
 ```
 
 ### The insight
@@ -144,7 +144,7 @@ Ea is a language for expressing cache-optimal compute kernels.
 | Intermediate arrays | 3 | 3 | 0 |
 | Peak memory | 20.9 MB | ~20 MB | 3.0 MB |
 
-The 6x speedup over NumPy comes from explicit SIMD compute boundaries.
+The 5x speedup over NumPy comes from explicit SIMD compute boundaries.
 The fusion benefit comes from eliminating memory traffic — and grows
 with data size as intermediates leave cache.
 

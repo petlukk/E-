@@ -17,13 +17,13 @@ Kernel length `k` must be a multiple of 16. Output type: i16.
 AMD Ryzen 7 1700 (Zen 1, SSSE3/AVX2). 100 runs, median time.
 
 ```
-dot_u8i8 (n=1024):
-  NumPy   (np.dot, float32)  :  ~12 µs
-  Eä      (maddubs)          :  ~2 µs    5.9x faster
+dot_u8i8 (n=65,536):
+  NumPy   (int32)            :  0.071 ms  ±0.010
+  Eä      (maddubs)          :  0.013 ms  ±0.004   5.6x faster
 
 conv1d_u8i8 (n=4096, k=16):
-  NumPy   (np.convolve)      :  ~180 µs
-  Eä      (maddubs)          :  ~60 µs   3.0x faster
+  NumPy   (stride)           :  0.064 ms  ±0.016
+  Eä      (maddubs)          :  0.020 ms  ±0.014   3.3x faster
 ```
 
 Correctness: verified against NumPy integer reference for both kernels.

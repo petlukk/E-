@@ -7,6 +7,15 @@ hard shadows, and single-bounce mirror reflection.
 First non-SIMD demo — proves Eä handles scalar math, struct returns,
 and recursion at native speed.
 
+## Results
+
+512x512 resolution (262,144 pixels). 10 runs, median time.
+
+```
+Eä render     : 16.5 ms
+Rays/sec      : 15,853,039
+```
+
 ## How to run
 
 ```bash

@@ -17,13 +17,14 @@ All four produce identical anomaly counts.
 768x576 frames (OpenCV vtest.avi, pedestrian surveillance). 50 runs, median.
 
 ```
-NumPy              :  1.10 ms
-OpenCV (C++)       :  0.97 ms
-Ea (3 kernels)     :  1.12 ms
-Ea fused (1 kernel):  0.08 ms
+NumPy              :  1.51 ms  ±0.29
+OpenCV (C++)       :  1.26 ms  ±0.18
+Ea (3 kernels)     :  1.58 ms  ±0.30
+Ea foreach (3 kern):  1.90 ms  ±0.22
+Ea fused (1 kernel):  0.13 ms  ±0.03
 ```
 
-The 3-kernel Ea is **slower** than NumPy. The fused Ea is **13x faster**.
+The 3-kernel Ea is **slower** than NumPy. The fused Ea is **11.5x faster** than NumPy, **9.5x faster** than OpenCV.
 Same language. Same compiler. Same data. Only the kernel boundary changed.
 
 ## The kernel
@@ -136,7 +137,7 @@ export func anomaly_count_fused(a: *restrict f32, b: *restrict f32, len: i32, th
 
 ## What this demonstrates
 
-**Kernel fusion turns a loss into a 13x win.**
+**Kernel fusion turns a loss into a 12x win.**
 
 Three distinct kernel patterns, each under 20 lines:
 

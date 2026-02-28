@@ -16,9 +16,9 @@ Three implementations compared:
 738,046 bytes (Pride and Prejudice, Project Gutenberg). 50 runs, median.
 
 ```
-NumPy (3 stages)     :   18.51 ms
-Ea unfused (3 calls) :    0.24 ms   (78.7x vs NumPy)
-Ea fused (1 call)    :    0.32 ms   (58.1x vs NumPy)
+NumPy (3 stages)     :   17.74 ms
+Ea unfused (3 calls) :    0.27 ms   (65.5x vs NumPy)
+Ea fused (1 call)    :    0.32 ms   (56.1x vs NumPy)
 ```
 
 Memory: NumPy 5.6 MB → Unfused 2.8 MB → Fused 2.1 MB.
@@ -60,10 +60,10 @@ written flag array.
 | Memory passes | 3 | 3 | 1 |
 | Intermediate arrays | ~8 temp | 1 (flags) | 0 |
 | Peak memory | 5.6 MB | 2.8 MB | 2.1 MB |
-| Time | 18.51 ms | 0.24 ms | 0.32 ms |
-| vs NumPy | 1.0x | **78.7x** | **58.1x** |
+| Time | 17.74 ms | 0.27 ms | 0.32 ms |
+| vs NumPy | 1.0x | **65.5x** | **56.1x** |
 
-The 78.7x speedup over NumPy comes from explicit SIMD on byte-width data.
+The 65.5x speedup over NumPy comes from explicit SIMD on byte-width data.
 NumPy's `np.isin()` and boolean masking create many temporary arrays and
 operate through Python dispatch. Ea compiles to straight SSE2 `u8x16`
 operations with zero allocation.
@@ -111,10 +111,10 @@ used in production SIMD JSON parsers and UTF-8 validators.
 **Honest fusion analysis.** Not every pipeline benefits from fusion. When the
 intermediate data fits in cache and fusion doubles the compute, the unfused
 path wins. The correct response is to report this honestly, not to hide it.
-The unfused Ea kernels at 78.7x vs NumPy are the real result here.
+The unfused Ea kernels at 65.5x vs NumPy are the real result here.
 
 **The unfused result is the headline.** Three simple, well-designed streaming
-kernels — each doing one thing — deliver 78.7x over NumPy. Good kernel design
+kernels — each doing one thing — deliver 65.5x over NumPy. Good kernel design
 matters more than fusion. Fusion is a tool for when memory traffic is the
 bottleneck, not a universal accelerator.
 

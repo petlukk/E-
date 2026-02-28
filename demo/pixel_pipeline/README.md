@@ -19,12 +19,12 @@ AMD Ryzen 7 1700 (Zen 1, AVX2). 16MP image (4096×4096). 100 runs, median time.
 
 ```
 threshold_u8x16:
-  NumPy   (np.where)     :  ~93 ms
-  Eä                     :  ~4.3 ms   21.9x faster
+  NumPy   (np.where)     :  61.31 ms  ±1.94
+  Eä                     :   2.96 ms  ±0.18   20.7x faster
 
 normalize_u8_f32x8:
-  NumPy   (astype float) :  ~11 ms
-  Eä                     :  ~5.3 ms    2.1x faster
+  NumPy   (astype float) :  49.26 ms  ±2.08
+  Eä                     :  23.36 ms  ±1.14    2.1x faster
 ```
 
 Correctness: verified byte-for-byte against NumPy reference for both kernels.

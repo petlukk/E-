@@ -16,11 +16,12 @@ AMD Ryzen 7 1700 (Zen 1, AVX2). 60,000 images, 47M pixels. 50 runs, median.
 ### Part 1: Single Operation (normalize only)
 
 ```
-NumPy (x / 255.0)  :   75 ms
-Ea (1 kernel)       :   81 ms
+NumPy (x / 255.0)  :   73.30 ms  ±4.71
+Ea f32x8 (SIMD)    :   71.56 ms  ±6.29
+Ea foreach (auto)   :   71.38 ms  ±2.87
 ```
 
-Ea vs NumPy: **0.9x (slower)**.
+Ea vs NumPy: **1.0x (memory-bound)**.
 
 A single element-wise multiply on 47M pixels is memory-bound. Both implementations
 hit the same DRAM bandwidth wall. This is the expected result.
@@ -28,11 +29,11 @@ hit the same DRAM bandwidth wall. This is the expected result.
 ### Part 2: Full Pipeline (normalize + standardize + clip)
 
 ```
-NumPy (multi-pass)  :  336 ms   (3-4 memory passes)
-Ea fused (1 pass)   :  129 ms   (1 memory pass)
+NumPy (multi-pass)  :  293.94 ms  ±16.42  (3-4 memory passes)
+Ea fused (1 pass)   :   73.07 ms  ±2.91   (1 memory pass)
 ```
 
-Ea fused vs NumPy: **2.6x faster**.
+Ea fused vs NumPy: **4.0x faster**.
 
 NumPy does:
 ```python

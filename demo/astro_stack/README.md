@@ -19,18 +19,18 @@ AMD Ryzen 7 1700 (Zen 1, AVX2). 1024x1024, 16 frames. 50 runs, median time.
 ### Performance
 
 ```
-NumPy          :  40.6 ms
-Eä (stack.so)  :   6.3 ms
+NumPy               :  33.81 ms  ±2.79
+Ea f32x8 (SIMD)     :  13.15 ms  ±1.24
+Ea foreach (auto)    :  13.60 ms  ±1.41
 ```
 
-Eä vs NumPy: 6.4x faster.
+Eä vs NumPy: 2.6x faster.
+Memory: Eä uses 16x less memory than NumPy.
 
 ### Signal-to-noise ratio
 
 ```
-Single frame SNR :   0.97 dB
-Stacked (16x) SNR:  10.97 dB
-Improvement       : +10.00 dB
+SNR gain: +12.03 dB from stacking 16 frames
 ```
 
 ## Output

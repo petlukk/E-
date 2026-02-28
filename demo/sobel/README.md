@@ -11,16 +11,16 @@ All three produce identical output.
 
 ## Results
 
-AMD Ryzen 7 1700 (Zen 1, AVX2). 1920x1080. 50 runs, median time.
+AMD Ryzen 7 1700 (Zen 1, AVX2). 768x512 (393,216 pixels). 50 runs, median time.
 
 ```
-NumPy          :  28.9 ms
-OpenCV (C++)   :   8.3 ms
-Eä (sobel.so)  :   3.1 ms
+NumPy          :   5.10 ms  ±0.78
+OpenCV (C++)   :   1.81 ms  ±0.34
+Eä (sobel.so)  :   0.43 ms  ±0.07
 ```
 
-Eä vs NumPy: 9.3x faster.
-Eä vs OpenCV: 2.7x faster.
+Eä vs NumPy: 12.0x faster.
+Eä vs OpenCV: 4.2x faster.
 
 Correctness: Eä vs NumPy max pixel difference = 0.000000.
 
