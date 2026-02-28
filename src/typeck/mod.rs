@@ -7,7 +7,7 @@ pub mod types;
 
 use std::collections::HashMap;
 
-use crate::ast::{Param, Stmt};
+use crate::ast::{Literal, Param, Stmt};
 
 pub use types::Type;
 
@@ -20,6 +20,7 @@ pub(crate) struct FuncSig {
 pub struct TypeChecker {
     pub(crate) functions: HashMap<String, FuncSig>,
     pub(crate) structs: HashMap<String, Vec<(String, Type)>>,
+    pub(crate) constants: HashMap<String, (Type, Literal)>,
 }
 
 impl Default for TypeChecker {
@@ -33,10 +34,73 @@ impl TypeChecker {
         Self {
             functions: HashMap::new(),
             structs: HashMap::new(),
+            constants: HashMap::new(),
         }
     }
 
     pub fn check_program(&mut self, stmts: &[Stmt]) -> crate::error::Result<()> {
+        // Register constants first
+        for stmt in stmts {
+            if let Stmt::Const {
+                name,
+                ty,
+                value,
+                span,
+            } = stmt
+            {
+                if self.constants.contains_key(name) {
+                    return Err(crate::error::CompileError::type_error(
+                        format!("duplicate constant '{name}'"),
+                        span.clone(),
+                    ));
+                }
+                let declared = types::resolve_type(ty)?;
+                // Verify the type is a scalar numeric type
+                match &declared {
+                    Type::I8
+                    | Type::U8
+                    | Type::I16
+                    | Type::U16
+                    | Type::I32
+                    | Type::U32
+                    | Type::I64
+                    | Type::U64
+                    | Type::F32
+                    | Type::F64 => {}
+                    _ => {
+                        return Err(crate::error::CompileError::type_error(
+                            format!("const type must be a scalar numeric type, got {declared}"),
+                            ty.span().clone(),
+                        ));
+                    }
+                }
+                // Verify literal matches declared type
+                match (&declared, value) {
+                    (
+                        Type::I8
+                        | Type::U8
+                        | Type::I16
+                        | Type::U16
+                        | Type::I32
+                        | Type::U32
+                        | Type::I64
+                        | Type::U64,
+                        Literal::Integer(_),
+                    ) => {}
+                    (Type::F32 | Type::F64, Literal::Float(_)) => {}
+                    (Type::F32 | Type::F64, Literal::Integer(_)) => {}
+                    _ => {
+                        return Err(crate::error::CompileError::type_error(
+                            format!("const value does not match type {declared}"),
+                            span.clone(),
+                        ));
+                    }
+                }
+                self.constants
+                    .insert(name.clone(), (declared, value.clone()));
+            }
+        }
+
         for stmt in stmts {
             if let Stmt::Struct { name, fields, .. } = stmt {
                 let typed_fields = fields

@@ -87,7 +87,10 @@ fn emit_autograd_class(out: &mut String, func: &ExportFunc) {
                     "        assert {name}.device.type == \"cpu\", \"Ea kernels run on CPU\"\n",
                     name = arg.name
                 ));
-                out.push_str(&format!("        _out_{name} = {name}.clone()\n", name = arg.name));
+                out.push_str(&format!(
+                    "        _out_{name} = {name}.clone()\n",
+                    name = arg.name
+                ));
             } else {
                 out.push_str(&format!(
                     "        {name} = {name}.contiguous().{torch_method}()\n",
@@ -161,7 +164,9 @@ fn emit_autograd_class(out: &mut String, func: &ExportFunc) {
     out.push('\n');
     out.push_str("    @staticmethod\n");
     out.push_str("    def backward(ctx, grad_output):\n");
-    out.push_str("        raise NotImplementedError(\"forward-only — Ea kernels are not differentiable\")\n");
+    out.push_str(
+        "        raise NotImplementedError(\"forward-only — Ea kernels are not differentiable\")\n",
+    );
     out.push('\n');
 }
 

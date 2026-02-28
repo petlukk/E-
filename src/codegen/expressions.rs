@@ -115,6 +115,9 @@ impl<'ctx> CodeGenerator<'ctx> {
                 }
             }
             Expr::Variable(name, _) => {
+                if let Some((const_ty, const_lit)) = self.constants.get(name).cloned() {
+                    return self.compile_const_literal(&const_ty, &const_lit);
+                }
                 let (ptr, ty) = self.variables.get(name).ok_or_else(|| {
                     CompileError::codegen_error(format!("undefined variable '{name}'"))
                 })?;
@@ -284,9 +287,15 @@ impl<'ctx> CodeGenerator<'ctx> {
             if let Some((_, ty)) = self.variables.get(name) {
                 return Some(ty.clone());
             }
+            if let Some((ty, _)) = self.constants.get(name) {
+                return Some(ty.clone());
+            }
         }
         if let Expr::Variable(name, _) = rhs {
             if let Some((_, ty)) = self.variables.get(name) {
+                return Some(ty.clone());
+            }
+            if let Some((ty, _)) = self.constants.get(name) {
                 return Some(ty.clone());
             }
         }
@@ -444,7 +453,40 @@ impl<'ctx> CodeGenerator<'ctx> {
             if let Some((_, ty)) = self.variables.get(name) {
                 return ty.is_unsigned_integer();
             }
+            if let Some((ty, _)) = self.constants.get(name) {
+                return ty.is_unsigned_integer();
+            }
         }
         false
+    }
+
+    fn compile_const_literal(
+        &self,
+        ty: &Type,
+        lit: &Literal,
+    ) -> crate::error::Result<BasicValueEnum<'ctx>> {
+        match (ty, lit) {
+            (Type::I8 | Type::U8, Literal::Integer(n)) => {
+                Ok(self.context.i8_type().const_int(*n as u64, true).into())
+            }
+            (Type::I16 | Type::U16, Literal::Integer(n)) => {
+                Ok(self.context.i16_type().const_int(*n as u64, true).into())
+            }
+            (Type::I32 | Type::U32, Literal::Integer(n)) => {
+                Ok(self.context.i32_type().const_int(*n as u64, true).into())
+            }
+            (Type::I64 | Type::U64, Literal::Integer(n)) => {
+                Ok(self.context.i64_type().const_int(*n as u64, true).into())
+            }
+            (Type::F32, Literal::Float(n)) => Ok(self.context.f32_type().const_float(*n).into()),
+            (Type::F64, Literal::Float(n)) => Ok(self.context.f64_type().const_float(*n).into()),
+            (Type::F32, Literal::Integer(n)) => {
+                Ok(self.context.f32_type().const_float(*n as f64).into())
+            }
+            (Type::F64, Literal::Integer(n)) => {
+                Ok(self.context.f64_type().const_float(*n as f64).into())
+            }
+            _ => Err(CompileError::codegen_error("unsupported const type")),
+        }
     }
 }

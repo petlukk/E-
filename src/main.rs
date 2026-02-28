@@ -307,7 +307,9 @@ fn handle_bind(args: &[String]) {
     }
 
     if !python && !rust && !pytorch && !cmake && !cpp {
-        eprintln!("error: ea bind requires at least one of --python, --rust, --pytorch, --cmake, --cpp");
+        eprintln!(
+            "error: ea bind requires at least one of --python, --rust, --pytorch, --cmake, --cpp"
+        );
         process::exit(1);
     }
 

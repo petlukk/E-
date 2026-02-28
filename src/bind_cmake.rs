@@ -11,7 +11,7 @@ fn generate_cmakelists(stem: &str) -> String {
     out.push_str(&format!("project({stem} C)\n\n"));
     out.push_str("include(EaCompiler.cmake)\n\n");
     out.push_str(&format!("add_ea_kernel({stem} {stem}.ea)\n\n"));
-    out.push_str(&format!("add_executable(app main.c)\n"));
+    out.push_str("add_executable(app main.c)\n");
     out.push_str(&format!("target_link_libraries(app {stem} m)\n"));
     out
 }

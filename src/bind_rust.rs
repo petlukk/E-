@@ -6,7 +6,11 @@ use crate::bind_common::{
 pub fn generate(json_str: &str, module_stem: &str) -> Result<String, String> {
     let exports = parse_exports(json_str)?;
     let lib_name = parse_string_field(json_str, "library")
-        .map(|l| l.trim_end_matches(".so").trim_end_matches(".dll").to_string())
+        .map(|l| {
+            l.trim_end_matches(".so")
+                .trim_end_matches(".dll")
+                .to_string()
+        })
         .unwrap_or_else(|| module_stem.to_string());
 
     let mut out = String::new();
@@ -109,11 +113,7 @@ fn emit_safe_wrapper(out: &mut String, func: &ExportFunc) {
         }
     }
 
-    if func.return_type.is_some() {
-        out.push_str(&format!("        ffi::{}(\n", func.name));
-    } else {
-        out.push_str(&format!("        ffi::{}(\n", func.name));
-    }
+    out.push_str(&format!("        ffi::{}(\n", func.name));
     for (i, ca) in call_args.iter().enumerate() {
         out.push_str(&format!("            {ca}"));
         if i + 1 < call_args.len() {
@@ -154,8 +154,9 @@ fn rust_safe_type(ty: &str) -> String {
 
 fn rust_scalar_type(ty: &str) -> String {
     match ty {
-        "i8" | "u8" | "i16" | "u16" | "i32" | "u32" | "i64" | "u64" | "f32" | "f64"
-        | "bool" => ty.to_string(),
+        "i8" | "u8" | "i16" | "u16" | "i32" | "u32" | "i64" | "u64" | "f32" | "f64" | "bool" => {
+            ty.to_string()
+        }
         other => format!("i32 /* unknown: {other} */"),
     }
 }

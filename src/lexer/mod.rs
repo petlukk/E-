@@ -104,6 +104,8 @@ pub enum TokenKind {
     ForEach,
     #[token("in")]
     In,
+    #[token("const")]
+    Const,
 
     #[token("i8")]
     I8,

@@ -1,5 +1,4 @@
 /// Shared types and JSON parsing for all `ea bind` generators.
-
 pub struct ExportFunc {
     pub name: String,
     pub args: Vec<Arg>,

@@ -331,6 +331,12 @@ pub enum Stmt {
         value: Expr,
         span: Span,
     },
+    Const {
+        name: String,
+        ty: TypeAnnotation,
+        value: Literal,
+        span: Span,
+    },
 }
 
 impl Stmt {
@@ -348,6 +354,7 @@ impl Stmt {
             Stmt::ForEach { span, .. } => span,
             Stmt::Struct { span, .. } => span,
             Stmt::FieldAssign { span, .. } => span,
+            Stmt::Const { span, .. } => span,
         }
     }
 }
@@ -413,6 +420,9 @@ impl fmt::Display for Stmt {
                 write!(f, " }}")
             }
             Stmt::FieldAssign { object, field, .. } => write!(f, "{object}.{field} = ..."),
+            Stmt::Const {
+                name, ty, value, ..
+            } => write!(f, "const {name}: {ty} = {value}"),
         }
     }
 }

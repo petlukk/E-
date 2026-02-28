@@ -34,7 +34,7 @@ use inkwell::AddressSpace;
 use inkwell::DLLStorageClass;
 
 #[cfg(feature = "llvm")]
-use crate::ast::{Stmt, TypeAnnotation};
+use crate::ast::{Literal, Stmt, TypeAnnotation};
 #[cfg(feature = "llvm")]
 use crate::error::CompileError;
 #[cfg(feature = "llvm")]
@@ -52,6 +52,7 @@ pub struct CodeGenerator<'ctx> {
     pub(crate) struct_fields: HashMap<String, Vec<(String, u32, Type)>>,
     pub(crate) avx512: bool,
     pub(crate) is_arm: bool,
+    pub(crate) constants: HashMap<String, (Type, Literal)>,
 }
 
 #[cfg(feature = "llvm")]
@@ -88,11 +89,23 @@ impl<'ctx> CodeGenerator<'ctx> {
             struct_fields: HashMap::new(),
             avx512: opts.extra_features.contains("avx512"),
             is_arm: opts.is_arm(),
+            constants: HashMap::new(),
         }
     }
 
     pub fn compile_program(&mut self, stmts: &[Stmt]) -> crate::error::Result<()> {
         self.declare_printf();
+
+        for stmt in stmts {
+            if let Stmt::Const {
+                name, ty, value, ..
+            } = stmt
+            {
+                let resolved = Self::resolve_annotation(ty);
+                self.constants
+                    .insert(name.clone(), (resolved, value.clone()));
+            }
+        }
 
         for stmt in stmts {
             if let Stmt::Struct { name, fields, .. } = stmt {

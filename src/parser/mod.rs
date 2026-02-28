@@ -1,7 +1,7 @@
 mod expressions;
 mod statements;
 
-use crate::ast::{Param, Stmt, TypeAnnotation};
+use crate::ast::{Literal, Param, Stmt, TypeAnnotation};
 use crate::error::CompileError;
 use crate::lexer::{Position, Span, Token, TokenKind};
 
@@ -39,6 +39,11 @@ impl Parser {
             let start = self.current_position();
             self.advance();
             return self.parse_struct(start);
+        }
+        if self.check(TokenKind::Const) {
+            let start = self.current_position();
+            self.advance();
+            return self.parse_const(start);
         }
         Err(CompileError::parse_error(
             format!("expected declaration, found {:?}", self.peek_kind()),
@@ -100,6 +105,78 @@ impl Parser {
         Ok(Stmt::Struct {
             name,
             fields,
+            span: Span::new(start, end),
+        })
+    }
+
+    fn parse_const(&mut self, start: Position) -> crate::error::Result<Stmt> {
+        let name_token = self.expect_kind(
+            TokenKind::Identifier,
+            "expected constant name after 'const'",
+        )?;
+        let name = name_token.lexeme.clone();
+        self.expect_kind(TokenKind::Colon, "expected ':' after constant name")?;
+        let ty = self.parse_type()?;
+        self.expect_kind(TokenKind::Equals, "expected '=' after constant type")?;
+
+        // Parse optional leading minus for negative literals
+        let negative = if self.check(TokenKind::Minus) {
+            self.advance();
+            true
+        } else {
+            false
+        };
+
+        let value = match self.peek_kind() {
+            Some(TokenKind::IntLiteral) => {
+                let tok = self.advance().clone();
+                let n: i64 = tok.lexeme.parse().map_err(|_| {
+                    CompileError::parse_error("invalid integer literal", tok.position.clone())
+                })?;
+                Literal::Integer(if negative { -n } else { n })
+            }
+            Some(TokenKind::HexLiteral) => {
+                let tok = self.advance().clone();
+                let n = i64::from_str_radix(&tok.lexeme[2..], 16).map_err(|_| {
+                    CompileError::parse_error("invalid hex literal", tok.position.clone())
+                })?;
+                if negative {
+                    Literal::Integer(-n)
+                } else {
+                    Literal::Integer(n)
+                }
+            }
+            Some(TokenKind::BinLiteral) => {
+                let tok = self.advance().clone();
+                let n = i64::from_str_radix(&tok.lexeme[2..], 2).map_err(|_| {
+                    CompileError::parse_error("invalid binary literal", tok.position.clone())
+                })?;
+                if negative {
+                    Literal::Integer(-n)
+                } else {
+                    Literal::Integer(n)
+                }
+            }
+            Some(TokenKind::FloatLiteral) => {
+                let tok = self.advance().clone();
+                let n: f64 = tok.lexeme.parse().map_err(|_| {
+                    CompileError::parse_error("invalid float literal", tok.position.clone())
+                })?;
+                Literal::Float(if negative { -n } else { n })
+            }
+            _ => {
+                return Err(CompileError::parse_error(
+                    "const value must be a literal (integer or float)",
+                    self.current_position(),
+                ));
+            }
+        };
+
+        let end = self.previous_position();
+        Ok(Stmt::Const {
+            name,
+            ty,
+            value,
             span: Span::new(start, end),
         })
     }

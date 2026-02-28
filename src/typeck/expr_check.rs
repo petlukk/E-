@@ -18,9 +18,16 @@ impl TypeChecker {
             Expr::Literal(Literal::Bool(_), _) => Ok(Type::Bool),
             Expr::Literal(Literal::StringLit(_), _) => Ok(Type::String),
             Expr::Variable(name, span) => {
-                locals.get(name).map(|(ty, _)| ty.clone()).ok_or_else(|| {
-                    CompileError::type_error(format!("undefined variable '{name}'"), span.clone())
-                })
+                if let Some((ty, _)) = locals.get(name) {
+                    return Ok(ty.clone());
+                }
+                if let Some((ty, _)) = self.constants.get(name) {
+                    return Ok(ty.clone());
+                }
+                Err(CompileError::type_error(
+                    format!("undefined variable '{name}'"),
+                    span.clone(),
+                ))
             }
             Expr::Not(inner, span) => {
                 let inner_type = self.check_expr(inner, locals)?;

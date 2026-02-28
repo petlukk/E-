@@ -21,8 +21,14 @@ impl TypeChecker {
                     ty,
                     value,
                     mutable,
-                    ..
+                    span,
                 } => {
+                    if self.constants.contains_key(name) {
+                        return Err(CompileError::type_error(
+                            format!("'{name}' is a constant, cannot be used as variable name"),
+                            span.clone(),
+                        ));
+                    }
                     let declared = types::resolve_type(ty)?;
                     let init_type = self.check_expr_with_hint(value, locals, Some(&declared))?;
                     if !types::types_compatible(&init_type, &declared) {
@@ -43,6 +49,12 @@ impl TypeChecker {
                     value,
                     span,
                 } => {
+                    if self.constants.contains_key(target) {
+                        return Err(CompileError::type_error(
+                            format!("cannot assign to constant '{target}'"),
+                            span.clone(),
+                        ));
+                    }
                     let (var_type, mutable) = locals.get(target).cloned().ok_or_else(|| {
                         CompileError::type_error(
                             format!("undefined variable '{target}'"),
@@ -217,6 +229,9 @@ impl TypeChecker {
                     ));
                 }
                 Stmt::Struct { .. } => {
+                    // Registered in check_program first pass
+                }
+                Stmt::Const { .. } => {
                     // Registered in check_program first pass
                 }
                 Stmt::FieldAssign {

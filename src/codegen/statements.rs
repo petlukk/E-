@@ -363,6 +363,10 @@ impl<'ctx> CodeGenerator<'ctx> {
                 // Registered in compile_program
                 Ok(false)
             }
+            Stmt::Const { .. } => {
+                // Registered in compile_program
+                Ok(false)
+            }
         }
     }
 
