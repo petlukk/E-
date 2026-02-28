@@ -140,6 +140,13 @@ impl TypeChecker {
             }
         }
 
+        // Validate output annotations
+        for stmt in stmts {
+            if let Stmt::Function { params, .. } = stmt {
+                self.check_output_annotations(params)?;
+            }
+        }
+
         for stmt in stmts {
             if let Stmt::Function {
                 name,
@@ -158,6 +165,72 @@ impl TypeChecker {
             }
         }
 
+        Ok(())
+    }
+
+    fn check_output_annotations(&self, params: &[Param]) -> crate::error::Result<()> {
+        let input_names: Vec<&str> = params
+            .iter()
+            .filter(|p| !p.output)
+            .map(|p| p.name.as_str())
+            .collect();
+        let const_names: Vec<&str> = self.constants.keys().map(|k| k.as_str()).collect();
+
+        for p in params {
+            if !p.output {
+                continue;
+            }
+            // `out` requires *mut pointer type
+            let resolved = types::resolve_type(&p.ty)?;
+            match &resolved {
+                Type::Pointer { mutable: true, .. } => {}
+                Type::Pointer { mutable: false, .. } => {
+                    return Err(crate::error::CompileError::type_error(
+                        format!(
+                            "'out' parameter '{}' must be *mut pointer, got immutable pointer",
+                            p.name
+                        ),
+                        p.span.clone(),
+                    ));
+                }
+                _ => {
+                    return Err(crate::error::CompileError::type_error(
+                        format!(
+                            "'out' parameter '{}' must be a *mut pointer type, got {}",
+                            p.name, resolved
+                        ),
+                        p.span.clone(),
+                    ));
+                }
+            }
+
+            // Validate cap references
+            if let Some(cap) = &p.cap {
+                // Cap is an expression string — extract identifiers and check
+                // each word-like token against known params/constants
+                for word in cap.split_whitespace() {
+                    if word
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphabetic() || c == '_')
+                    {
+                        let ident = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                        if !ident.is_empty()
+                            && !input_names.contains(&ident)
+                            && !const_names.contains(&ident)
+                        {
+                            return Err(crate::error::CompileError::type_error(
+                                format!(
+                                    "cap expression references unknown identifier '{ident}' \
+                                     (must be a preceding input parameter or constant)"
+                                ),
+                                p.span.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 

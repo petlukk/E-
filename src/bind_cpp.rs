@@ -48,19 +48,44 @@ fn emit_c_decl(out: &mut String, func: &ExportFunc) {
 
 fn emit_span_wrapper(out: &mut String, func: &ExportFunc) {
     let collapsed = find_collapsed_args(&func.args);
+    let auto_out: Vec<&crate::bind_common::Arg> = func
+        .args
+        .iter()
+        .filter(|a| a.direction == "out" && a.cap.is_some())
+        .collect();
 
-    // Build safe parameter list
+    // Build safe parameter list (exclude auto-allocated out params)
     let mut safe_params = Vec::new();
     for (i, arg) in func.args.iter().enumerate() {
         if collapsed[i] {
             continue;
         }
+        if arg.direction == "out" && arg.cap.is_some() {
+            continue;
+        }
         safe_params.push(format!("{} {}", cpp_span_type(&arg.ty), arg.name));
     }
 
-    let ret = match &func.return_type {
-        Some(ty) => cpp_raw_type(ty),
-        None => "void".to_string(),
+    // Determine return type
+    let ret = if !auto_out.is_empty() {
+        if auto_out.len() == 1 {
+            let inner = pointer_inner(&auto_out[0].ty).unwrap_or("f32");
+            format!("std::vector<{}>", cpp_scalar_type(inner))
+        } else {
+            let types: Vec<String> = auto_out
+                .iter()
+                .map(|a| {
+                    let inner = pointer_inner(&a.ty).unwrap_or("f32");
+                    format!("std::vector<{}>", cpp_scalar_type(inner))
+                })
+                .collect();
+            format!("std::tuple<{}>", types.join(", "))
+        }
+    } else {
+        match &func.return_type {
+            Some(ty) => cpp_raw_type(ty),
+            None => "void".to_string(),
+        }
     };
 
     out.push_str(&format!(
@@ -68,6 +93,17 @@ fn emit_span_wrapper(out: &mut String, func: &ExportFunc) {
         func.name,
         safe_params.join(", ")
     ));
+
+    // Auto-allocate out buffers
+    for arg in &auto_out {
+        let inner = pointer_inner(&arg.ty).unwrap_or("f32");
+        let cap = arg.cap.as_deref().unwrap();
+        out.push_str(&format!(
+            "    std::vector<{}> {}({cap});\n",
+            cpp_scalar_type(inner),
+            arg.name
+        ));
+    }
 
     // Build call arguments
     let mut call_args = Vec::new();
@@ -89,7 +125,19 @@ fn emit_span_wrapper(out: &mut String, func: &ExportFunc) {
         }
     }
 
-    if func.return_type.is_some() {
+    if !auto_out.is_empty() {
+        // Call then return auto-allocated buffers
+        out.push_str(&format!("    {}({});\n", func.name, call_args.join(", ")));
+        if auto_out.len() == 1 {
+            out.push_str(&format!("    return {};\n", auto_out[0].name));
+        } else {
+            let names: Vec<&str> = auto_out.iter().map(|a| a.name.as_str()).collect();
+            out.push_str(&format!(
+                "    return std::make_tuple({});\n",
+                names.join(", ")
+            ));
+        }
+    } else if func.return_type.is_some() {
         out.push_str(&format!(
             "    return {}({});\n",
             func.name,

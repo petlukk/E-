@@ -56,6 +56,11 @@ fn emit_ffi_decl(out: &mut String, func: &ExportFunc) {
 
 fn emit_safe_wrapper(out: &mut String, func: &ExportFunc) {
     let collapsed = find_collapsed_args(&func.args);
+    let auto_out: Vec<&crate::bind_common::Arg> = func
+        .args
+        .iter()
+        .filter(|a| a.direction == "out" && a.cap.is_some())
+        .collect();
 
     // Build doc comment showing original C signature
     let c_args: Vec<String> = func
@@ -71,18 +76,38 @@ fn emit_safe_wrapper(out: &mut String, func: &ExportFunc) {
         c_ret
     ));
 
-    // Build safe parameter list
+    // Build safe parameter list (exclude auto-allocated out params)
     let mut safe_params = Vec::new();
     for (i, arg) in func.args.iter().enumerate() {
         if collapsed[i] {
             continue;
         }
+        if arg.direction == "out" && arg.cap.is_some() {
+            continue;
+        }
         safe_params.push(format!("{}: {}", arg.name, rust_safe_type(&arg.ty)));
     }
 
-    let ret = match &func.return_type {
-        Some(ty) => format!(" -> {}", rust_ffi_type(ty)),
-        None => String::new(),
+    // Determine return type
+    let ret = if !auto_out.is_empty() {
+        if auto_out.len() == 1 {
+            let inner = pointer_inner(&auto_out[0].ty).unwrap_or("f32");
+            format!(" -> Vec<{}>", rust_scalar_type(inner))
+        } else {
+            let types: Vec<String> = auto_out
+                .iter()
+                .map(|a| {
+                    let inner = pointer_inner(&a.ty).unwrap_or("f32");
+                    format!("Vec<{}>", rust_scalar_type(inner))
+                })
+                .collect();
+            format!(" -> ({})", types.join(", "))
+        }
+    } else {
+        match &func.return_type {
+            Some(ty) => format!(" -> {}", rust_ffi_type(ty)),
+            None => String::new(),
+        }
     };
 
     out.push_str(&format!(
@@ -90,6 +115,18 @@ fn emit_safe_wrapper(out: &mut String, func: &ExportFunc) {
         func.name,
         safe_params.join(", ")
     ));
+
+    // Auto-allocate out buffers
+    for arg in &auto_out {
+        let inner = pointer_inner(&arg.ty).unwrap_or("f32");
+        let cap = arg.cap.as_deref().unwrap();
+        out.push_str(&format!(
+            "    let mut {}: Vec<{}> = vec![Default::default(); {cap}];\n",
+            arg.name,
+            rust_scalar_type(inner)
+        ));
+    }
+
     out.push_str("    unsafe {\n");
 
     // Build call arguments
@@ -121,8 +158,23 @@ fn emit_safe_wrapper(out: &mut String, func: &ExportFunc) {
         }
         out.push('\n');
     }
-    out.push_str("        )\n");
+    if auto_out.is_empty() && func.return_type.is_some() {
+        // Implicit return from unsafe block
+        out.push_str("        )\n");
+    } else {
+        out.push_str("        );\n");
+    }
     out.push_str("    }\n");
+
+    // Return auto-allocated buffers
+    if !auto_out.is_empty() {
+        if auto_out.len() == 1 {
+            out.push_str(&format!("    {}\n", auto_out[0].name));
+        } else {
+            let names: Vec<&str> = auto_out.iter().map(|a| a.name.as_str()).collect();
+            out.push_str(&format!("    ({})\n", names.join(", ")));
+        }
+    }
     out.push_str("}\n");
 }
 

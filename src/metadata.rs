@@ -29,10 +29,22 @@ pub fn generate_json(stmts: &[Stmt], lib_name: &str) -> String {
                     out.push_str(", ");
                 }
                 let ty_str = format!("{}", p.ty);
+                let direction = if p.output { "out" } else { "in" };
+                let cap_str = match &p.cap {
+                    Some(c) => format!("\"{}\"", json_escape(c)),
+                    None => "null".to_string(),
+                };
+                let count_str = match &p.count {
+                    Some(c) => format!("\"{}\"", json_escape(c)),
+                    None => "null".to_string(),
+                };
                 out.push_str(&format!(
-                    "{{\"name\": \"{}\", \"type\": \"{}\"}}",
+                    "{{\"name\": \"{}\", \"type\": \"{}\", \"direction\": \"{}\", \"cap\": {}, \"count\": {}}}",
                     p.name,
-                    json_escape(&ty_str)
+                    json_escape(&ty_str),
+                    direction,
+                    cap_str,
+                    count_str
                 ));
             }
             out.push_str("],\n");

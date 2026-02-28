@@ -55,14 +55,22 @@ fn emit_restype(out: &mut String, func: &ExportFunc) {
 fn emit_autograd_class(out: &mut String, func: &ExportFunc) {
     let collapsed = find_collapsed_args(&func.args);
     let class_name = to_class_name(&func.name);
+    let auto_out: Vec<&crate::bind_common::Arg> = func
+        .args
+        .iter()
+        .filter(|a| a.direction == "out" && a.cap.is_some())
+        .collect();
 
     out.push_str(&format!("class _{class_name}(_torch.autograd.Function):\n"));
     out.push_str("    @staticmethod\n");
 
-    // Build forward parameter list (non-collapsed, non-length params)
+    // Build forward parameter list (non-collapsed, exclude auto-allocated out)
     let mut fwd_params = vec!["ctx".to_string()];
     for (i, arg) in func.args.iter().enumerate() {
         if collapsed[i] {
+            continue;
+        }
+        if arg.direction == "out" && arg.cap.is_some() {
             continue;
         }
         fwd_params.push(arg.name.clone());
@@ -70,15 +78,17 @@ fn emit_autograd_class(out: &mut String, func: &ExportFunc) {
 
     out.push_str(&format!("    def forward({}):\n", fwd_params.join(", ")));
 
-    // Emit tensor setup for pointer args
+    // Emit tensor setup for non-auto-allocated pointer args
     for (i, arg) in func.args.iter().enumerate() {
         if collapsed[i] {
+            continue;
+        }
+        if arg.direction == "out" && arg.cap.is_some() {
             continue;
         }
         if let Some(_inner) = pointer_inner(&arg.ty) {
             let torch_method = torch_cast_method(_inner);
             if is_mut_pointer(&arg.ty) {
-                // Mutable pointer: clone to create output
                 out.push_str(&format!(
                     "        {name} = {name}.contiguous().{torch_method}()\n",
                     name = arg.name
@@ -101,7 +111,19 @@ fn emit_autograd_class(out: &mut String, func: &ExportFunc) {
                     name = arg.name
                 ));
             }
-            let _ = torch_dtype; // used in ctype_for already
+            let _ = torch_dtype;
+        }
+    }
+
+    // Auto-allocate out tensors
+    for arg in &auto_out {
+        if let Some(inner) = pointer_inner(&arg.ty) {
+            let cap = arg.cap.as_deref().unwrap();
+            let dtype = torch_dtype(inner);
+            out.push_str(&format!(
+                "        _out_{} = _torch.empty({cap}, dtype={dtype})\n",
+                arg.name
+            ));
         }
     }
 
@@ -114,7 +136,14 @@ fn emit_autograd_class(out: &mut String, func: &ExportFunc) {
         if pointer_inner(&arg.ty).is_some() {
             last_ptr_arg = Some(&arg.name);
             let ptr_ctype = ctype_for(&arg.ty);
-            if is_mut_pointer(&arg.ty) {
+            if arg.direction == "out" && arg.cap.is_some() {
+                call_args.push(format!(
+                    "            _ct.cast(_out_{}.data_ptr(), {ptr_ctype})",
+                    arg.name
+                ));
+                has_mut_output = true;
+                mut_output_name = arg.name.clone();
+            } else if is_mut_pointer(&arg.ty) {
                 has_mut_output = true;
                 mut_output_name = arg.name.clone();
                 call_args.push(format!(
@@ -153,12 +182,19 @@ fn emit_autograd_class(out: &mut String, func: &ExportFunc) {
     }
     out.push_str("        )\n");
 
-    if has_mut_output {
+    // Return auto-allocated out tensors or clone
+    if !auto_out.is_empty() {
+        if auto_out.len() == 1 {
+            out.push_str(&format!("        return _out_{}\n", auto_out[0].name));
+        } else {
+            let names: Vec<String> = auto_out
+                .iter()
+                .map(|a| format!("_out_{}", a.name))
+                .collect();
+            out.push_str(&format!("        return {}\n", names.join(", ")));
+        }
+    } else if has_mut_output {
         out.push_str(&format!("        return _out_{mut_output_name}\n"));
-    } else if func.return_type.is_some() {
-        // If there's a return type but no mut pointer output, we'd need to capture the result
-        // For now, re-emit the call with result capture
-        // Actually the call above already happened — let's restructure
     }
 
     out.push('\n');
@@ -177,6 +213,9 @@ fn emit_wrapper(out: &mut String, func: &ExportFunc) {
     let mut py_params = Vec::new();
     for (i, arg) in func.args.iter().enumerate() {
         if collapsed[i] {
+            continue;
+        }
+        if arg.direction == "out" && arg.cap.is_some() {
             continue;
         }
         py_params.push(arg.name.clone());

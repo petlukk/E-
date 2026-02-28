@@ -59,6 +59,9 @@ fn desugar_kernel(kernel: Stmt) -> crate::error::Result<Stmt> {
     params.push(Param {
         name: range_bound.clone(),
         ty: TypeAnnotation::Named("i32".to_string(), s.clone()),
+        output: false,
+        cap: None,
+        count: None,
         span: s.clone(),
     });
 

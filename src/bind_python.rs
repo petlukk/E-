@@ -1,5 +1,6 @@
 use crate::bind_common::{
-    find_collapsed_args, parse_exports, parse_string_field, pointer_inner, ExportFunc,
+    find_collapsed_args, has_out_params, parse_exports, parse_string_field, pointer_inner,
+    ExportFunc,
 };
 
 pub fn generate(json_str: &str, module_stem: &str) -> Result<String, String> {
@@ -49,19 +50,40 @@ fn emit_restype(out: &mut String, func: &ExportFunc) {
 
 fn emit_wrapper(out: &mut String, func: &ExportFunc) {
     let collapsed = find_collapsed_args(&func.args);
+    let use_out = has_out_params(func);
+
+    // Collect out params with cap (auto-allocated, hidden from signature)
+    let auto_out: Vec<&crate::bind_common::Arg> = func
+        .args
+        .iter()
+        .filter(|a| a.direction == "out" && a.cap.is_some())
+        .collect();
 
     let mut py_params = Vec::new();
     for (i, arg) in func.args.iter().enumerate() {
         if collapsed[i] {
             continue;
         }
+        // Hide auto-allocated out params from signature
+        if arg.direction == "out" && arg.cap.is_some() {
+            continue;
+        }
         let annotation = python_annotation(&arg.ty);
         py_params.push(format!("{}: {}", arg.name, annotation));
     }
 
-    let ret_annotation = match &func.return_type {
-        Some(ty) => format!(" -> {}", python_return_annotation(ty)),
-        None => String::new(),
+    // Determine return annotation
+    let ret_annotation = if !auto_out.is_empty() {
+        if auto_out.len() == 1 {
+            " -> _np.ndarray".to_string()
+        } else {
+            let types: Vec<&str> = auto_out.iter().map(|_| "_np.ndarray").collect();
+            format!(" -> tuple[{}]", types.join(", "))
+        }
+    } else if let Some(ty) = &func.return_type {
+        format!(" -> {}", python_return_annotation(ty))
+    } else {
+        String::new()
     };
 
     out.push_str(&format!(
@@ -83,7 +105,11 @@ fn emit_wrapper(out: &mut String, func: &ExportFunc) {
         c_ret
     ));
 
+    // Dtype checks for non-auto-allocated pointer args
     for arg in &func.args {
+        if arg.direction == "out" && arg.cap.is_some() {
+            continue;
+        }
         if let Some(inner) = pointer_inner(&arg.ty) {
             if let Some(dtype) = numpy_dtype(inner) {
                 out.push_str(&format!("    if {}.dtype != _np.{dtype}:\n", arg.name));
@@ -95,6 +121,19 @@ fn emit_wrapper(out: &mut String, func: &ExportFunc) {
         }
     }
 
+    // Auto-allocate out buffers
+    for arg in &auto_out {
+        if let Some(inner) = pointer_inner(&arg.ty) {
+            let cap = arg.cap.as_deref().unwrap();
+            let dtype = numpy_dtype(inner).unwrap_or("float32");
+            out.push_str(&format!(
+                "    {} = _np.empty({}, dtype=_np.{dtype})\n",
+                arg.name, cap
+            ));
+        }
+    }
+
+    // Build call arguments
     let mut call_args = Vec::new();
     let mut last_ptr_arg: Option<&str> = None;
     for (i, arg) in func.args.iter().enumerate() {
@@ -120,7 +159,7 @@ fn emit_wrapper(out: &mut String, func: &ExportFunc) {
         }
     }
 
-    if func.return_type.is_some() {
+    if func.return_type.is_some() && !use_out {
         out.push_str(&format!("    _result = _lib.{}(\n", func.name));
     } else {
         out.push_str(&format!("    _lib.{}(\n", func.name));
@@ -134,7 +173,15 @@ fn emit_wrapper(out: &mut String, func: &ExportFunc) {
     }
     out.push_str("    )\n");
 
-    if let Some(ty) = &func.return_type {
+    // Return
+    if !auto_out.is_empty() {
+        if auto_out.len() == 1 {
+            out.push_str(&format!("    return {}\n", auto_out[0].name));
+        } else {
+            let names: Vec<&str> = auto_out.iter().map(|a| a.name.as_str()).collect();
+            out.push_str(&format!("    return {}\n", names.join(", ")));
+        }
+    } else if let Some(ty) = &func.return_type {
         out.push_str(&format!("    return {}(_result)\n", python_return_cast(ty)));
     }
 }

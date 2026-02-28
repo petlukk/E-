@@ -291,14 +291,51 @@ impl Parser {
         }
         loop {
             let start = self.current_position();
+
+            // Detect `out` contextual keyword via lookahead:
+            //   out IDENT : → output param
+            //   out :       → regular param named "out"
+            let output = self.check_identifier("out")
+                && matches!(self.peek_at(1), Some(TokenKind::Identifier))
+                && matches!(self.peek_at(2), Some(TokenKind::Colon));
+            if output {
+                self.advance(); // consume `out`
+            }
+
             let name_token = self.expect_kind(TokenKind::Identifier, "expected parameter name")?;
             let name = name_token.lexeme.clone();
             self.expect_kind(TokenKind::Colon, "expected ':' after parameter name")?;
             let ty = self.parse_type()?;
-            let end = ty.span().end.clone();
+            let mut end = ty.span().end.clone();
+
+            // Parse optional annotation: [cap: EXPR] or [cap: EXPR, count: PATH]
+            let (cap, count) = if self.check(TokenKind::LeftBracket) {
+                self.advance(); // consume [
+                self.expect_identifier("cap", "expected 'cap' in output annotation")?;
+                self.expect_kind(TokenKind::Colon, "expected ':' after 'cap'")?;
+                let cap_str = self.collect_annotation_expr()?;
+                let count_str = if self.check(TokenKind::Comma) {
+                    self.advance(); // consume ,
+                    self.expect_identifier("count", "expected 'count' after ','")?;
+                    self.expect_kind(TokenKind::Colon, "expected ':' after 'count'")?;
+                    let c = self.collect_annotation_expr()?;
+                    Some(c)
+                } else {
+                    None
+                };
+                end = self.current_position();
+                self.expect_kind(TokenKind::RightBracket, "expected ']' after annotation")?;
+                (Some(cap_str), count_str)
+            } else {
+                (None, None)
+            };
+
             params.push(Param {
                 name,
                 ty,
+                output,
+                cap,
+                count,
                 span: Span::new(start, end),
             });
             if !self.check(TokenKind::Comma) {
@@ -307,6 +344,25 @@ impl Parser {
             self.advance();
         }
         Ok(params)
+    }
+
+    /// Collect tokens as a string until `,`, `]`, or end-of-input.
+    fn collect_annotation_expr(&mut self) -> crate::error::Result<String> {
+        let mut parts = Vec::new();
+        while !self.is_at_end()
+            && !self.check(TokenKind::Comma)
+            && !self.check(TokenKind::RightBracket)
+        {
+            let tok = self.advance();
+            parts.push(tok.lexeme.clone());
+        }
+        if parts.is_empty() {
+            return Err(CompileError::parse_error(
+                "expected expression in annotation",
+                self.current_position(),
+            ));
+        }
+        Ok(parts.join(" "))
     }
 
     pub(super) fn parse_type(&mut self) -> crate::error::Result<TypeAnnotation> {

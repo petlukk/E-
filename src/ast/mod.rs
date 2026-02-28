@@ -246,12 +246,23 @@ impl fmt::Display for TypeAnnotation {
 pub struct Param {
     pub name: String,
     pub ty: TypeAnnotation,
+    pub output: bool,
+    pub cap: Option<String>,
+    pub count: Option<String>,
     pub span: Span,
 }
 
 impl fmt::Display for Param {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.name, self.ty)
+        if self.output {
+            write!(f, "out ")?;
+        }
+        write!(f, "{}: {}", self.name, self.ty)?;
+        match (&self.cap, &self.count) {
+            (Some(cap), Some(count)) => write!(f, " [cap: {cap}, count: {count}]"),
+            (Some(cap), None) => write!(f, " [cap: {cap}]"),
+            _ => Ok(()),
+        }
     }
 }
 

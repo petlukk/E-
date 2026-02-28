@@ -8,6 +8,14 @@ pub struct ExportFunc {
 pub struct Arg {
     pub name: String,
     pub ty: String,
+    pub direction: String,
+    pub cap: Option<String>,
+    pub count: Option<String>,
+}
+
+/// Returns true if `func` has any output-annotated parameters.
+pub fn has_out_params(func: &ExportFunc) -> bool {
+    func.args.iter().any(|a| a.direction == "out")
 }
 
 /// Returns true if `ty` is a pointer type (`*T`, `*mut T`, `*restrict T`, etc.).
@@ -108,9 +116,16 @@ fn parse_export_obj(obj: &str) -> Result<ExportFunc, String> {
             let arg_obj = &obj_slice[..=obj_end];
             let arg_name = parse_string_field(arg_obj, "name").ok_or("missing \"name\" in arg")?;
             let arg_type = parse_string_field(arg_obj, "type").ok_or("missing \"type\" in arg")?;
+            let direction =
+                parse_string_field(arg_obj, "direction").unwrap_or_else(|| "in".to_string());
+            let cap = parse_nullable_string_field(arg_obj, "cap");
+            let count = parse_nullable_string_field(arg_obj, "count");
             args.push(Arg {
                 name: arg_name,
                 ty: arg_type,
+                direction,
+                cap,
+                count,
             });
             pos = pos + obj_start + obj_end + 1;
         } else {
