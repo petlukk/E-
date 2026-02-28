@@ -1,13 +1,18 @@
 // Horizontal Reduction Benchmark: Sum, Max, Min across arrays
 // Compute-bound: reduction operations dominate, not memory bandwidth
 
+const LANE_4: i32 = 4
+const LANE_8: i32 = 8
+
+static_assert(LANE_8 % LANE_4 == 0, "LANE_8 must be multiple of LANE_4")
+
 export func sum_f32x4(data: *restrict f32, len: i32) -> f32 {
     let mut acc: f32x4 = splat(0.0)
     let mut i: i32 = 0
-    while i + 4 <= len {
+    while i + LANE_4 <= len {
         let v: f32x4 = load(data, i)
         acc = acc .+ v
-        i = i + 4
+        i = i + LANE_4
     }
     let mut total: f32 = reduce_add(acc)
     while i < len {
@@ -20,10 +25,10 @@ export func sum_f32x4(data: *restrict f32, len: i32) -> f32 {
 export func sum_f32x8(data: *restrict f32, len: i32) -> f32 {
     let mut acc: f32x8 = splat(0.0)
     let mut i: i32 = 0
-    while i + 8 <= len {
+    while i + LANE_8 <= len {
         let v: f32x8 = load(data, i)
         acc = acc .+ v
-        i = i + 8
+        i = i + LANE_8
     }
     let mut total: f32 = reduce_add(acc)
     while i < len {
@@ -38,19 +43,19 @@ export func sum_f32x8(data: *restrict f32, len: i32) -> f32 {
 export func max_f32x4(data: *restrict f32, len: i32) -> f32 {
     let mut acc0: f32x4 = load(data, 0)
     let mut acc1: f32x4 = load(data, 0)
-    let mut i: i32 = 4
-    while i + 8 <= len {
+    let mut i: i32 = LANE_4
+    while i + LANE_8 <= len {
         let v0: f32x4 = load(data, i)
-        let v1: f32x4 = load(data, i + 4)
+        let v1: f32x4 = load(data, i + LANE_4)
         acc0 = select(acc0 .> v0, acc0, v0)
         acc1 = select(acc1 .> v1, acc1, v1)
-        i = i + 8
+        i = i + LANE_8
     }
     let mut acc: f32x4 = select(acc0 .> acc1, acc0, acc1)
-    while i + 4 <= len {
+    while i + LANE_4 <= len {
         let v: f32x4 = load(data, i)
         acc = select(acc .> v, acc, v)
-        i = i + 4
+        i = i + LANE_4
     }
     let mut result: f32 = reduce_max(acc)
     while i < len {
@@ -86,19 +91,19 @@ export func sum_unroll(data: *restrict f32, len: i32) -> f32 {
 export func min_f32x4(data: *restrict f32, len: i32) -> f32 {
     let mut acc0: f32x4 = load(data, 0)
     let mut acc1: f32x4 = load(data, 0)
-    let mut i: i32 = 4
-    while i + 8 <= len {
+    let mut i: i32 = LANE_4
+    while i + LANE_8 <= len {
         let v0: f32x4 = load(data, i)
-        let v1: f32x4 = load(data, i + 4)
+        let v1: f32x4 = load(data, i + LANE_4)
         acc0 = select(acc0 .< v0, acc0, v0)
         acc1 = select(acc1 .< v1, acc1, v1)
-        i = i + 8
+        i = i + LANE_8
     }
     let mut acc: f32x4 = select(acc0 .< acc1, acc0, acc1)
-    while i + 4 <= len {
+    while i + LANE_4 <= len {
         let v: f32x4 = load(data, i)
         acc = select(acc .< v, acc, v)
-        i = i + 4
+        i = i + LANE_4
     }
     let mut result: f32 = reduce_min(acc)
     while i < len {

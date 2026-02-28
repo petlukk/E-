@@ -70,7 +70,7 @@ operations with zero allocation.
 
 ## The kernels
 
-### Unfused (`prepass_unfused.ea`)
+### Unfused (in `prepass.ea`)
 
 Three separate streaming kernels:
 
@@ -82,7 +82,7 @@ Three separate streaming kernels:
 - **`boundary_detect`** — compares adjacent flag values. Where the flag class
   changes (letter→space, space→punctuation, etc.), a boundary is marked.
 
-### Fused (`prepass_fused.ea`)
+### Fused (in `prepass.ea`)
 
 One kernel that produces all three outputs in a single pass over the input.
 For each 16-byte chunk, it:

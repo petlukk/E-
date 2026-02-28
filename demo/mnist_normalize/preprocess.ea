@@ -1,14 +1,30 @@
-// Fused MNIST preprocessing: normalize + standardize + clip in ONE pass.
-// Input: f32 pixel values [0, 255] (pre-cast from u8 by Python).
-// Output: f32 normalized, standardized, clipped to [0, 1].
-//
-// Fuses what NumPy does in 4-5 separate memory passes:
-//   x = x / 255.0          (normalize)
-//   x = (x - mean) / std   (standardize)
-//   x = clip(x, 0, 1)      (clip)
-//
-// All in register. No intermediate arrays. One read, one write.
+// MNIST preprocessing kernels — normalize, foreach, and fused pipeline.
+// All three exports in one compilation unit.
 
+// foreach variant (relies on LLVM auto-vectorization at O2+)
+export func normalize_foreach(input: *restrict f32, out: *mut f32, len: i32, scale: f32) {
+    foreach (i in 0..len) {
+        out[i] = input[i] * scale
+    }
+}
+
+// Explicit SIMD normalization: uint8 [0,255] -> float32 [0,1] via caller-provided scale
+export func normalize_f32x8(input: *restrict f32, out: *mut f32, len: i32, scale: f32) {
+    let vscale: f32x8 = splat(scale)
+    let mut i: i32 = 0
+    while i + 8 <= len {
+        let v: f32x8 = load(input, i)
+        store(out, i, v .* vscale)
+        i = i + 8
+    }
+    while i < len {
+        out[i] = input[i] * scale
+        i = i + 1
+    }
+}
+
+// Fused: normalize + standardize + clip in ONE pass.
+// Replaces 3-4 NumPy memory passes with a single read+write.
 export func preprocess_fused(
     input: *restrict f32,
     out: *mut f32,
@@ -24,18 +40,12 @@ export func preprocess_fused(
     let vone: f32x8 = splat(1.0)
     let mut i: i32 = 0
     while i + 8 <= len {
-        // normalize: x * (1/255)
         let v: f32x8 = load(input, i)
         let norm: f32x8 = v .* vscale
-
-        // standardize: (norm - mean) * inv_std
         let centered: f32x8 = norm .- vmean
         let scaled: f32x8 = centered .* vinv_std
-
-        // clip to [0, 1]: branchless via select
         let clamped_lo: f32x8 = select(scaled .< vzero, vzero, scaled)
         let clamped: f32x8 = select(clamped_lo .> vone, vone, clamped_lo)
-
         store(out, i, clamped)
         i = i + 8
     }

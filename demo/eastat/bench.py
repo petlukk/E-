@@ -10,6 +10,7 @@ Usage:
     python bench.py [test_file.csv]
 """
 
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -88,6 +89,22 @@ def main():
     file_size = filepath.stat().st_size
     size_mb = file_size / (1024**2)
     print(f"File: {filepath.name} ({size_mb:.1f} MB)")
+    print("=" * 64)
+
+    # --- Kernel Analysis ---
+    print("\n=== Kernel Analysis (ea inspect) ===")
+    ea_root = SCRIPT_DIR / ".." / ".."
+    for kernel in ["kernels/csv_parse.ea", "kernels/csv_stats.ea"]:
+        kernel_path = SCRIPT_DIR / kernel
+        if kernel_path.exists():
+            inspect = subprocess.run(
+                ["cargo", "run", "--features=llvm", "--release", "--",
+                 "inspect", str(kernel_path)],
+                capture_output=True, text=True, cwd=str(ea_root),
+            )
+            if inspect.returncode == 0:
+                print(f"\n--- {kernel} ---")
+                print(inspect.stdout)
     print("=" * 64)
 
     # --- Eastat ---

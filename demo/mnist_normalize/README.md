@@ -51,7 +51,7 @@ probably ended a kernel too early.**
 
 ## The kernels
 
-### Single operation (`normalize.ea`)
+### Single operation (`preprocess.ea`)
 
 ```
 export func normalize_f32x8(input: *restrict f32, out: *mut f32, len: i32, scale: f32) {
@@ -66,7 +66,7 @@ export func normalize_f32x8(input: *restrict f32, out: *mut f32, len: i32, scale
 }
 ```
 
-### Fused pipeline (`preprocess_fused.ea`)
+### Fused pipeline (`preprocess.ea`)
 
 ```
 export func preprocess_fused(

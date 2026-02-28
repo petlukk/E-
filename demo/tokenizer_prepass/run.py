@@ -117,27 +117,25 @@ def build_kernels():
 
 
 def load_kernels():
-    fused_path = DEMO_DIR / "prepass_fused.so"
-    unfused_path = DEMO_DIR / "prepass_unfused.so"
-    if not fused_path.exists() or not unfused_path.exists():
+    so_path = DEMO_DIR / "prepass.so"
+    if not so_path.exists():
         build_kernels()
 
-    fused = ctypes.CDLL(str(fused_path))
-    unfused = ctypes.CDLL(str(unfused_path))
+    lib = ctypes.CDLL(str(so_path))
 
     # Fused: text_prepass_fused(text, flags, lower, boundaries, len)
-    fused.text_prepass_fused.argtypes = [U8_PTR, U8_PTR, U8_PTR, U8_PTR, ctypes.c_int32]
-    fused.text_prepass_fused.restype = None
+    lib.text_prepass_fused.argtypes = [U8_PTR, U8_PTR, U8_PTR, U8_PTR, ctypes.c_int32]
+    lib.text_prepass_fused.restype = None
 
     # Unfused
-    unfused.classify_u8x16.argtypes = [U8_PTR, U8_PTR, ctypes.c_int32]
-    unfused.classify_u8x16.restype = None
-    unfused.lowercase_u8x16.argtypes = [U8_PTR, U8_PTR, ctypes.c_int32]
-    unfused.lowercase_u8x16.restype = None
-    unfused.boundary_detect.argtypes = [U8_PTR, U8_PTR, ctypes.c_int32]
-    unfused.boundary_detect.restype = None
+    lib.classify_u8x16.argtypes = [U8_PTR, U8_PTR, ctypes.c_int32]
+    lib.classify_u8x16.restype = None
+    lib.lowercase_u8x16.argtypes = [U8_PTR, U8_PTR, ctypes.c_int32]
+    lib.lowercase_u8x16.restype = None
+    lib.boundary_detect.argtypes = [U8_PTR, U8_PTR, ctypes.c_int32]
+    lib.boundary_detect.restype = None
 
-    return fused, unfused
+    return lib, lib
 
 
 # ---------------------------------------------------------------------------

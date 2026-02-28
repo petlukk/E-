@@ -1,10 +1,162 @@
-// Tokenizer prepass — fused kernel (1 pass)
+// Tokenizer prepass — unfused and fused kernels in one file.
 //
-// Classify + lowercase + boundary detect in a single kernel.
-// Zero intermediate arrays. One memory pass.
+// Unfused: classify_u8x16, lowercase_u8x16, boundary_detect (3 passes)
+// Fused: text_prepass_fused (1 pass, doubles classification compute)
+
+const SPACE: i32 = 32
+const TAB: i32 = 9
+const LF: i32 = 10
+const CR: i32 = 13
+const UPPER_A: i32 = 65
+const UPPER_Z: i32 = 90
+const LOWER_A: i32 = 97
+const LOWER_Z: i32 = 122
+const DIGIT_0: i32 = 48
+const DIGIT_9: i32 = 57
+const CASE_BIT: i32 = 32
+
+static_assert(DIGIT_9 - DIGIT_0 == 9, "digits must be contiguous")
+static_assert(LOWER_A - UPPER_A == CASE_BIT, "case offset must equal CASE_BIT")
+
+// --- Unfused kernels ---
+
+export func classify_u8x16(text: *u8, flags: *mut u8, len: i32) {
+    let v_space: u8x16 = splat(32)
+    let v_tab: u8x16 = splat(9)
+    let v_nl: u8x16 = splat(10)
+    let v_cr: u8x16 = splat(13)
+    let v_A: u8x16 = splat(65)
+    let v_Z: u8x16 = splat(90)
+    let v_a: u8x16 = splat(97)
+    let v_z: u8x16 = splat(122)
+    let v_0: u8x16 = splat(48)
+    let v_9: u8x16 = splat(57)
+    let v_127: u8x16 = splat(127)
+    let v_bang: u8x16 = splat(33)
+    let v_tilde: u8x16 = splat(126)
+    let v_zero: u8x16 = splat(0)
+    let v_ones: u8x16 = splat(255)
+    let v_ws_flag: u8x16 = splat(1)
+    let v_letter_flag: u8x16 = splat(2)
+    let v_digit_flag: u8x16 = splat(4)
+    let v_punct_flag: u8x16 = splat(8)
+    let v_nonascii_flag: u8x16 = splat(16)
+
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        let c: u8x16 = load(text, i)
+
+        let ws1: u8x16 = select(c .== v_space, v_ws_flag, v_zero)
+        let ws2: u8x16 = select(c .== v_tab, v_ws_flag, v_zero)
+        let ws3: u8x16 = select(c .== v_nl, v_ws_flag, v_zero)
+        let ws4: u8x16 = select(c .== v_cr, v_ws_flag, v_zero)
+        let ws: u8x16 = ws1 .| ws2 .| ws3 .| ws4
+
+        let ge_A: u8x16 = select(c .>= v_A, v_ones, v_zero)
+        let le_Z: u8x16 = select(c .<= v_Z, v_ones, v_zero)
+        let upper: u8x16 = (ge_A .& le_Z) .& v_letter_flag
+
+        let ge_a: u8x16 = select(c .>= v_a, v_ones, v_zero)
+        let le_z: u8x16 = select(c .<= v_z, v_ones, v_zero)
+        let lower_letter: u8x16 = (ge_a .& le_z) .& v_letter_flag
+
+        let ge_0: u8x16 = select(c .>= v_0, v_ones, v_zero)
+        let le_9: u8x16 = select(c .<= v_9, v_ones, v_zero)
+        let digit: u8x16 = (ge_0 .& le_9) .& v_digit_flag
+
+        let nonascii: u8x16 = select(c .> v_127, v_nonascii_flag, v_zero)
+
+        let known: u8x16 = ws .| upper .| lower_letter .| digit
+        let ge_bang: u8x16 = select(c .>= v_bang, v_ones, v_zero)
+        let le_tilde: u8x16 = select(c .<= v_tilde, v_ones, v_zero)
+        let printable: u8x16 = (ge_bang .& le_tilde) .& v_punct_flag
+        let punct: u8x16 = select(known .== v_zero, printable, v_zero)
+
+        let f: u8x16 = ws .| upper .| lower_letter .| digit .| nonascii .| punct
+        store(flags, i, f)
+        i = i + 16
+    }
+    while i < len {
+        let b: u8 = text[i]
+        let mut f: u8 = 0
+        if b == 32 || b == 9 || b == 10 || b == 13 {
+            f = 1
+        } else {
+            if (b >= 65 && b <= 90) || (b >= 97 && b <= 122) {
+                f = 2
+            } else {
+                if b >= 48 && b <= 57 {
+                    f = 4
+                } else {
+                    if b > 127 {
+                        f = 16
+                    } else {
+                        if b >= 33 && b <= 126 {
+                            f = 8
+                        }
+                    }
+                }
+            }
+        }
+        flags[i] = f
+        i = i + 1
+    }
+}
+
+export func lowercase_u8x16(text: *u8, lower: *mut u8, len: i32) {
+    let v_A: u8x16 = splat(65)
+    let v_Z: u8x16 = splat(90)
+    let v_32: u8x16 = splat(32)
+    let v_zero: u8x16 = splat(0)
+    let v_ones: u8x16 = splat(255)
+
+    let mut i: i32 = 0
+    while i + 16 <= len {
+        let c: u8x16 = load(text, i)
+        let ge_A: u8x16 = select(c .>= v_A, v_ones, v_zero)
+        let le_Z: u8x16 = select(c .<= v_Z, v_ones, v_zero)
+        let is_upper: u8x16 = (ge_A .& le_Z) .& v_32
+        store(lower, i, c .| is_upper)
+        i = i + 16
+    }
+    while i < len {
+        let b: u8 = text[i]
+        if b >= 65 && b <= 90 {
+            lower[i] = b + 32
+        } else {
+            lower[i] = b
+        }
+        i = i + 1
+    }
+}
+
+export func boundary_detect(flags: *u8, boundaries: *mut u8, len: i32) {
+    if len > 0 {
+        boundaries[0] = 1
+    }
+    let v_zero: u8x16 = splat(0)
+    let v_one: u8x16 = splat(1)
+
+    let mut i: i32 = 1
+    while i + 16 <= len {
+        let curr: u8x16 = load(flags, i)
+        let prev: u8x16 = load(flags, i - 1)
+        store(boundaries, i, select(curr .== prev, v_zero, v_one))
+        i = i + 16
+    }
+    while i < len {
+        if flags[i] != flags[i - 1] {
+            boundaries[i] = 1
+        } else {
+            boundaries[i] = 0
+        }
+        i = i + 1
+    }
+}
+
+// --- Fused kernel: classify + lowercase + boundary in one pass ---
 
 export func text_prepass_fused(text: *u8, flags: *mut u8, lower: *mut u8, boundaries: *mut u8, len: i32) {
-    // Splat constants
     let v_space: u8x16 = splat(32)
     let v_tab: u8x16 = splat(9)
     let v_nl: u8x16 = splat(10)
@@ -28,7 +180,6 @@ export func text_prepass_fused(text: *u8, flags: *mut u8, lower: *mut u8, bounda
     let v_nonascii_flag: u8x16 = splat(16)
     let v_one: u8x16 = splat(1)
 
-    // First byte is always a boundary — handle scalar
     if len > 0 {
         let b0: u8 = text[0]
         let mut f0: u8 = 0
@@ -65,7 +216,6 @@ export func text_prepass_fused(text: *u8, flags: *mut u8, lower: *mut u8, bounda
         let curr: u8x16 = load(text, i)
         let prev: u8x16 = load(text, i - 1)
 
-        // --- Classify curr ---
         let ws1_c: u8x16 = select(curr .== v_space, v_ws_flag, v_zero)
         let ws2_c: u8x16 = select(curr .== v_tab, v_ws_flag, v_zero)
         let ws3_c: u8x16 = select(curr .== v_nl, v_ws_flag, v_zero)
@@ -94,7 +244,6 @@ export func text_prepass_fused(text: *u8, flags: *mut u8, lower: *mut u8, bounda
 
         let curr_flags: u8x16 = ws_c .| upper_c .| lower_c .| digit_c .| nonascii_c .| punct_c
 
-        // --- Classify prev ---
         let ws1_p: u8x16 = select(prev .== v_space, v_ws_flag, v_zero)
         let ws2_p: u8x16 = select(prev .== v_tab, v_ws_flag, v_zero)
         let ws3_p: u8x16 = select(prev .== v_nl, v_ws_flag, v_zero)
@@ -123,16 +272,13 @@ export func text_prepass_fused(text: *u8, flags: *mut u8, lower: *mut u8, bounda
 
         let prev_flags: u8x16 = ws_p .| upper_p .| lower_p .| digit_p .| nonascii_p .| punct_p
 
-        // --- Lowercase curr ---
         let case_ge: u8x16 = select(curr .>= v_A, v_ones, v_zero)
         let case_le: u8x16 = select(curr .<= v_Z, v_ones, v_zero)
         let case_bit: u8x16 = (case_ge .& case_le) .& v_32
         let lowered: u8x16 = curr .| case_bit
 
-        // --- Boundary: flag class change ---
         let bound: u8x16 = select(curr_flags .== prev_flags, v_zero, v_one)
 
-        // --- Store all three outputs ---
         store(flags, i, curr_flags)
         store(lower, i, lowered)
         store(boundaries, i, bound)
@@ -140,11 +286,9 @@ export func text_prepass_fused(text: *u8, flags: *mut u8, lower: *mut u8, bounda
         i = i + 16
     }
 
-    // Scalar tail
     while i < len {
         let b: u8 = text[i]
         let bp: u8 = text[i - 1]
-        // Classify curr
         let mut f: u8 = 0
         if b == 32 || b == 9 || b == 10 || b == 13 {
             f = 1
@@ -165,7 +309,6 @@ export func text_prepass_fused(text: *u8, flags: *mut u8, lower: *mut u8, bounda
                 }
             }
         }
-        // Classify prev
         let mut fp: u8 = 0
         if bp == 32 || bp == 9 || bp == 10 || bp == 13 {
             fp = 1
@@ -187,13 +330,11 @@ export func text_prepass_fused(text: *u8, flags: *mut u8, lower: *mut u8, bounda
             }
         }
         flags[i] = f
-        // Lowercase
         if b >= 65 && b <= 90 {
             lower[i] = b + 32
         } else {
             lower[i] = b
         }
-        // Boundary
         if f != fp {
             boundaries[i] = 1
         } else {

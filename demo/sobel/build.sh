@@ -9,3 +9,6 @@ echo "Compiling sobel.ea → sobel.so"
 (cd "$EA_ROOT" && cargo run --features=llvm --release -- "$SCRIPT_DIR/sobel.ea" --lib)
 mv "$EA_ROOT/sobel.so" "$SCRIPT_DIR/sobel.so"
 echo "Done: $SCRIPT_DIR/sobel.so"
+
+echo "Kernel analysis:"
+(cd "$EA_ROOT" && cargo run --features=llvm --release -- inspect "$SCRIPT_DIR/sobel.ea")

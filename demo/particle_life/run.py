@@ -142,10 +142,9 @@ def main():
     parser.add_argument("--particles", "-n", type=int, default=2000)
     args = parser.parse_args()
 
-    fused_so = build_kernel(Path("particle_life.ea"))
-    unfused_so = build_kernel(Path("particle_life_unfused.ea"))
-    fused_lib = load_fused(fused_so)
-    unfused_lib = load_unfused(unfused_so)
+    so_path = build_kernel(Path("particle_life.ea"))
+    fused_lib = load_fused(so_path)
+    unfused_lib = load_unfused(so_path)
 
     rng = np.random.default_rng()
     n = args.particles

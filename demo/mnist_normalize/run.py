@@ -240,9 +240,8 @@ def main():
     print(f"  Data source: {data_source}")
     print()
 
-    # Build kernels
-    so_path = build_ea_kernel("normalize")
-    so_fused_path = build_ea_kernel("preprocess_fused")
+    # Build kernel (single multi-kernel file)
+    so_path = build_ea_kernel("preprocess")
     print()
 
     # --- Part 1: Single Operation (normalize only) ---
@@ -289,7 +288,7 @@ def main():
 
     print("=== Correctness ===")
     result_np_full = preprocess_numpy(images)
-    result_ea_full = preprocess_ea_fused(images, so_fused_path)
+    result_ea_full = preprocess_ea_fused(images, so_path)
 
     diff_full = np.abs(result_ea_full - result_np_full)
     max_diff_full = diff_full.max()
@@ -311,7 +310,7 @@ def main():
     t_np_full, s_np_full = benchmark(preprocess_numpy, images)
     print(f"  NumPy (multi-pass) : {t_np_full:8.2f} ms  ±{s_np_full:.2f}")
 
-    t_ea_full, s_ea_full = benchmark(preprocess_ea_fused, images, so_fused_path)
+    t_ea_full, s_ea_full = benchmark(preprocess_ea_fused, images, so_path)
     print(f"  Ea fused (1 pass)  : {t_ea_full:8.2f} ms  ±{s_ea_full:.2f}")
 
     print()

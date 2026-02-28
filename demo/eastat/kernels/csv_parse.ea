@@ -8,6 +8,19 @@
 //   batch_atof                — ASCII-to-float parser
 //   field_length_stats        — string column length statistics
 
+const ASCII_QUOTE: i32 = 34
+const ASCII_LF: i32 = 10
+const ASCII_CR: i32 = 13
+const ASCII_SPACE: i32 = 32
+const ASCII_TAB: i32 = 9
+const ASCII_PLUS: i32 = 43
+const ASCII_MINUS: i32 = 45
+const ASCII_DOT: i32 = 46
+const ASCII_ZERO: i32 = 48
+const ASCII_NINE: i32 = 57
+
+static_assert(ASCII_NINE - ASCII_ZERO == 9, "digit range must be contiguous for atof")
+
 
 // Scan raw text bytes, extract delimiter and newline (LF) positions in one pass.
 // Handles CSV quoting: delimiters/newlines inside double-quoted fields are skipped.
@@ -312,7 +325,7 @@ export func batch_atof(
                     while pos < trim_end && parsing_int == 1 {
                         let b: u8 = data[pos]
                         if b >= 48 && b <= 57 {
-                            int_part = int_part * 10.0 + to_f32(to_i32(b) - 48)
+                            int_part = int_part * 10.0 + to_f32(to_i32(b) - ASCII_ZERO)
                             has_digits = 1
                             pos = pos + 1
                         } else {
@@ -330,7 +343,7 @@ export func batch_atof(
                             while pos < trim_end && parsing_frac == 1 {
                                 let b: u8 = data[pos]
                                 if b >= 48 && b <= 57 {
-                                    frac = frac + to_f32(to_i32(b) - 48) * frac_scale
+                                    frac = frac + to_f32(to_i32(b) - ASCII_ZERO) * frac_scale
                                     frac_scale = frac_scale * 0.1
                                     has_digits = 1
                                     pos = pos + 1

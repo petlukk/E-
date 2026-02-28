@@ -9,3 +9,6 @@ echo "Compiling stack.ea → stack.so"
 (cd "$EA_ROOT" && cargo run --features=llvm --release -- "$SCRIPT_DIR/stack.ea" --lib)
 mv "$EA_ROOT/stack.so" "$SCRIPT_DIR/stack.so"
 echo "Done: $SCRIPT_DIR/stack.so"
+
+echo "Kernel analysis:"
+(cd "$EA_ROOT" && cargo run --features=llvm --release -- inspect "$SCRIPT_DIR/stack.ea")

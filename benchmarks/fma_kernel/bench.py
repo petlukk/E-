@@ -85,6 +85,17 @@ def compile_ea_kernel():
 
     print("Ea kernel compiled successfully")
 
+    # Show instruction analysis
+    print("\n=== Kernel Analysis (ea inspect) ===")
+    inspect = subprocess.run([
+        "cargo", "run", "--features=llvm", "--",
+        "inspect", "kernel.ea"
+    ], capture_output=True, text=True, cwd=BENCH_DIR)
+    if inspect.returncode == 0:
+        print(inspect.stdout)
+    else:
+        print("  (ea inspect not available)")
+
 
 def compile_c_reference():
     """Compile C reference with GCC and maximum optimization"""

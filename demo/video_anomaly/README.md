@@ -8,7 +8,7 @@ Falls back to synthetic frames if OpenCV is not installed.
 - **NumPy** — idiomatic Python, array operations
 - **OpenCV** — industry-standard optimized C++
 - **Ea (3 kernels)** — three composable SIMD kernels (`anomaly.ea`)
-- **Ea fused (1 kernel)** — single fused pipeline (`anomaly_fused.ea`)
+- **Ea fused (1 kernel)** — single fused pipeline (`anomaly.ea`)
 
 All four produce identical anomaly counts.
 

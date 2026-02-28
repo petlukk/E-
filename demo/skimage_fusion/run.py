@@ -374,13 +374,11 @@ def main():
     h, w = img.shape
     print(f"Image: {w}x{h} ({w*h:,} pixels)\n")
 
-    so_unfused = build_ea_kernel("pipeline_unfused")
-    so_fused = build_ea_kernel("pipeline_fused")
-    so_dil = build_ea_kernel("dilation")
+    so_path = build_ea_kernel("pipeline")
 
-    lib_unfused = load_unfused_lib(so_unfused)
-    lib_fused = load_fused_lib(so_fused)
-    lib_dil = load_dilation_lib(so_dil)
+    lib_unfused = load_unfused_lib(so_path)
+    lib_fused = load_fused_lib(so_path)
+    lib_dil = load_dilation_lib(so_path)
 
     # --- Correctness ---
     print("=== Correctness ===")

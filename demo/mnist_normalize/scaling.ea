@@ -2,14 +2,18 @@
 // Same data, increasing number of fused operations.
 // NumPy does N passes. Ea does 1 pass. Measure the difference.
 
+const SIMD_WIDTH: i32 = 8
+
+static_assert(SIMD_WIDTH == 8, "scaling kernels require f32x8 vectors")
+
 // 1 op: scale
 export func fused_1(input: *restrict f32, out: *mut f32, len: i32, s1: f32) {
     let vs1: f32x8 = splat(s1)
     let mut i: i32 = 0
-    while i + 8 <= len {
+    while i + SIMD_WIDTH <= len {
         let v: f32x8 = load(input, i)
         store(out, i, v .* vs1)
-        i = i + 8
+        i = i + SIMD_WIDTH
     }
     while i < len {
         out[i] = input[i] * s1
@@ -22,12 +26,12 @@ export func fused_2(input: *restrict f32, out: *mut f32, len: i32, s1: f32, s2: 
     let vs1: f32x8 = splat(s1)
     let vs2: f32x8 = splat(s2)
     let mut i: i32 = 0
-    while i + 8 <= len {
+    while i + SIMD_WIDTH <= len {
         let v: f32x8 = load(input, i)
         let a: f32x8 = v .* vs1
         let b: f32x8 = a .- vs2
         store(out, i, b)
-        i = i + 8
+        i = i + SIMD_WIDTH
     }
     while i < len {
         out[i] = input[i] * s1 - s2
@@ -43,14 +47,14 @@ export func fused_4(input: *restrict f32, out: *mut f32, len: i32,
     let vs3: f32x8 = splat(s3)
     let vzero: f32x8 = splat(0.0)
     let mut i: i32 = 0
-    while i + 8 <= len {
+    while i + SIMD_WIDTH <= len {
         let v: f32x8 = load(input, i)
         let a: f32x8 = v .* vs1
         let b: f32x8 = a .- vs2
         let c: f32x8 = b .* vs3
         let d: f32x8 = select(c .< vzero, vzero, c)
         store(out, i, d)
-        i = i + 8
+        i = i + SIMD_WIDTH
     }
     while i < len {
         let r: f32 = (input[i] * s1 - s2) * s3
@@ -69,7 +73,7 @@ export func fused_6(input: *restrict f32, out: *mut f32, len: i32,
     let vzero: f32x8 = splat(0.0)
     let vone: f32x8 = splat(1.0)
     let mut i: i32 = 0
-    while i + 8 <= len {
+    while i + SIMD_WIDTH <= len {
         let v: f32x8 = load(input, i)
         let a: f32x8 = v .* vs1
         let b: f32x8 = a .- vs2
@@ -78,7 +82,7 @@ export func fused_6(input: *restrict f32, out: *mut f32, len: i32,
         let e: f32x8 = select(d .> vone, vone, d)
         let f: f32x8 = e .+ vs4
         store(out, i, f)
-        i = i + 8
+        i = i + SIMD_WIDTH
     }
     while i < len {
         let r: f32 = (input[i] * s1 - s2) * s3
@@ -101,7 +105,7 @@ export func fused_8(input: *restrict f32, out: *mut f32, len: i32,
     let vzero: f32x8 = splat(0.0)
     let vone: f32x8 = splat(1.0)
     let mut i: i32 = 0
-    while i + 8 <= len {
+    while i + SIMD_WIDTH <= len {
         let v: f32x8 = load(input, i)
         let a: f32x8 = v .* vs1
         let b: f32x8 = a .- vs2
@@ -112,7 +116,7 @@ export func fused_8(input: *restrict f32, out: *mut f32, len: i32,
         let g: f32x8 = f .* vs5
         let h: f32x8 = select(g .< vzero, vzero, g)
         store(out, i, h)
-        i = i + 8
+        i = i + SIMD_WIDTH
     }
     while i < len {
         let r: f32 = (input[i] * s1 - s2) * s3

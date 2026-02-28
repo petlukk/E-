@@ -361,16 +361,15 @@ def main():
     h, w = frame_a.shape
     print(f"Frames: {w}x{h} ({w*h:,} pixels)\n")
 
-    # Build Ea kernels
+    # Build Ea kernel (single multi-kernel file)
     so_path = build_ea_kernel("anomaly")
-    so_fused_path = build_ea_kernel("anomaly_fused")
 
     # --- Correctness ---
     print("=== Correctness ===")
     diff_np, mask_np, count_np = anomaly_numpy(frame_a, frame_b, THRESHOLD)
     diff_ea, mask_ea, count_ea = anomaly_ea(frame_a, frame_b, THRESHOLD,
                                             so_path)
-    count_fused = anomaly_ea_fused(frame_a, frame_b, THRESHOLD, so_fused_path)
+    count_fused = anomaly_ea_fused(frame_a, frame_b, THRESHOLD, so_path)
 
     max_diff_diff = np.abs(diff_ea - diff_np).max()
     max_diff_mask = np.abs(mask_ea - mask_np).max()
@@ -415,7 +414,7 @@ def main():
     print(f"  Ea foreach (3 kern): {t_fe:8.2f} ms  ±{s_fe:.2f}")
 
     t_fused, s_fused = benchmark(anomaly_ea_fused, frame_a, frame_b, THRESHOLD,
-                                 so_fused_path)
+                                 so_path)
     print(f"  Ea fused (1 kernel): {t_fused:8.2f} ms  ±{s_fused:.2f}")
 
     if has_opencv:

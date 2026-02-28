@@ -125,13 +125,13 @@ store(out, r2 + x, select(mag .> vthresh, vone, vzero))
 
 ## The unfused kernels
 
-Three separate kernels in `pipeline_unfused.ea`:
+Three separate kernels in `pipeline.ea`:
 
 - `gaussian_blur_3x3` — 3x3 stencil, writes blurred image to RAM
 - `sobel_magnitude` — 3x3 stencil, reads blur output, writes edges to RAM
 - `threshold_f32x8` — streaming, reads edges, writes binary mask to RAM
 
-Plus `dilate_3x3` in `dilation.ea` (shared by both paths).
+Plus `dilate_3x3`, also in `pipeline.ea`.
 
 ## What this demonstrates
 

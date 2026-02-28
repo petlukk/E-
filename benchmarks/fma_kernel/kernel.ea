@@ -2,6 +2,10 @@
 // Computes: result[i] = a[i] * b[i] + c[i]
 // Explicit SIMD widths: f32x4 (128-bit) and f32x8 (256-bit)
 
+const SSE_WIDTH: i32 = 4
+const AVX_WIDTH: i32 = 8
+
+static_assert(AVX_WIDTH % SSE_WIDTH == 0, "AVX width must be multiple of SSE")
 
 // ============================================================
 // f32x4 version (128-bit SIMD)
@@ -15,18 +19,16 @@ export func fma_kernel_f32x4(
     len: i32
 ) {
     let mut i: i32 = 0
-    
-    // Process 4 elements at a time
-    while i + 4 <= len {
+
+    while i + SSE_WIDTH <= len {
         let va: f32x4 = load(a, i)
         let vb: f32x4 = load(b, i)
         let vc: f32x4 = load(c, i)
-        
-        // Fused multiply-add
+
         let vresult: f32x4 = fma(va, vb, vc)
-        
+
         store(result, i, vresult)
-        i = i + 4
+        i = i + SSE_WIDTH
     }
     
     // Scalar remainder
@@ -50,17 +52,15 @@ export func fma_kernel_f32x8(
 ) {
     let mut i: i32 = 0
 
-    // Process 8 elements at a time
-    while i + 8 <= len {
+    while i + AVX_WIDTH <= len {
         let va: f32x8 = load(a, i)
         let vb: f32x8 = load(b, i)
         let vc: f32x8 = load(c, i)
 
-        // Fused multiply-add
         let vresult: f32x8 = fma(va, vb, vc)
 
         store(result, i, vresult)
-        i = i + 8
+        i = i + AVX_WIDTH
     }
 
     // Scalar remainder
