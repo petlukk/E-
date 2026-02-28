@@ -59,6 +59,34 @@ Multiple flags in one invocation: `ea bind kernel.ea --python --rust --cpp`
 
 Each generator reads `kernel.ea.json` (emitted by `--lib`) and produces idiomatic glue for the target ecosystem. Pointer args become slices/arrays/tensors. Length params are collapsed automatically. Types are checked at the boundary.
 
+## Quick Start
+
+```bash
+# Requirements: LLVM 18, Rust
+sudo apt install llvm-18-dev clang-18 libpolly-18-dev libzstd-dev
+
+# Build
+cargo build --features=llvm
+
+# Compile a kernel to shared library (+ JSON metadata)
+ea kernel.ea --lib        # -> kernel.so + kernel.ea.json
+
+# Generate bindings for your language
+ea bind kernel.ea --python              # -> kernel.py
+ea bind kernel.ea --rust                # -> kernel.rs
+ea bind kernel.ea --cpp                 # -> kernel.hpp
+ea bind kernel.ea --pytorch             # -> kernel_torch.py
+ea bind kernel.ea --cmake               # -> CMakeLists.txt + EaCompiler.cmake
+ea bind kernel.ea --python --rust --cpp # -> all three at once
+
+# Or compile to object file / executable
+ea kernel.ea              # -> kernel.o
+ea app.ea -o app          # -> app
+
+# Run tests (356 passing)
+cargo test --features=llvm
+```
+
 ## Design Principles
 
 - **Explicit over implicit** — SIMD width, loop stepping, and memory access are programmer-controlled
@@ -80,193 +108,41 @@ pipeline, quantized inference, structural scan. See [`COMPUTE.md`](COMPUTE.md) f
 the full model and [`COMPUTE_PATTERNS.md`](COMPUTE_PATTERNS.md) for measured analysis
 of when each pattern wins and when it doesn't.
 
-## v1.5 — Multi-kernel files, `static_assert`, `ea inspect`
+## Features
 
-**Multi-kernel files** — multiple structs, constants, helper functions, and exported kernels in a single `.ea` file. The full pipeline (parser, desugarer, type checker, codegen, metadata, header, all five binding generators) handles everything seamlessly. No special syntax needed — just write multiple exports.
+- **SIMD**: `f32x4`, `f32x8`, `f32x16`, `i32x4`, `i32x8`, `i8x16`, `i8x32`, `u8x16`, `i16x8`, `i16x16` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
+- **Vector bitwise**: `.&` (AND), `.|` (OR), `.^` (XOR) on integer vector types
+- **Reductions**: `reduce_add`, `reduce_max`, `reduce_min`
+- **Integer SIMD**: `maddubs_i16(u8x16, i8x16) -> i16x8` (SSSE3 pmaddubsw — 16 pairs/cycle, fast/wrapping); `maddubs_i32(u8x16, i8x16) -> i32x4` (pmaddubsw+pmaddwd — safe i32 accumulation)
+- **Widening/narrowing**: `widen_u8_f32x4`, `widen_i8_f32x4`, `narrow_f32x4_i8`
+- **Math**: `sqrt(x)`, `rsqrt(x)` for scalar and vector float types
+- **Type conversions**: `to_f32(x)`, `to_f64(x)`, `to_i32(x)`, `to_i64(x)`
+- **Unary negation**: `-x` on numeric types and vectors
+- **Structs**: C-compatible layout, pointer-to-struct, array-of-structs
+- **Pointers**: `*T`, `*mut T`, pointer indexing (`arr[i]`)
+- **Literals**: decimal (`255`), hex (`0xFF`), binary (`0b11110000`)
+- **Control flow**: `if`/`else if`/`else`, `while`, short-circuit `&&`/`||`
+- **Types**: `i8`, `u8`, `i16`, `u16`, `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`
+- **Kernels**: `export kernel name(...) over i in n step N { ... }` — declarative data-parallel loops with automatic range bound parameter
+- **Tail strategies**: `tail scalar { ... }`, `tail mask { ... }`, `tail pad` — handle SIMD remainder elements
+- **Output annotations**: `out name: *mut T [cap: expr]` — mark output params for auto-allocation in bindings
+- **Compile-time constants**: `const NAME: TYPE = LITERAL` — inlined at every use site
+- **Static assertions**: `static_assert(condition, "message")` — compile-time validation of constants
+- **Multi-kernel files**: multiple exports, shared structs, shared constants in one `.ea` file
+- **foreach**: `foreach (i in 0..n) { ... }` — element-wise loops (LLVM may auto-vectorize at O2+)
+- **unroll(N)**: loop unrolling hint for `while` and `foreach`
+- **prefetch**: `prefetch(ptr, offset)` — software prefetch for large-array streaming
+- **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
+- **C ABI**: every `export func` is callable from any language
+- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output), `ea inspect` (post-optimization analysis)
+- **`ea bind`**: auto-generated bindings for Python/NumPy, Rust, C++/std::span, PyTorch/autograd, CMake
+- **Masked memory**: `load_masked`, `store_masked` for safe SIMD tail handling
+- **Scatter/Gather**: `gather(ptr, indices)`, `scatter(ptr, indices, values)` (scatter requires `--avx512`)
+- **Restrict pointers**: `*restrict T`, `*mut restrict T` for alias-free optimization
+- **AVX-512**: `f32x16` via `--avx512` flag
+- **ARM/NEON**: Cross-compile to AArch64 with `--target=aarch64` (128-bit NEON SIMD: f32x4, i32x4, u8x16, i8x16, i16x8)
 
-```
-struct Vec2 { x: f32, y: f32 }
-const SCALE: f32 = 2.0
-
-export kernel add(a: *f32, b: *f32, out: *mut f32) over i in n step 8 { ... }
-export kernel mul(a: *f32, b: *f32, out: *mut f32) over i in n step 8 { ... }
-export func dot(a: *f32, b: *f32, n: i32) -> f32 { ... }
-```
-
-**`static_assert`** — compile-time assertions evaluated during type checking. No code emitted.
-
-```
-const STEP: i32 = 8
-static_assert(STEP % 4 == 0, "STEP must be SIMD-aligned")
-static_assert(STEP > 0 && STEP <= 16, "STEP must be in range 1..16")
-```
-
-Supports arithmetic (`+`, `-`, `*`, `/`, `%`), comparisons (`==`, `!=`, `<`, `>`, `<=`, `>=`), and boolean logic (`&&`, `||`, `!`) on compile-time constants. Non-constant references produce clear errors.
-
-**`ea inspect`** — analyze post-optimization instruction mix, loops, vector width, and register usage.
-
-```bash
-ea inspect kernel.ea                  # all exports, native target
-ea inspect kernel.ea --avx512         # with AVX-512
-ea inspect kernel.ea --target=skylake # specific CPU
-```
-
-```
-=== vscale (exported) ===
-  vector instructions:  12
-  scalar instructions:   4
-  vector width:         256-bit (f32x8)
-  loops:                2 (1 main, 1 tail)
-  vector registers:     ymm0, ymm1, ymm2, ymm3 (4 used)
-```
-
-## v1.4 — Output annotations
-
-Mark `*mut` pointer parameters as outputs with buffer sizing hints. Binding generators auto-allocate and return buffers, eliminating the allocate-call-unpack pattern from host code.
-
-```
-export func transform(data: *f32, out result: *mut f32 [cap: n], n: i32) {
-    let mut i: i32 = 0
-    while i < n {
-        result[i] = data[i] * 2.0
-        i = i + 1
-    }
-}
-```
-
-Three forms:
-
-| Syntax | Behavior |
-|--------|----------|
-| `out result: *mut f32 [cap: n]` | Auto-allocated by binding, returned to caller |
-| `out result: *mut f32 [cap: n, count: actual]` | Auto-allocated with separate actual-length path |
-| `out result: *mut f32` | Caller provides buffer (stays in signature) |
-
-Generated bindings handle allocation per target:
-
-| Target | Auto-allocation | Return type |
-|--------|----------------|-------------|
-| Python | `np.empty(n, dtype=np.float32)` | `np.ndarray` |
-| Rust | `vec![Default::default(); n]` | `Vec<f32>` |
-| C++ | `std::vector<float>(n)` | `std::vector<float>` |
-| PyTorch | `torch.empty(n, dtype=torch.float32)` | `Tensor` |
-
-Type checker validates: `out` requires `*mut` pointer type, cap identifiers must reference preceding input params or constants. Metadata JSON emits `direction`, `cap`, and `count` fields per arg. Backward-compatible: old JSON without these fields works unchanged.
-
-## v1.3 — Kernel construct, compile-time constants, tail strategies
-
-**`kernel`** — declarative loop construct for data-parallel operations:
-
-```
-export kernel double_it(data: *i32, out: *mut i32)
-    over i in n step 1
-{
-    out[i] = data[i] * 2
-}
-```
-
-Desugars to a function with a generated loop. The range bound (`n`) becomes the last parameter automatically. SIMD kernels use `step 4`/`step 8` for explicit vectorization.
-
-**`tail`** — handle remainder elements when array length isn't a multiple of step:
-
-```
-export kernel vscale(data: *f32, out: *mut f32, factor: f32)
-    over i in n step 8
-    tail scalar { out[i] = data[i] * factor }
-{
-    store(out, i, load(data, i) .* splat(factor))
-}
-```
-
-Three strategies: `tail scalar { ... }` (element-wise loop), `tail mask { ... }` (single masked iteration), `tail pad` (skip remainder).
-
-**`const`** — compile-time constants inlined at every use site:
-
-```
-const BLOCK_SIZE: i32 = 64
-const PI: f64 = 3.14159265358979
-```
-
-Supports integer and float types. Constants are validated at type-check time and referenced in kernel bodies, cap expressions, and function parameters.
-
-## v1.2 — `ea bind` multi-language bindings
-
-**`ea bind`** now generates native bindings for five targets from a single kernel:
-
-| Flag | Output | What you get |
-|------|--------|--------------|
-| `--python` | `kernel.py` | NumPy ctypes module with dtype checks, length collapsing |
-| `--rust` | `kernel.rs` | `extern "C"` FFI + safe wrappers with `&[T]`/`&mut [T]` |
-| `--pytorch` | `kernel_torch.py` | `torch.autograd.Function` per export, tensor contiguity/device checks |
-| `--cpp` | `kernel.hpp` | `namespace ea`, `extern "C"` declarations, `std::span` overloads |
-| `--cmake` | `CMakeLists.txt` + `EaCompiler.cmake` | Ready-to-build CMake project skeleton |
-
-All generators share a common JSON parser (`bind_common.rs`) and the same length-collapsing heuristic: parameters named `n`/`len`/`length`/`count`/`size`/`num` after a pointer arg are auto-filled from the slice/array/tensor size.
-
-## v1.1 — ARM/NEON support, integration examples, CI
-
-**ARM/AArch64 cross-compilation** — compile kernels for ARM targets with NEON (128-bit) SIMD:
-
-```bash
-ea kernel.ea --lib --target=aarch64   # produces kernel.so for ARM
-```
-
-The compiler validates vector widths at the type-check level: 128-bit types (`f32x4`, `i32x4`, `u8x16`, `i16x8`) work on ARM; 256-bit+ types (`f32x8`, `i32x8`) and x86-specific intrinsics (`maddubs`, `gather`, `scatter`) produce clear error messages with alternatives.
-
-**Integration examples** — manual integration patterns for embedding Eä kernels into host projects. Most are now superseded by `ea bind`; see [FFmpeg filter](integrations/ffmpeg-filter/) for the remaining manual example.
-
-**CI** — build and test on Linux x86_64, Linux ARM (aarch64), and Windows on every push.
-
-## v1.0 — error diagnostics, masked ops, scatter/gather
-
-**`foreach`** — auto-vectorized element-wise loops with phi-node codegen:
-
-```
-export func scale(data: *f32, out: *mut f32, n: i32, factor: f32) {
-    foreach (i in 0..n) {
-        out[i] = data[i] * factor
-    }
-}
-```
-
-`foreach` generates a scalar loop with phi nodes. LLVM may auto-vectorize at `-O2+`.
-For guaranteed SIMD width, use explicit `load`/`store` with `f32x4`/`f32x8`.
-
-**`unroll(N)`** — hint to unroll the following loop:
-
-```
-unroll(4) foreach (i in 0..n) { out[i] = data[i] * factor }
-unroll(4) while i < n { ... }
-```
-
-Relies on LLVM unrolling heuristics. Not a hard guarantee.
-
-**`prefetch(ptr, offset)`** — software prefetch hint for large-array streaming:
-
-```
-prefetch(data, i + 16)
-```
-
-**`--header`** — generate a C header alongside the object file:
-
-```bash
-ea kernel.ea --header    # produces kernel.o + kernel.h
-```
-
-```c
-// kernel.h (generated)
-#ifndef KERNEL_H
-#define KERNEL_H
-#include <stdint.h>
-void scale(const float* data, float* out, int32_t n, float factor);
-#endif
-```
-
-**`--emit-asm`** — emit assembly for inspection:
-
-```bash
-ea kernel.ea --emit-asm  # produces kernel.s
-```
+Tested on x86-64 (AVX2) and AArch64 (NEON). CI runs on both architectures plus Windows. See [`CHANGELOG.md`](CHANGELOG.md) for version history.
 
 ## Demos
 
@@ -372,156 +248,6 @@ Ea provides explicit pointer-based memory access similar to C.
 There are no bounds checks or runtime safety guarantees -- correctness and
 memory safety are the programmer's responsibility. This is intentional:
 kernel code needs predictable performance without hidden checks.
-
-## Features
-
-- **SIMD**: `f32x4`, `f32x8`, `f32x16`, `i32x4`, `i32x8`, `i8x16`, `i8x32`, `u8x16`, `i16x8`, `i16x16` with `load`, `store`, `splat`, `fma`, `shuffle`, `select`
-- **Vector bitwise**: `.&` (AND), `.|` (OR), `.^` (XOR) on integer vector types
-- **Reductions**: `reduce_add`, `reduce_max`, `reduce_min`
-- **Integer SIMD**: `maddubs_i16(u8x16, i8x16) -> i16x8` (SSSE3 pmaddubsw — 16 pairs/cycle, fast/wrapping); `maddubs_i32(u8x16, i8x16) -> i32x4` (pmaddubsw+pmaddwd — safe i32 accumulation)
-- **Widening/narrowing**: `widen_u8_f32x4`, `widen_i8_f32x4`, `narrow_f32x4_i8`
-- **Math**: `sqrt(x)`, `rsqrt(x)` for scalar and vector float types
-- **Type conversions**: `to_f32(x)`, `to_f64(x)`, `to_i32(x)`, `to_i64(x)`
-- **Unary negation**: `-x` on numeric types and vectors
-- **Structs**: C-compatible layout, pointer-to-struct, array-of-structs
-- **Pointers**: `*T`, `*mut T`, pointer indexing (`arr[i]`)
-- **Literals**: decimal (`255`), hex (`0xFF`), binary (`0b11110000`)
-- **Control flow**: `if`/`else if`/`else`, `while`, short-circuit `&&`/`||`
-- **Types**: `i8`, `u8`, `i16`, `u16`, `i32`, `i64`, `u32`, `u64`, `f32`, `f64`, `bool`
-- **Kernels**: `export kernel name(...) over i in n step N { ... }` — declarative data-parallel loops with automatic range bound parameter
-- **Tail strategies**: `tail scalar { ... }`, `tail mask { ... }`, `tail pad` — handle SIMD remainder elements
-- **Output annotations**: `out name: *mut T [cap: expr]` — mark output params for auto-allocation in bindings
-- **Compile-time constants**: `const NAME: TYPE = LITERAL` — inlined at every use site
-- **Static assertions**: `static_assert(condition, "message")` — compile-time validation of constants
-- **Multi-kernel files**: multiple exports, shared structs, shared constants in one `.ea` file
-- **foreach**: `foreach (i in 0..n) { ... }` — element-wise loops (LLVM may auto-vectorize at O2+)
-- **unroll(N)**: loop unrolling hint for `while` and `foreach`
-- **prefetch**: `prefetch(ptr, offset)` — software prefetch for large-array streaming
-- **Output**: `.o` object files, `.so`/`.dll` shared libraries, linked executables
-- **C ABI**: every `export func` is callable from any language
-- **Tooling**: `--header` (C header generation), `--emit-asm` (assembly output), `--emit-llvm` (IR output), `ea inspect` (post-optimization analysis)
-- **`ea bind`**: auto-generated bindings for Python/NumPy, Rust, C++/std::span, PyTorch/autograd, CMake
-- **Masked memory**: `load_masked`, `store_masked` for safe SIMD tail handling
-- **Scatter/Gather**: `gather(ptr, indices)`, `scatter(ptr, indices, values)` (scatter requires `--avx512`)
-- **Restrict pointers**: `*restrict T`, `*mut restrict T` for alias-free optimization
-- **AVX-512**: `f32x16` via `--avx512` flag
-- **ARM/NEON**: Cross-compile to AArch64 with `--target=aarch64` (128-bit NEON SIMD: f32x4, i32x4, u8x16, i8x16, i16x8)
-
-Tested on x86-64 (AVX2) and AArch64 (NEON). CI runs on both architectures plus Windows.
-
-## Quick Start
-
-```bash
-# Requirements: LLVM 18, Rust
-sudo apt install llvm-18-dev clang-18 libpolly-18-dev libzstd-dev
-
-# Build
-cargo build --features=llvm
-
-# Compile a kernel to shared library (+ JSON metadata)
-ea kernel.ea --lib        # -> kernel.so + kernel.ea.json
-
-# Generate bindings for your language
-ea bind kernel.ea --python              # -> kernel.py
-ea bind kernel.ea --rust                # -> kernel.rs
-ea bind kernel.ea --cpp                 # -> kernel.hpp
-ea bind kernel.ea --pytorch             # -> kernel_torch.py
-ea bind kernel.ea --cmake               # -> CMakeLists.txt + EaCompiler.cmake
-ea bind kernel.ea --python --rust --cpp # -> all three at once
-
-# Or compile to object file / executable
-ea kernel.ea              # -> kernel.o
-ea app.ea -o app          # -> app
-
-# Run tests (356 passing)
-cargo test --features=llvm
-```
-
-## Call from your language
-
-### Python (auto-generated)
-
-```bash
-ea kernel.ea --lib && ea bind kernel.ea --python
-```
-
-```python
-import numpy as np, kernel
-
-a = np.random.rand(1_000_000).astype(np.float32)
-b = np.random.rand(1_000_000).astype(np.float32)
-c = np.random.rand(1_000_000).astype(np.float32)
-
-# With output annotations: result auto-allocated and returned
-result = kernel.fma_kernel(a, b, c)  # len auto-filled, dtype checked, output returned
-
-# Without output annotations: caller provides buffer
-out = np.zeros(1_000_000, dtype=np.float32)
-kernel.fma_kernel(a, b, c, out)      # len auto-filled from array size
-```
-
-### PyTorch (auto-generated)
-
-```bash
-ea kernel.ea --lib && ea bind kernel.ea --pytorch
-```
-
-```python
-import torch, kernel_torch
-
-data = torch.randn(1_000_000)
-result = kernel_torch.scale(data, 2.0)  # autograd-compatible, CPU tensors
-```
-
-### Rust (auto-generated)
-
-```bash
-ea kernel.ea --lib && ea bind kernel.ea --rust
-```
-
-```rust
-// include the generated kernel.rs
-let mut data = vec![1.0f32; 1_000_000];
-kernel::scale(&mut data, 2.0);  // safe wrapper, length from slice
-```
-
-### C++ (auto-generated)
-
-```bash
-ea kernel.ea --lib && ea bind kernel.ea --cpp
-```
-
-```cpp
-#include "kernel.hpp"
-std::vector<float> data(1'000'000, 1.0f);
-ea::scale(data, 2.0f);  // std::span overload, length from .size()
-```
-
-### Manual ctypes (for custom control)
-
-```python
-import ctypes, numpy as np
-
-lib = ctypes.CDLL("./kernel.so")
-lib.fma_kernel.argtypes = [
-    ctypes.POINTER(ctypes.c_float),  # a
-    ctypes.POINTER(ctypes.c_float),  # b
-    ctypes.POINTER(ctypes.c_float),  # c
-    ctypes.POINTER(ctypes.c_float),  # out
-    ctypes.c_int32,                  # len
-]
-lib.fma_kernel.restype = None
-
-a = np.random.rand(1_000_000).astype(np.float32)
-out = np.zeros(1_000_000, dtype=np.float32)
-lib.fma_kernel(
-    a.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-    b.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-    c.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-    out.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),
-    len(a),
-)
-```
 
 ## Architecture
 
