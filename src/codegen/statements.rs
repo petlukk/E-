@@ -341,10 +341,10 @@ impl<'ctx> CodeGenerator<'ctx> {
             Stmt::Unroll { body, .. } => {
                 // span ignored via ..
                 // Compile the inner loop normally — LLVM at O2/O3 handles unrolling.
-                // The unroll(N) annotation is a semantic hint; metadata attachment
-                // requires inkwell API support for instruction-level metadata which
-                // is not yet available in inkwell 0.5. For now, the loop compiles
-                // correctly and LLVM's heuristics apply.
+                // The unroll(N) annotation is a semantic hint. Explicit metadata
+                // attachment (llvm.loop.unroll.count) requires instruction-level
+                // metadata API which inkwell 0.5 does not expose. The loop compiles
+                // correctly and LLVM's heuristics apply at O2+.
                 self.compile_stmt(body, function)
             }
             Stmt::Function { .. } => Err(CompileError::codegen_error(
