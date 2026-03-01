@@ -168,9 +168,7 @@ Each demo compiles an Ea kernel to `.so`, calls it from Python via ctypes,
 and benchmarks against NumPy and OpenCV. Run `python run.py` in any demo directory.
 
 **Methodology:** all speedup numbers are warm-cache medians (50 runs after 5 warmup).
-Where cold-cache numbers differ materially they are noted. See [`AUDIT_v0.3.0.md`](AUDIT_v0.3.0.md)
-for the full integrity audit: assembly verification, cold-cache analysis, honest loss
-accounting, i16 overflow constraint, and cross-machine results.
+Where cold-cache numbers differ materially they are noted.
 
 ### Kernel fusion
 
